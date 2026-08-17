@@ -1,0 +1,102 @@
+version: "2"
+
+# The Go API is vault-blind and handles account credentials, session tokens,
+# download tickets, and an append-only audit log. These linters are chosen for
+# the failure modes that matter in that setting: an unchecked error that hides a
+# failed write, a leaked resource that holds a connection open, and the gosec
+# rules that cover credential and randomness handling.
+#
+# Run with `npm run lint:go` from the repository root, or `npm run lint` here.
+
+linters:
+  default: none
+  enable:
+    - errcheck      # An ignored error in a token, audit, or migration path fails silently.
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - bodyclose     # A leaked response body holds a connection for the process lifetime.
+    - rowserrcheck  # sql.Rows.Err() is easy to forget and hides a partial result set.
+    - sqlclosecheck
+    - gosec
+    - errorlint     # %w, not %v, so callers can still match on the cause.
+    - nilerr        # `return nil` after checking a non-nil error is always a bug.
+
+  settings:
+    gosec:
+      excludes:
+        # Integer conversion overflow. Reported broadly on int64 to int
+        # conversions that are already bounded by a query limit or a constant.
+        - G115
+        # SHA-1. internal/admin/crypto.go implements TOTP, and RFC 6238 fixes
+        # HMAC-SHA1 as the algorithm every authenticator app expects. Changing
+        # it would break enrolment, not improve it. SHA-1 is not used anywhere
+        # else and must not be.
+        - G505
+        # Cookie attributes. Every http.Cookie in this codebase sets HttpOnly
+        # and SameSite as literals, but Secure comes from configuration
+        # (a.config.AdminSecure), which gosec cannot follow. The startup check
+        # that forces Secure on an HTTPS origin is in internal/httpapi.
+        - G124
+        # SQL string building. The admin filters compose a WHERE clause from a
+        # fixed set of literal fragments that each carry a `$N` placeholder;
+        # every user-supplied value travels in the args slice. gosec cannot see
+        # that separation. If you add a filter, add a literal fragment and an
+        # arg. Never interpolate a value.
+        - G201
+        - G202
+        # Unhandled error. Overlaps errcheck, which is configured above with the
+        # specific cleanup functions this codebase ignores on purpose.
+        - G104
+      config:
+        # Audit exports and artifact staging write to operator-chosen paths.
+        G302: "0600"
+        G306: "0600"
+
+    errcheck:
+      # A failed write to an already-failed response cannot be handled; the
+      # status is committed by then. Close on an error path is cleanup, where
+      # the original error is the one worth returning.
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (io.Closer).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Rows).Close
+        - (*database/sql.DB).Close
+
+    staticcheck:
+      # The golangci-lint default set, plus one removal. Keep the ST* entries:
+      # dropping them turns on naming and package-comment style checks that are
+      # not this project's conventions.
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        # De Morgan's law. The permission guards in admin_routes.go read as
+        # "not (may write or is read-only)", which mirrors how the roles are
+        # described. Expanding it makes them harder to check against the role
+        # table, not easier.
+        - -QF1001
+
+  exclusions:
+    generated: lax
+    presets:
+      - common-false-positives
+      - std-error-handling
+    rules:
+      # Tests use fictional credentials by policy (see CONTRIBUTING.md), so the
+      # hardcoded-credential and weak-randomness rules only produce noise there.
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt

@@ -1,0 +1,35 @@
+{
+    "name":  "@sesame/account",
+    "private":  true,
+    "license":  "AGPL-3.0-or-later",
+    "version":  "0.1.0",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "vite --config vite.config.ts",
+                    "build":  "vite build --config vite.config.ts \u0026\u0026 node scripts/build-security-headers.mjs",
+                    "preview":  "vite preview --config vite.config.ts",
+                    "lint":  "eslint .",
+                    "check":  "svelte-check --tsconfig ./tsconfig.json \u0026\u0026 tsc --noEmit",
+                    "design:tokens:check":  "node scripts/design-tokens-contract.mjs",
+                    "test":  "node ../tools/skip-with-message.mjs \"account portal browser\"",
+                    "release:check":  "npm run design:tokens:check \u0026\u0026 npm run lint \u0026\u0026 npm run check \u0026\u0026 npm run build",
+                    "ci":  "npm run design:tokens:check \u0026\u0026 npm run lint \u0026\u0026 npm run check"
+                },
+    "dependencies":  {
+                         "svelte":  "^5.56.4"
+                     },
+    "devDependencies":  {
+                            "@eslint/js":  "^10.0.1",
+                            "@sveltejs/vite-plugin-svelte":  "^7.1.2",
+                            "@tsconfig/svelte":  "^5.0.8",
+                            "@types/node":  "^24.13.2",
+                            "eslint":  "^10.8.0",
+                            "eslint-plugin-svelte":  "^3.22.0",
+                            "globals":  "^17.8.0",
+                            "svelte-check":  "^4.7.1",
+                            "svelte-eslint-parser":  "^1.8.0",
+                            "typescript":  "~6.0.2",
+                            "typescript-eslint":  "^8.65.0",
+                            "vite":  "^8.1.1"
+                        }
+}

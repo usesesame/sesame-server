@@ -1,0 +1,23 @@
+{
+  "name": "@sesame/api",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Sesame's vault-blind website account and metadata API",
+  "scripts": {
+    "setup": "node ./scripts/setup.mjs",
+    "dev": "node ./scripts/dev.mjs",
+    "build": "node ./scripts/run-go.mjs build ./...",
+    "vet": "node ./scripts/run-go.mjs vet ./...",
+    "test": "node ./scripts/run-go.mjs test ./...",
+    "test:race": "node ./scripts/run-go.mjs test -race ./...",
+    "openapi:generate": "node ./scripts/openapi.mjs generate",
+    "openapi:check": "node ./scripts/openapi.mjs check",
+    "vuln:check": "node ./scripts/run-go.mjs run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+    "lint": "npm run vet && node ./scripts/run-go.mjs run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...",
+    "ci": "npm run openapi:check && npm run vet && npm run build && npm run test",
+    "admin:bootstrap": "node ./scripts/admin-bootstrap.mjs",
+    "compose:up": "docker compose -f deploy/compose/compose.yaml up --build",
+    "compose:down": "docker compose -f deploy/compose/compose.yaml down",
+    "compose:config": "docker compose -f deploy/compose/compose.yaml config --quiet"
+  }
+}

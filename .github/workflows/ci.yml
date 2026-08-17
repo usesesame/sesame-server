@@ -1,0 +1,50 @@
+name: Server CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: sesame_test
+          POSTGRES_USER: sesame
+          POSTGRES_PASSWORD: sesame-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sesame -d sesame_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SESAME_TEST_DATABASE_URL: postgres://sesame:sesame-test-only@127.0.0.1:5432/sesame_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - run: npm ci
+
+      - run: npm run ci
+
+      - run: npm run test:race
+
+      - run: npm run vuln:check

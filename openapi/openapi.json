@@ -1,0 +1,4394 @@
+{
+  "openapi": "3.1.1",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "info": {
+    "title": "Sesame vault-blind service API",
+    "version": "0.1.0",
+    "description": "Generated endpoint, method, authentication, availability, and ownership contract. API.md remains the detailed closed request and response schema reference.",
+    "license": {
+      "name": "AGPL-3.0-or-later",
+      "identifier": "AGPL-3.0-or-later"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://api.example.invalid",
+      "description": "Deployment-owned API origin placeholder."
+    }
+  ],
+  "tags": [
+    {
+      "name": "health",
+      "description": "Process and database health."
+    },
+    {
+      "name": "public",
+      "description": "Vault-blind public metadata."
+    },
+    {
+      "name": "account",
+      "description": "Optional browser account and support portal."
+    },
+    {
+      "name": "desktop",
+      "description": "Linked desktop account connection."
+    },
+    {
+      "name": "release-pipeline",
+      "description": "Protected release pipeline ingestion."
+    },
+    {
+      "name": "admin",
+      "description": "Separate-origin administrator control plane."
+    },
+    {
+      "name": "sync-disabled",
+      "description": "Built-disabled ciphertext-only Sync preview."
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getHealthz",
+        "summary": "GET readyz",
+        "tags": [
+          "health"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "readyz",
+        "x-sesame-registration-pattern": "/healthz"
+      }
+    },
+    "/livez": {
+      "get": {
+        "operationId": "getLivez",
+        "summary": "GET livez",
+        "tags": [
+          "health"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "livez",
+        "x-sesame-registration-pattern": "/livez"
+      }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "getReadyz",
+        "summary": "GET readyz",
+        "tags": [
+          "health"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "readyz",
+        "x-sesame-registration-pattern": "/readyz"
+      }
+    },
+    "/v1/account/access": {
+      "get": {
+        "operationId": "getV1AccountAccess",
+        "summary": "GET account access",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountAccess",
+        "x-sesame-registration-pattern": "/v1/account/access"
+      }
+    },
+    "/v1/account/activity": {
+      "get": {
+        "operationId": "getV1AccountActivity",
+        "summary": "GET account activity",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountActivity",
+        "x-sesame-registration-pattern": "/v1/account/activity"
+      }
+    },
+    "/v1/account/bootstrap": {
+      "get": {
+        "operationId": "getV1AccountBootstrap",
+        "summary": "GET account bootstrap",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountBootstrap",
+        "x-sesame-registration-pattern": "/v1/account/bootstrap"
+      }
+    },
+    "/v1/account/delete": {
+      "post": {
+        "operationId": "postV1AccountDelete",
+        "summary": "POST delete account",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "deleteAccount",
+        "x-sesame-registration-pattern": "/v1/account/delete"
+      }
+    },
+    "/v1/account/desktop-link": {
+      "get": {
+        "operationId": "getV1AccountDesktopLink",
+        "summary": "GET create desktop link",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "createDesktopLink",
+        "x-sesame-registration-pattern": "/v1/account/desktop-link"
+      },
+      "post": {
+        "operationId": "postV1AccountDesktopLink",
+        "summary": "POST create desktop link",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "createDesktopLink",
+        "x-sesame-registration-pattern": "/v1/account/desktop-link"
+      },
+      "delete": {
+        "operationId": "deleteV1AccountDesktopLink",
+        "summary": "DELETE create desktop link",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "createDesktopLink",
+        "x-sesame-registration-pattern": "/v1/account/desktop-link"
+      }
+    },
+    "/v1/account/devices": {
+      "get": {
+        "operationId": "getV1AccountDevices",
+        "summary": "GET account devices",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountDevices",
+        "x-sesame-registration-pattern": "/v1/account/devices"
+      }
+    },
+    "/v1/account/devices/{deviceId}": {
+      "delete": {
+        "operationId": "deleteV1AccountDevicesDeviceId",
+        "summary": "DELETE account device",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountDevice",
+        "x-sesame-registration-pattern": "/v1/account/devices/"
+      },
+      "patch": {
+        "operationId": "patchV1AccountDevicesDeviceId",
+        "summary": "PATCH account device",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountDevice",
+        "x-sesame-registration-pattern": "/v1/account/devices/"
+      }
+    },
+    "/v1/account/download-tickets": {
+      "post": {
+        "operationId": "postV1AccountDownloadTickets",
+        "summary": "POST account download tickets",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountDownloadTickets",
+        "x-sesame-registration-pattern": "/v1/account/download-tickets"
+      }
+    },
+    "/v1/account/downloads": {
+      "get": {
+        "operationId": "getV1AccountDownloads",
+        "summary": "GET account downloads",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountDownloads",
+        "x-sesame-registration-pattern": "/v1/account/downloads"
+      }
+    },
+    "/v1/account/email/change/confirm": {
+      "post": {
+        "operationId": "postV1AccountEmailChangeConfirm",
+        "summary": "POST confirm email change",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "confirmEmailChange",
+        "x-sesame-registration-pattern": "/v1/account/email/change/confirm"
+      }
+    },
+    "/v1/account/email/change/request": {
+      "post": {
+        "operationId": "postV1AccountEmailChangeRequest",
+        "summary": "POST request email change",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "requestEmailChange",
+        "x-sesame-registration-pattern": "/v1/account/email/change/request"
+      }
+    },
+    "/v1/account/notifications": {
+      "get": {
+        "operationId": "getV1AccountNotifications",
+        "summary": "GET account notification preferences",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountNotificationPreferences",
+        "x-sesame-registration-pattern": "/v1/account/notifications"
+      },
+      "patch": {
+        "operationId": "patchV1AccountNotifications",
+        "summary": "PATCH account notification preferences",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountNotificationPreferences",
+        "x-sesame-registration-pattern": "/v1/account/notifications"
+      }
+    },
+    "/v1/account/passkey/register/begin": {
+      "post": {
+        "operationId": "postV1AccountPasskeyRegisterBegin",
+        "summary": "POST passkey register begin",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "configured-webauthn-only",
+        "x-sesame-handler": "passkeyRegisterBegin",
+        "x-sesame-registration-pattern": "/v1/account/passkey/register/begin"
+      }
+    },
+    "/v1/account/passkey/register/finish": {
+      "post": {
+        "operationId": "postV1AccountPasskeyRegisterFinish",
+        "summary": "POST passkey register finish",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "configured-webauthn-only",
+        "x-sesame-handler": "passkeyRegisterFinish",
+        "x-sesame-registration-pattern": "/v1/account/passkey/register/finish"
+      }
+    },
+    "/v1/account/passkeys": {
+      "get": {
+        "operationId": "getV1AccountPasskeys",
+        "summary": "GET passkeys",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "passkeys",
+        "x-sesame-registration-pattern": "/v1/account/passkeys"
+      },
+      "delete": {
+        "operationId": "deleteV1AccountPasskeys",
+        "summary": "DELETE passkeys",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "passkeys",
+        "x-sesame-registration-pattern": "/v1/account/passkeys"
+      }
+    },
+    "/v1/account/password": {
+      "post": {
+        "operationId": "postV1AccountPassword",
+        "summary": "POST change password",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "changePassword",
+        "x-sesame-registration-pattern": "/v1/account/password"
+      }
+    },
+    "/v1/account/reauthenticate": {
+      "post": {
+        "operationId": "postV1AccountReauthenticate",
+        "summary": "POST reauthenticate",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "reauthenticate",
+        "x-sesame-registration-pattern": "/v1/account/reauthenticate"
+      }
+    },
+    "/v1/account/sessions": {
+      "get": {
+        "operationId": "getV1AccountSessions",
+        "summary": "GET account sessions",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSessions",
+        "x-sesame-registration-pattern": "/v1/account/sessions"
+      },
+      "delete": {
+        "operationId": "deleteV1AccountSessions",
+        "summary": "DELETE account sessions",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSessions",
+        "x-sesame-registration-pattern": "/v1/account/sessions"
+      }
+    },
+    "/v1/account/sessions/{sessionId}": {
+      "delete": {
+        "operationId": "deleteV1AccountSessionsSessionId",
+        "summary": "DELETE account session",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque session id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSession",
+        "x-sesame-registration-pattern": "/v1/account/sessions/"
+      }
+    },
+    "/v1/account/support": {
+      "get": {
+        "operationId": "getV1AccountSupport",
+        "summary": "GET account support tickets",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSupportTickets",
+        "x-sesame-registration-pattern": "/v1/account/support"
+      }
+    },
+    "/v1/account/support/{ticketId}": {
+      "get": {
+        "operationId": "getV1AccountSupportTicketId",
+        "summary": "GET account support ticket",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSupportTicket",
+        "x-sesame-registration-pattern": "/v1/account/support/"
+      }
+    },
+    "/v1/account/support/{ticketId}/close": {
+      "post": {
+        "operationId": "postV1AccountSupportTicketIdClose",
+        "summary": "POST account support ticket",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSupportTicket",
+        "x-sesame-registration-pattern": "/v1/account/support/"
+      }
+    },
+    "/v1/account/support/{ticketId}/reopen": {
+      "post": {
+        "operationId": "postV1AccountSupportTicketIdReopen",
+        "summary": "POST account support ticket",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSupportTicket",
+        "x-sesame-registration-pattern": "/v1/account/support/"
+      }
+    },
+    "/v1/account/support/{ticketId}/reply": {
+      "post": {
+        "operationId": "postV1AccountSupportTicketIdReply",
+        "summary": "POST account support ticket",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSupportTicket",
+        "x-sesame-registration-pattern": "/v1/account/support/"
+      }
+    },
+    "/v1/admin/admins": {
+      "get": {
+        "operationId": "getV1AdminAdmins",
+        "summary": "GET admin accounts",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminAccounts",
+        "x-sesame-registration-pattern": "/v1/admin/admins"
+      },
+      "post": {
+        "operationId": "postV1AdminAdmins",
+        "summary": "POST admin accounts",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminAccounts",
+        "x-sesame-registration-pattern": "/v1/admin/admins"
+      }
+    },
+    "/v1/admin/admins/{adminId}": {
+      "delete": {
+        "operationId": "deleteV1AdminAdminsAdminId",
+        "summary": "DELETE admin account route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "adminId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque admin id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminAccountRoute",
+        "x-sesame-registration-pattern": "/v1/admin/admins/"
+      },
+      "patch": {
+        "operationId": "patchV1AdminAdminsAdminId",
+        "summary": "PATCH admin account route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "adminId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque admin id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminAccountRoute",
+        "x-sesame-registration-pattern": "/v1/admin/admins/"
+      }
+    },
+    "/v1/admin/audit": {
+      "get": {
+        "operationId": "getV1AdminAudit",
+        "summary": "GET admin audit",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminAudit",
+        "x-sesame-registration-pattern": "/v1/admin/audit"
+      }
+    },
+    "/v1/admin/audit/export": {
+      "get": {
+        "operationId": "getV1AdminAuditExport",
+        "summary": "GET admin audit export",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminAuditExport",
+        "x-sesame-registration-pattern": "/v1/admin/audit/export"
+      }
+    },
+    "/v1/admin/audit/me": {
+      "get": {
+        "operationId": "getV1AdminAuditMe",
+        "summary": "GET admin audit me",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminAuditMe",
+        "x-sesame-registration-pattern": "/v1/admin/audit/me"
+      }
+    },
+    "/v1/admin/auth/csrf": {
+      "get": {
+        "operationId": "getV1AdminAuthCsrf",
+        "summary": "GET admin csrf",
+        "tags": [
+          "admin"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminCSRF",
+        "x-sesame-registration-pattern": "/v1/admin/auth/csrf"
+      }
+    },
+    "/v1/admin/auth/login": {
+      "post": {
+        "operationId": "postV1AdminAuthLogin",
+        "summary": "POST admin login",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminLogin",
+        "x-sesame-registration-pattern": "/v1/admin/auth/login"
+      }
+    },
+    "/v1/admin/auth/logout": {
+      "post": {
+        "operationId": "postV1AdminAuthLogout",
+        "summary": "POST admin logout",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminLogout",
+        "x-sesame-registration-pattern": "/v1/admin/auth/logout"
+      }
+    },
+    "/v1/admin/auth/me": {
+      "get": {
+        "operationId": "getV1AdminAuthMe",
+        "summary": "GET admin me",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminMe",
+        "x-sesame-registration-pattern": "/v1/admin/auth/me"
+      }
+    },
+    "/v1/admin/auth/setup/begin": {
+      "post": {
+        "operationId": "postV1AdminAuthSetupBegin",
+        "summary": "POST admin setup begin",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSetupBegin",
+        "x-sesame-registration-pattern": "/v1/admin/auth/setup/begin"
+      }
+    },
+    "/v1/admin/auth/setup/complete": {
+      "post": {
+        "operationId": "postV1AdminAuthSetupComplete",
+        "summary": "POST admin setup complete",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSetupComplete",
+        "x-sesame-registration-pattern": "/v1/admin/auth/setup/complete"
+      }
+    },
+    "/v1/admin/flags": {
+      "get": {
+        "operationId": "getV1AdminFlags",
+        "summary": "GET admin flags",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminFlags",
+        "x-sesame-registration-pattern": "/v1/admin/flags"
+      }
+    },
+    "/v1/admin/flags/{flag}": {
+      "patch": {
+        "operationId": "patchV1AdminFlagsFlag",
+        "summary": "PATCH admin flag",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "flag",
+            "in": "path",
+            "required": true,
+            "description": "Opaque flag.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminFlag",
+        "x-sesame-registration-pattern": "/v1/admin/flags/"
+      }
+    },
+    "/v1/admin/overview": {
+      "get": {
+        "operationId": "getV1AdminOverview",
+        "summary": "GET admin overview",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminOverview",
+        "x-sesame-registration-pattern": "/v1/admin/overview"
+      }
+    },
+    "/v1/admin/plans": {
+      "get": {
+        "operationId": "getV1AdminPlans",
+        "summary": "GET admin plans",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminPlans",
+        "x-sesame-registration-pattern": "/v1/admin/plans"
+      }
+    },
+    "/v1/admin/plans/{planId}": {
+      "patch": {
+        "operationId": "patchV1AdminPlansPlanId",
+        "summary": "PATCH admin plan",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "planId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque plan id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminPlan",
+        "x-sesame-registration-pattern": "/v1/admin/plans/"
+      }
+    },
+    "/v1/admin/releases": {
+      "get": {
+        "operationId": "getV1AdminReleases",
+        "summary": "GET admin releases",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminReleases",
+        "x-sesame-registration-pattern": "/v1/admin/releases"
+      }
+    },
+    "/v1/admin/releases/{platform}": {
+      "put": {
+        "operationId": "putV1AdminReleasesPlatform",
+        "summary": "PUT admin release",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "path",
+            "required": true,
+            "description": "Opaque platform.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminRelease",
+        "x-sesame-registration-pattern": "/v1/admin/releases/"
+      }
+    },
+    "/v1/admin/support": {
+      "get": {
+        "operationId": "getV1AdminSupport",
+        "summary": "GET admin support tickets",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportTickets",
+        "x-sesame-registration-pattern": "/v1/admin/support"
+      }
+    },
+    "/v1/admin/support/{ticketId}": {
+      "get": {
+        "operationId": "getV1AdminSupportTicketId",
+        "summary": "GET admin support ticket route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportTicketRoute",
+        "x-sesame-registration-pattern": "/v1/admin/support/"
+      }
+    },
+    "/v1/admin/support/{ticketId}/assign": {
+      "post": {
+        "operationId": "postV1AdminSupportTicketIdAssign",
+        "summary": "POST admin support ticket route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportTicketRoute",
+        "x-sesame-registration-pattern": "/v1/admin/support/"
+      }
+    },
+    "/v1/admin/support/{ticketId}/notes": {
+      "post": {
+        "operationId": "postV1AdminSupportTicketIdNotes",
+        "summary": "POST admin support ticket route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportTicketRoute",
+        "x-sesame-registration-pattern": "/v1/admin/support/"
+      }
+    },
+    "/v1/admin/support/{ticketId}/reply": {
+      "post": {
+        "operationId": "postV1AdminSupportTicketIdReply",
+        "summary": "POST admin support ticket route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportTicketRoute",
+        "x-sesame-registration-pattern": "/v1/admin/support/"
+      }
+    },
+    "/v1/admin/support/{ticketId}/status": {
+      "post": {
+        "operationId": "postV1AdminSupportTicketIdStatus",
+        "summary": "POST admin support ticket route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportTicketRoute",
+        "x-sesame-registration-pattern": "/v1/admin/support/"
+      }
+    },
+    "/v1/admin/support/assignees": {
+      "get": {
+        "operationId": "getV1AdminSupportAssignees",
+        "summary": "GET admin support assignees",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportAssignees",
+        "x-sesame-registration-pattern": "/v1/admin/support/assignees"
+      }
+    },
+    "/v1/admin/system/config": {
+      "get": {
+        "operationId": "getV1AdminSystemConfig",
+        "summary": "GET admin system config",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSystemConfig",
+        "x-sesame-registration-pattern": "/v1/admin/system/config"
+      }
+    },
+    "/v1/admin/system/health": {
+      "get": {
+        "operationId": "getV1AdminSystemHealth",
+        "summary": "GET admin system health",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSystemHealth",
+        "x-sesame-registration-pattern": "/v1/admin/system/health"
+      }
+    },
+    "/v1/admin/system/rate-limits": {
+      "get": {
+        "operationId": "getV1AdminSystemRateLimits",
+        "summary": "GET admin rate limits",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminRateLimits",
+        "x-sesame-registration-pattern": "/v1/admin/system/rate-limits"
+      }
+    },
+    "/v1/admin/users": {
+      "get": {
+        "operationId": "getV1AdminUsers",
+        "summary": "GET admin users",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUsers",
+        "x-sesame-registration-pattern": "/v1/admin/users"
+      }
+    },
+    "/v1/admin/users/{accountId}": {
+      "get": {
+        "operationId": "getV1AdminUsersAccountId",
+        "summary": "GET admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      },
+      "delete": {
+        "operationId": "deleteV1AdminUsersAccountId",
+        "summary": "DELETE admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      }
+    },
+    "/v1/admin/users/{accountId}/beta": {
+      "post": {
+        "operationId": "postV1AdminUsersAccountIdBeta",
+        "summary": "POST admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      },
+      "delete": {
+        "operationId": "deleteV1AdminUsersAccountIdBeta",
+        "summary": "DELETE admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      }
+    },
+    "/v1/admin/users/{accountId}/devices/{deviceId}": {
+      "delete": {
+        "operationId": "deleteV1AdminUsersAccountIdDevicesDeviceId",
+        "summary": "DELETE admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      }
+    },
+    "/v1/admin/users/{accountId}/owner-release": {
+      "post": {
+        "operationId": "postV1AdminUsersAccountIdOwnerRelease",
+        "summary": "POST admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      },
+      "delete": {
+        "operationId": "deleteV1AdminUsersAccountIdOwnerRelease",
+        "summary": "DELETE admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      }
+    },
+    "/v1/admin/users/{accountId}/sessions": {
+      "delete": {
+        "operationId": "deleteV1AdminUsersAccountIdSessions",
+        "summary": "DELETE admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      }
+    },
+    "/v1/admin/users/{accountId}/suspend": {
+      "post": {
+        "operationId": "postV1AdminUsersAccountIdSuspend",
+        "summary": "POST admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      },
+      "delete": {
+        "operationId": "deleteV1AdminUsersAccountIdSuspend",
+        "summary": "DELETE admin user route",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "accountId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque account id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminUserRoute",
+        "x-sesame-registration-pattern": "/v1/admin/users/"
+      }
+    },
+    "/v1/auth/csrf": {
+      "get": {
+        "operationId": "getV1AuthCsrf",
+        "summary": "GET csrf",
+        "tags": [
+          "account"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "csrf",
+        "x-sesame-registration-pattern": "/v1/auth/csrf"
+      }
+    },
+    "/v1/auth/email/verification/confirm": {
+      "post": {
+        "operationId": "postV1AuthEmailVerificationConfirm",
+        "summary": "POST confirm email verification",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "confirmEmailVerification",
+        "x-sesame-registration-pattern": "/v1/auth/email/verification/confirm"
+      }
+    },
+    "/v1/auth/email/verification/request": {
+      "post": {
+        "operationId": "postV1AuthEmailVerificationRequest",
+        "summary": "POST request email verification",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "requestEmailVerification",
+        "x-sesame-registration-pattern": "/v1/auth/email/verification/request"
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "postV1AuthLogin",
+        "summary": "POST login",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "login",
+        "x-sesame-registration-pattern": "/v1/auth/login"
+      }
+    },
+    "/v1/auth/logout": {
+      "post": {
+        "operationId": "postV1AuthLogout",
+        "summary": "POST logout",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "logout",
+        "x-sesame-registration-pattern": "/v1/auth/logout"
+      }
+    },
+    "/v1/auth/me": {
+      "get": {
+        "operationId": "getV1AuthMe",
+        "summary": "GET me",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "me",
+        "x-sesame-registration-pattern": "/v1/auth/me"
+      }
+    },
+    "/v1/auth/passkey/login/begin": {
+      "post": {
+        "operationId": "postV1AuthPasskeyLoginBegin",
+        "summary": "POST passkey login begin",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "configured-webauthn-only",
+        "x-sesame-handler": "passkeyLoginBegin",
+        "x-sesame-registration-pattern": "/v1/auth/passkey/login/begin"
+      }
+    },
+    "/v1/auth/passkey/login/finish": {
+      "post": {
+        "operationId": "postV1AuthPasskeyLoginFinish",
+        "summary": "POST passkey login finish",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "configured-webauthn-only",
+        "x-sesame-handler": "passkeyLoginFinish",
+        "x-sesame-registration-pattern": "/v1/auth/passkey/login/finish"
+      }
+    },
+    "/v1/auth/password/recovery/confirm": {
+      "post": {
+        "operationId": "postV1AuthPasswordRecoveryConfirm",
+        "summary": "POST confirm password recovery",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "confirmPasswordRecovery",
+        "x-sesame-registration-pattern": "/v1/auth/password/recovery/confirm"
+      }
+    },
+    "/v1/auth/password/recovery/request": {
+      "post": {
+        "operationId": "postV1AuthPasswordRecoveryRequest",
+        "summary": "POST request password recovery",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "requestPasswordRecovery",
+        "x-sesame-registration-pattern": "/v1/auth/password/recovery/request"
+      }
+    },
+    "/v1/auth/register": {
+      "post": {
+        "operationId": "postV1AuthRegister",
+        "summary": "POST register",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "register",
+        "x-sesame-registration-pattern": "/v1/auth/register"
+      }
+    },
+    "/v1/auth/registration": {
+      "get": {
+        "operationId": "getV1AuthRegistration",
+        "summary": "GET registration status",
+        "tags": [
+          "account"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "registrationStatus",
+        "x-sesame-registration-pattern": "/v1/auth/registration"
+      }
+    },
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "getV1Capabilities",
+        "summary": "GET capabilities",
+        "tags": [
+          "public"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "capabilities",
+        "x-sesame-registration-pattern": "/v1/capabilities"
+      }
+    },
+    "/v1/desktop/config": {
+      "get": {
+        "operationId": "getV1DesktopConfig",
+        "summary": "GET desktop config",
+        "tags": [
+          "desktop"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "desktopConfig",
+        "x-sesame-registration-pattern": "/v1/desktop/config"
+      }
+    },
+    "/v1/desktop/connection": {
+      "delete": {
+        "operationId": "deleteV1DesktopConnection",
+        "summary": "DELETE revoke desktop connection",
+        "tags": [
+          "desktop"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "revokeDesktopConnection",
+        "x-sesame-registration-pattern": "/v1/desktop/connection"
+      }
+    },
+    "/v1/desktop/heartbeat": {
+      "post": {
+        "operationId": "postV1DesktopHeartbeat",
+        "summary": "POST desktop heartbeat",
+        "tags": [
+          "desktop"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "desktopHeartbeat",
+        "x-sesame-registration-pattern": "/v1/desktop/heartbeat"
+      }
+    },
+    "/v1/desktop/link": {
+      "post": {
+        "operationId": "postV1DesktopLink",
+        "summary": "POST link desktop",
+        "tags": [
+          "desktop"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "single-use-link-code",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "linkDesktop",
+        "x-sesame-registration-pattern": "/v1/desktop/link"
+      }
+    },
+    "/v1/desktop/status": {
+      "get": {
+        "operationId": "getV1DesktopStatus",
+        "summary": "GET desktop status",
+        "tags": [
+          "desktop"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "desktopStatus",
+        "x-sesame-registration-pattern": "/v1/desktop/status"
+      }
+    },
+    "/v1/desktop/update-tickets/{ticket}": {
+      "get": {
+        "operationId": "getV1DesktopUpdateTicketsTicket",
+        "summary": "GET redeem desktop update ticket",
+        "tags": [
+          "desktop"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticket",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket value. Never log or persist it in plaintext.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "redeemDesktopUpdateTicket",
+        "x-sesame-registration-pattern": "/v1/desktop/update-tickets/"
+      }
+    },
+    "/v1/desktop/updates": {
+      "get": {
+        "operationId": "getV1DesktopUpdates",
+        "summary": "GET desktop update",
+        "tags": [
+          "desktop"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "desktopUpdate",
+        "x-sesame-registration-pattern": "/v1/desktop/updates"
+      }
+    },
+    "/v1/downloads/{ticket}": {
+      "get": {
+        "operationId": "getV1DownloadsTicket",
+        "summary": "GET redeem download ticket",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticket",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket value. Never log or persist it in plaintext.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "redeemDownloadTicket",
+        "x-sesame-registration-pattern": "/v1/downloads/"
+      }
+    },
+    "/v1/plans": {
+      "get": {
+        "operationId": "getV1Plans",
+        "summary": "GET plans",
+        "tags": [
+          "public"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "plans",
+        "x-sesame-registration-pattern": "/v1/plans"
+      }
+    },
+    "/v1/product/status": {
+      "get": {
+        "operationId": "getV1ProductStatus",
+        "summary": "GET product status",
+        "tags": [
+          "public"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "productStatus",
+        "x-sesame-registration-pattern": "/v1/product/status"
+      }
+    },
+    "/v1/release-candidates": {
+      "post": {
+        "operationId": "postV1ReleaseCandidates",
+        "summary": "POST release candidate ingest",
+        "tags": [
+          "release-pipeline"
+        ],
+        "security": [
+          {
+            "releasePipelineToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "release-pipeline-token",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "releaseCandidateIngest",
+        "x-sesame-registration-pattern": "/v1/release-candidates"
+      }
+    },
+    "/v1/releases/latest": {
+      "get": {
+        "operationId": "getV1ReleasesLatest",
+        "summary": "GET latest release",
+        "tags": [
+          "public"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "latestRelease",
+        "x-sesame-registration-pattern": "/v1/releases/latest"
+      }
+    },
+    "/v1/security/boundaries": {
+      "get": {
+        "operationId": "getV1SecurityBoundaries",
+        "summary": "GET boundaries",
+        "tags": [
+          "public"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "boundaries",
+        "x-sesame-registration-pattern": "/v1/security/boundaries"
+      }
+    },
+    "/v1/support": {
+      "get": {
+        "operationId": "getV1Support",
+        "summary": "GET support",
+        "tags": [
+          "public"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "support",
+        "x-sesame-registration-pattern": "/v1/support"
+      }
+    },
+    "/v1/support/requests": {
+      "post": {
+        "operationId": "postV1SupportRequests",
+        "summary": "POST create support request",
+        "tags": [
+          "public"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "createSupportRequest",
+        "x-sesame-registration-pattern": "/v1/support/requests"
+      }
+    },
+    "/v1/sync/activate": {
+      "post": {
+        "operationId": "postV1SyncActivate",
+        "summary": "POST sync activate device",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncActivateDevice",
+        "x-sesame-registration-pattern": "/v1/sync/activate"
+      }
+    },
+    "/v1/sync/devices": {
+      "get": {
+        "operationId": "getV1SyncDevices",
+        "summary": "GET sync devices",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncDevices",
+        "x-sesame-registration-pattern": "/v1/sync/devices"
+      }
+    },
+    "/v1/sync/devices/{deviceId}": {
+      "delete": {
+        "operationId": "deleteV1SyncDevicesDeviceId",
+        "summary": "DELETE sync device route",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncDeviceRoute",
+        "x-sesame-registration-pattern": "/v1/sync/devices/"
+      }
+    },
+    "/v1/sync/devices/{deviceId}/approve": {
+      "post": {
+        "operationId": "postV1SyncDevicesDeviceIdApprove",
+        "summary": "POST sync device route",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncDeviceRoute",
+        "x-sesame-registration-pattern": "/v1/sync/devices/"
+      }
+    },
+    "/v1/sync/devices/{deviceId}/deny": {
+      "post": {
+        "operationId": "postV1SyncDevicesDeviceIdDeny",
+        "summary": "POST sync device route",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncDeviceRoute",
+        "x-sesame-registration-pattern": "/v1/sync/devices/"
+      }
+    },
+    "/v1/sync/devices/{deviceId}/rekey": {
+      "post": {
+        "operationId": "postV1SyncDevicesDeviceIdRekey",
+        "summary": "POST sync device route",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncDeviceRoute",
+        "x-sesame-registration-pattern": "/v1/sync/devices/"
+      }
+    },
+    "/v1/sync/enroll/begin": {
+      "post": {
+        "operationId": "postV1SyncEnrollBegin",
+        "summary": "POST sync enroll begin",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncEnrollBegin",
+        "x-sesame-registration-pattern": "/v1/sync/enroll/begin"
+      }
+    },
+    "/v1/sync/enroll/finish": {
+      "post": {
+        "operationId": "postV1SyncEnrollFinish",
+        "summary": "POST sync enroll finish",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncEnrollFinish",
+        "x-sesame-registration-pattern": "/v1/sync/enroll/finish"
+      }
+    },
+    "/v1/sync/envelope": {
+      "get": {
+        "operationId": "getV1SyncEnvelope",
+        "summary": "GET sync envelope",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncEnvelope",
+        "x-sesame-registration-pattern": "/v1/sync/envelope"
+      },
+      "post": {
+        "operationId": "postV1SyncEnvelope",
+        "summary": "POST sync envelope",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncEnvelope",
+        "x-sesame-registration-pattern": "/v1/sync/envelope"
+      }
+    },
+    "/v1/sync/key-package": {
+      "get": {
+        "operationId": "getV1SyncKeyPackage",
+        "summary": "GET sync key package",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncKeyPackage",
+        "x-sesame-registration-pattern": "/v1/sync/key-package"
+      }
+    },
+    "/v1/sync/reset": {
+      "post": {
+        "operationId": "postV1SyncReset",
+        "summary": "POST sync reset vault",
+        "tags": [
+          "sync-disabled"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-built-disabled",
+        "x-sesame-availability": "built-disabled",
+        "x-sesame-handler": "syncResetVault",
+        "x-sesame-registration-pattern": "/v1/sync/reset"
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "browserSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "sesame_session"
+      },
+      "browserCsrfCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "sesame_csrf"
+      },
+      "browserCsrfHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Sesame-CSRF"
+      },
+      "adminSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "sesame_admin_session"
+      },
+      "adminCsrfCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "sesame_admin_csrf"
+      },
+      "adminCsrfHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Sesame-CSRF"
+      },
+      "desktopToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "Exact form: Sesame <opaque device token>."
+      },
+      "releasePipelineToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization",
+        "description": "Protected release-pipeline bearer credential."
+      }
+    },
+    "schemas": {
+      "ErrorEnvelope": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-sesame-generated-from": [
+    "internal/httpapi/server.go",
+    "internal/httpapi/admin_auth.go",
+    "internal/httpapi/sync_routes.go"
+  ],
+  "x-sesame-operation-count": 114
+}

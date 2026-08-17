@@ -1,0 +1,23 @@
+# Review routing for the account portal. Later rules win, so the paths where a
+# mistake is silent are listed last.
+
+* @d0mkaaa
+
+# Delivery controls. Changing these changes what "passing" means.
+/.github/                @d0mkaaa
+/eslint.config.js        @d0mkaaa
+/package.json            @d0mkaaa
+/package-lock.json       @d0mkaaa
+/scripts/                @d0mkaaa
+
+# This portal is the only origin the server accepts a credentialed request
+# from, and the only Sesame web surface that holds a session. Everything below
+# decides who is signed in, what proves it, and what a recovery link can do.
+/src/lib/auth.ts                    @d0mkaaa
+/src/lib/api.ts                     @d0mkaaa
+/src/lib/passkey.ts                 @d0mkaaa
+/src/lib/capabilities.ts            @d0mkaaa
+/src/lib/runtime-config.ts          @d0mkaaa
+/src/pages/AccountFlowPage.svelte   @d0mkaaa
+/scripts/build-security-headers.mjs @d0mkaaa
+/public/_headers                    @d0mkaaa

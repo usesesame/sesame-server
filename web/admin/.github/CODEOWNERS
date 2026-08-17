@@ -1,0 +1,19 @@
+# Review routing for the administration portal. Later rules win, so the paths
+# where a mistake is silent are listed last.
+
+* @d0mkaaa
+
+# Delivery controls. Changing these changes what "passing" means.
+/.github/                @d0mkaaa
+/eslint.config.js        @d0mkaaa
+/package.json            @d0mkaaa
+/package-lock.json       @d0mkaaa
+/scripts/                @d0mkaaa
+
+# This portal reaches the privileged control plane on its own origin, with its
+# own session and CSRF token. These decide what it can reach and what a page it
+# renders is allowed to do.
+/src/lib/api.ts                     @d0mkaaa
+/src/lib/runtime-config.ts          @d0mkaaa
+/scripts/build-security-headers.mjs @d0mkaaa
+/public/_headers                    @d0mkaaa

@@ -1,0 +1,8 @@
+{
+    "keyId":  "test",
+    "schemaVersion":  1,
+    "description":  "Signed capability envelope for the test-only account build. Production fail-closed behavior is unchanged until deployment supplies a real capability key.",
+    "signature":  "Tfkfs5mzb8ZxAStT3cT0qj298EpFID5g645sJZllB1zig2aG9lSKATm_2LcxlHtJg-GjvXd6DUiMIXG1Mf-CCQ",
+    "payload":  "eyJzY2hlbWFWZXJzaW9uIjoxLCJtaW5pbXVtRGVza3RvcFZlcnNpb24iOiIwLjEuMCIsImxhdGVzdERlc2t0b3BWZXJzaW9uIjoiMC4xLjAiLCJmZWF0dXJlcyI6eyJkZXNrdG9wTGlua2luZyI6dHJ1ZSwiZG93bmxvYWRzIjpmYWxzZSwidXBkYXRlciI6ZmFsc2UsInN5bmMiOmZhbHNlfSwic2VydmljZVN0YXR1cyI6eyJhY2NvdW50cyI6dHJ1ZSwiZG93bmxvYWRzIjpmYWxzZSwiZGVza3RvcCI6dHJ1ZSwic3luYyI6ZmFsc2V9LCJleHBpcmVzQXQiOiIyMDk5LTAxLTAxVDAwOjAwOjAwLjAwMFoifQ",
+    "publicKey":  "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+}
