@@ -48,3 +48,53 @@ jobs:
       - run: npm run test:race
 
       - run: npm run vuln:check
+
+  # Both portals ship from this repository, so this workflow is the only thing
+  # that can gate them. Their own nested workflow files never ran: GitHub reads
+  # workflows from the repository root alone.
+  account:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/account
+    env:
+      VITE_SESAME_API_URL: https://api.test.invalid
+      VITE_SESAME_SITE_ORIGIN: https://website.test.invalid
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: web/account/.node-version
+          cache: npm
+          cache-dependency-path: web/account/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run ci
+
+      # `ci` stops at the type check, so without this a bundling failure would
+      # first appear on the deployed server.
+      - run: npm run build
+
+  admin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/admin
+    env:
+      VITE_SESAME_API_URL: https://api.test.invalid
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: web/admin/.node-version
+          cache: npm
+          cache-dependency-path: web/admin/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run ci
+
+      - run: npm run build

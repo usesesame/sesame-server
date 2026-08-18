@@ -12,10 +12,37 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
 
+  # Both portals ship from this repository and carry their own lockfile and
+  # Dockerfile. A directory entry is per manifest, so the root entries above do
+  # not reach them.
+  - package-ecosystem: npm
+    directory: /web/account
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /web/admin
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
   # The API and both portal images. A base image is as much a dependency as a
   # module, and nothing else here moves those tags.
   - package-ecosystem: docker
     directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /web/account
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /web/admin
     schedule:
       interval: weekly
     open-pull-requests-limit: 5

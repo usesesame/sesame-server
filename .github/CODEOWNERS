@@ -32,3 +32,31 @@
 /deploy/                 @d0mkaaa
 /scripts/setup.mjs       @d0mkaaa
 /Dockerfile              @d0mkaaa
+
+# The account portal is the only origin the server accepts a credentialed
+# request from, and the only Sesame web surface that holds a session. These
+# decide who is signed in, what proves it, and what a recovery link can do.
+/web/account/src/lib/auth.ts                    @d0mkaaa
+/web/account/src/lib/api.ts                     @d0mkaaa
+/web/account/src/lib/passkey.ts                 @d0mkaaa
+/web/account/src/lib/capabilities.ts            @d0mkaaa
+/web/account/src/lib/runtime-config.ts          @d0mkaaa
+/web/account/src/pages/AccountFlowPage.svelte   @d0mkaaa
+/web/account/scripts/build-security-headers.mjs @d0mkaaa
+/web/account/public/_headers                    @d0mkaaa
+
+# The administration portal reaches the privileged control plane on its own
+# origin, with its own session and CSRF token. These decide what it can reach
+# and what a page it renders is allowed to do.
+/web/admin/src/lib/api.ts                       @d0mkaaa
+/web/admin/src/lib/runtime-config.ts            @d0mkaaa
+/web/admin/scripts/build-security-headers.mjs   @d0mkaaa
+/web/admin/public/_headers                      @d0mkaaa
+
+# Delivery controls for both portals.
+/web/account/package.json      @d0mkaaa
+/web/account/package-lock.json @d0mkaaa
+/web/account/eslint.config.js  @d0mkaaa
+/web/admin/package.json        @d0mkaaa
+/web/admin/package-lock.json   @d0mkaaa
+/web/admin/eslint.config.js    @d0mkaaa

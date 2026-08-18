@@ -1,0 +1,18 @@
+# `npm run setup` writes deploy/compose/.env at mode 0600 with the admin
+# encryption key, the IP pepper, and the database password in it. Losing that
+# file locks every administrator out; committing it is worse.
+.env
+.env.*
+!.env*.example
+
+# Root tooling and both portals under web/.
+node_modules/
+dist/
+.vite/
+
+# Go build and coverage output. scripts/run-go.mjs defaults GOCACHE into the
+# repository so a build does not depend on the machine's shared cache.
+.gocache/
+*.exe
+*.test
+coverage.out
