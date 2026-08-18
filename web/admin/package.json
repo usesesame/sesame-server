@@ -5,12 +5,12 @@
     "type":  "module",
     "scripts":  {
                     "dev":  "vite --config vite.config.ts",
-                    "build":  "vite build --config vite.config.ts \u0026\u0026 node scripts/build-security-headers.mjs",
+                    "build":  "vite build --config vite.config.ts \u0026\u0026 node scripts/build-security-headers.mjs && node scripts/headers-to-nginx.mjs",
                     "preview":  "vite preview --config vite.config.ts",
                     "lint":  "eslint .",
                     "check":  "svelte-check --tsconfig ./tsconfig.json \u0026\u0026 tsc --noEmit",
                     "design:tokens:check":  "node scripts/design-tokens-contract.mjs",
-                    "test":  "npm run build \u0026\u0026 node ../tools/skip-with-message.mjs \"admin browser\"",
+                    "test":  "npm run build \u0026\u0026 node scripts/skip-with-message.mjs \"admin browser\"",
                     "release:check":  "npm run design:tokens:check \u0026\u0026 npm run lint \u0026\u0026 npm run check \u0026\u0026 npm run build",
                     "ci":  "npm run design:tokens:check \u0026\u0026 npm run lint \u0026\u0026 npm run check"
                 },

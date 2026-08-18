@@ -21,15 +21,20 @@ RUN npm run build
 FROM nginx:1.29-alpine
 # Both portals are single-page applications: every path that is not a file has
 # to return index.html, or a reload of /account or /reset-password is a 404.
+# The header set is generated from dist/_headers during the build, so the
+# policy the portal ships is the policy nginx serves. The administration
+# console additionally must never be indexed or cached.
 RUN printf '%s\n' \
   'server {' \
   '  listen 8080;' \
   '  server_tokens off;' \
   '  root /usr/share/nginx/html;' \
-  '  add_header X-Frame-Options DENY always;' \
-  '  add_header X-Content-Type-Options nosniff always;' \
-  '  add_header Referrer-Policy same-origin always;' \
+  '  include /etc/nginx/sesame-security-headers.conf;' \
+  '  add_header X-Robots-Tag "noindex, nofollow" always;' \
+  '  location = /_headers { return 404; }' \
+  '  location = /security-headers.conf { return 404; }' \
   '  location / { try_files $uri $uri/ /index.html; }' \
   '}' > /etc/nginx/conf.d/default.conf
 COPY --from=build /src/dist /usr/share/nginx/html
+COPY --from=build /src/dist/security-headers.conf /etc/nginx/sesame-security-headers.conf
 EXPOSE 8080
