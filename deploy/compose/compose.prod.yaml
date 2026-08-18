@@ -57,6 +57,12 @@ services:
       SESAME_ADMIN_ENCRYPTION_KEY: ${SESAME_ADMIN_ENCRYPTION_KEY:?}
       SESAME_ADMIN_IP_PEPPER: ${SESAME_ADMIN_IP_PEPPER:?}
       DATABASE_URL: postgres://sesame:${SESAME_DATABASE_PASSWORD}@db:5432/sesame?sslmode=disable
+    # Postfix runs on the host, and the API validates the STARTTLS certificate
+    # against the name it dialled. Resolving that name to the host keeps the
+    # connection on the machine instead of leaving and re-entering through the
+    # firewall, and still matches the certificate.
+    extra_hosts:
+      - "mail.usesesame.app:host-gateway"
     ports:
       - "127.0.0.1:8787:8787"
     depends_on:
