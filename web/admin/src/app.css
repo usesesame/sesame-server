@@ -195,3 +195,6 @@ tr.active { background: var(--tint); }
 @media (prefers-reduced-motion: reduce) {
   button:active:not(:disabled) { transform: none; }
 }
+
+.release-blockers { margin: 0 0 12px; padding: 10px 13px; border-radius: 8px; background: var(--warn-bg, #2d2718); color: var(--warn-text, #d6b45f); font-size: 13px; line-height: 1.5; }
+.release-edit label small { display: block; margin-top: 5px; color: var(--text-faint); font-size: 11.5px; line-height: 1.45; }
