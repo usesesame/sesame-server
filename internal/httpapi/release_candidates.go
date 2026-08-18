@@ -78,6 +78,11 @@ func validReleaseCandidate(candidate adminstore.ReleaseCandidate) bool {
 	if candidate.SchemaVersion != 2 || !releases.ValidVersion(candidate.Version) || (candidate.Channel != "owner" && candidate.Channel != "beta") || candidate.Platform != "windows" || (candidate.Architecture != "x86_64" && candidate.Architecture != "aarch64") || !validHTTPS(candidate.ReleaseNotesURL) || !validArtifactObjectKey(candidate.Artifact.ObjectKey) || !sha256Pattern.MatchString(candidate.Artifact.SHA256) || candidate.Artifact.Bytes <= 0 || candidate.Artifact.Bytes > 8*1024*1024*1024 {
 		return false
 	}
+	// The download URL is part of the signed payload, so a valid signature over
+	// a URL that is not HTTPS would still be refused here rather than stored.
+	if !validHTTPS(candidate.Artifact.URL) {
+		return false
+	}
 	if !validSigstoreCandidateEvidence(candidate) {
 		return false
 	}
@@ -142,8 +147,8 @@ func releaseCandidateSigningPayload(candidate adminstore.ReleaseCandidate) (stri
 		evidenceDigest = base64.RawURLEncoding.EncodeToString(digest[:])
 	}
 	return strings.Join([]string{
-		"sesame-release-candidate-v2", candidate.Version, candidate.Channel, candidate.Platform, candidate.Architecture,
-		candidate.SupportedWindows, candidate.ReleaseNotesURL, candidate.Artifact.ObjectKey, candidate.Artifact.SHA256,
+		"sesame-release-candidate-v3", candidate.Version, candidate.Channel, candidate.Platform, candidate.Architecture,
+		candidate.SupportedWindows, candidate.ReleaseNotesURL, candidate.Artifact.URL, candidate.Artifact.ObjectKey, candidate.Artifact.SHA256,
 		strconv.FormatInt(candidate.Artifact.Bytes, 10), candidate.Artifact.UpdaterSignature, candidate.Artifact.UpdaterSigningKeyID,
 		candidate.Artifact.DistributionClass, strconv.FormatBool(candidate.Artifact.SigstoreVerified), candidate.Artifact.SigstoreIssuer,
 		candidate.Artifact.SigstoreIdentity, candidate.Artifact.SigstoreBundleSHA256, base64.RawURLEncoding.EncodeToString(sigstoreDigest[:]),
