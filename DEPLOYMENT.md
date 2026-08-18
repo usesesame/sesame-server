@@ -1,156 +1,187 @@
-# Website and API deployment
+# Deploying Sesame
 
-## Public website
+This describes running Sesame as the operator of a public service, on one
+Debian host, for the four origins the product expects. A self-hoster running
+the same stack for themselves follows the same steps with their own domain.
 
-The website is a static Vite build.
+## What runs where
 
-```powershell
-npm.cmd run website:check
-# Set these deployment-owned values before every website build.
-$env:VITE_SESAME_SITE_ORIGIN = 'https://your-public-site.example'
-$env:VITE_SESAME_API_URL = 'https://your-account-api.example'
-$env:VITE_SESAME_PRIVACY_EMAIL = 'privacy@your-public-site.example'
-npm.cmd run website:build
-```
+| Origin | What serves it | Source |
+| --- | --- | --- |
+| `usesesame.app` | Caddy, static files | `sesame-website`, built separately |
+| `api.usesesame.app` | Go API container on `127.0.0.1:8787` | this repository |
+| `account.usesesame.app` | nginx container on `127.0.0.1:4175` | `web/account` |
+| `admin.usesesame.app` | nginx container on `127.0.0.1:4174` | `web/admin` |
 
-Publish `website/dist` to Cloudflare Pages, Netlify, Vercel static hosting, or an equivalent immutable host. On hosts that support the `_headers` format, the included file sets a restrictive CSP and other browser security headers.
+Four origins is a security boundary, not a preference. The API accepts
+credentialed browser traffic only from the exact account origin and `/v1/admin/*`
+only from the exact admin origin. The marketing site holds no session at all,
+which is what lets its policy stay `connect-src 'self'` plus the API. Collapsing
+these onto one host removes the separation the API is written to enforce.
 
-## Legal launch gate
+Only the reverse proxy listens on a public interface. Every container binds to
+loopback.
 
-The current site is an invite-only beta. Before public registration is enabled,
-replace the beta-only controller wording in the public policies with the legal
-operator's name and postal contact, name the deployed hosting and other
-processors, state the applicable retention periods and transfer safeguards, and
-complete the governing-law and consumer-information sections. Do not invent
-these details in copy: they must match the deployed business and service
-providers.
+## Before you start
 
-Do not add a vault credential form, web vault, import upload, vault analytics, or third-party session replay. The separate website-account form may collect only an email address and a website-account password. Public download links stay absent until verified updater artifacts and hashes pass the Windows release gate. Until `REL-002` supplies Authenticode signatures for the installer and every shipped binary, do not distribute even an account-gated Windows beta: unsigned installers are lab evidence only.
+- A Debian host with Docker Engine, the Compose plugin, and Caddy.
+- DNS A and AAAA records for `usesesame.app`, `www`, `api`, `account`, and
+  `admin`, all pointing at the host. Caddy cannot issue certificates until
+  these resolve.
+- An SMTP account that supports STARTTLS. Without working mail there is no
+  email verification, no password recovery, and no email change.
+- Node.js 24.13 to build the website.
 
-## Go API
-
-The API uses the Go standard library and can run as a small container or native service. Production requires this configuration:
-
-- `SESAME_API_ADDR`, normally `0.0.0.0:8787` inside a container.
-- `SESAME_API_VERSION`, set to the immutable deployed build version.
-- `SESAME_WEB_ORIGIN`, exactly `https://usesesame.app` in production.
-- `DATABASE_URL`, a restricted PostgreSQL connection string.
-- `SESAME_SESSION_SECURE=true` in production. Set it to `false` only for local HTTP development.
-- `SESAME_ADMIN_ORIGIN`, exactly `https://admin.usesesame.app` in production.
-- `SESAME_ADMIN_SESSION_SECURE=true` in production.
-- `SESAME_ADMIN_ENCRYPTION_KEY`, a secret 32-byte key encoded as hex or Base64. This encrypts admin TOTP secrets and must be backed up in the production secret manager.
-- `SESAME_ADMIN_IP_PEPPER`, an independent high-entropy secret used only to pseudonymise IP addresses in the admin audit log.
-
-The API deliberately has no default website or admin origin. Set both origins
-explicitly in the deployment environment. If SMTP is enabled, set
-`SESAME_SMTP_FROM` explicitly as well.
-
-### Losing the admin encryption key
-
-`SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret. If the
-key changes, those secrets can no longer be decrypted and sign-in fails with
-"Email, password, or MFA code is incorrect", the same answer a wrong password
-gets. The password stays intact; the MFA secret becomes unreadable.
-
-Locally the key lives in the gitignored root `.env`, written once by
-`npm run api:up`. Deleting that file, cleaning the working tree, or cloning
-fresh generates a new key, while the database keeps the accounts created under
-the old one, so `npm run api:up` now says so when it writes a new key.
-
-The API reports the condition at startup:
-
-```
-WARN Sesame admin accounts cannot be read with the configured key accounts=2
-```
-
-Restore the original key if you still have it. Otherwise issue a new setup link
-per account, which rotates the MFA secret and clears the password:
+## 1. Configure
 
 ```bash
-npm run backend:admin:bootstrap -- reset admin@example.com
+git clone https://github.com/usesesame/sesame-server.git
+cd sesame-server
+npm ci
+npm run setup
 ```
 
-For local development, run the complete service with PostgreSQL:
+`npm run setup` generates this deployment's own secrets and resolves the build
+contexts. It writes `deploy/compose/.env`, which is the development file.
 
-```powershell
-docker compose up --build
+```bash
+cp deploy/compose/.env.production.example deploy/compose/.env.production
+chmod 600 deploy/compose/.env.production
 ```
 
-Run tests before building:
+Fill it in, copying the four generated secrets and `SESAME_CAPABILITY_PUBLIC_KEY`
+across from `deploy/compose/.env`. Read the comments in the example: several
+values are not free choices.
 
-```powershell
-go -C backend test ./...
-docker build -t sesame-api:0.1.0 backend
+- `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret. If
+  it changes, those secrets become unreadable and sign-in fails with the same
+  message a wrong password gets. Back it up somewhere that survives this disk.
+- `SESAME_RP_ID` must be the account portal's registrable domain. Changing it
+  later invalidates every passkey already registered.
+- `SESAME_TRUSTED_PROXIES` must name the proxy's network and nothing wider.
+  Every request arrives from the proxy, so without it the rate limiter and the
+  admin audit log see a single client address for the entire internet. Setting
+  it to `0.0.0.0/0` is worse than leaving it unset, because then any client can
+  forge its own address.
+
+## 2. Start the stack
+
+```bash
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production up -d --build
 ```
 
-Terminate TLS at the deployment platform or a maintained reverse proxy. Expose the API as `https://api.usesesame.app`, apply request-rate and body-size limits at the edge, and keep access logs free of sensitive query values. Use unique production database credentials and a managed secret store; the Compose password is development-only by design.
+This is a separate file from `compose.yaml`, which is development only:
+that one disables secure cookies, sets `SESAME_ENV=development`, and sends mail
+to a local catcher. Do not run it on a public host.
 
-## Administration app
+Migrations run once, as their own service, before the API starts. The API
+refuses to start if a required value is missing or if an HTTPS website origin
+is paired with insecure cookies, so a misconfiguration fails closed rather than
+serving insecurely.
 
-The administration frontend is a separate static Vite build with a separate origin and cookie boundary:
+Check it:
 
-```powershell
-npm.cmd run admin:check
-# Reuse the explicitly configured VITE_SESAME_API_URL.
-npm.cmd run admin:build
+```bash
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production ps
+curl -fsS http://127.0.0.1:8787/v1/product/status
 ```
 
-Publish `admin/dist` to `admin.usesesame.app`. Do not merge it into the public website build. Preserve the included no-index, no-store, frame-denial and restrictive CSP headers. The Go API accepts `/v1/admin/*` browser traffic only from the exact `SESAME_ADMIN_ORIGIN`.
+## 3. Build and place the website
 
-## Desktop account service
+The marketing site is a separate repository and is deliberately not part of the
+server stack. A deployment of the API must not depend on it.
 
-Set `SESAME_API_BASE_URL` when building the desktop application. It must be the
-absolute HTTPS API origin (loopback HTTP is permitted only for development).
-Without this build-time configuration the desktop fails closed, so a token is
-never sent to a compiled-in or ambient endpoint.
-
-For local desktop development only, copy `src-tauri/.env.example` to the
-gitignored `src-tauri/.env.local`. Debug builds read that file; release builds
-ignore it and require `SESAME_API_BASE_URL` from the build environment.
-
-For local website development, the public pages can render without a config
-file. To exercise account APIs against Compose, copy `website/.env.example` to
-the gitignored `website/.env.local` first.
-
-For the local admin UI, copy `admin/.env.example` to the gitignored
-`admin/.env.local` before running `npm run admin:dev`.
-
-For the desktop app, copy `.env.example` to the gitignored `.env.local` and
-set `VITE_SESAME_SITE_ORIGIN` to the public website origin. The desktop uses
-this value only to open the support portal; it has no compiled production
-domain fallback.
-
-Generate an Ed25519 capability signing seed outside the repository and set its
-base64url form as `SESAME_CAPABILITY_SIGNING_KEY` for the API. Build the
-website with the corresponding `VITE_SESAME_CAPABILITY_PUBLIC_KEY` and the
-desktop with `SESAME_CAPABILITY_PUBLIC_KEY`. When the signed configuration
-cannot be verified, clients disable sensitive account capabilities.
-
-After the database migration and API deployment, bootstrap the first super administrator from a trusted operator shell:
-
-```powershell
-$env:DATABASE_URL = '<production database URL>'
-$env:SESAME_ADMIN_ENCRYPTION_KEY = '<secret 32-byte key>'
-$env:SESAME_ADMIN_ORIGIN = 'https://admin.usesesame.app'
-go -C backend run ./cmd/adminctl bootstrap admin@example.com
+```bash
+git clone https://github.com/usesesame/sesame-website.git
+cd sesame-website
+npm ci
+VITE_SESAME_SITE_ORIGIN=https://usesesame.app \
+VITE_SESAME_API_URL=https://api.usesesame.app \
+VITE_SESAME_ACCOUNT_URL=https://account.usesesame.app \
+VITE_SESAME_PRIVACY_EMAIL=privacy@usesesame.app \
+npm run build
+sudo rsync -a --delete dist/ /srv/usesesame.app/
 ```
 
-The command prints a one-time setup link that expires after one hour. Transfer it through an approved secure channel. Opening the link consumes it: the enrollment secret is returned once, and the administrator must finish setting their password and MFA within 30 minutes of that first open, after which the link is spent and `adminctl reset` issues a fresh one. There is no public administrator registration. Every administrator must configure TOTP before a session is issued, and all mutations write their audit row in the same database transaction as the change.
+No production origin is compiled into the site, so these must be supplied on
+every build. A wrong `VITE_SESAME_SITE_ORIGIN` is an SEO defect that ships
+silently, which is why an absent one fails the build.
 
-Changing trusted proxy ranges remains a reviewed deployment configuration change, since it affects how client addresses are trusted before authentication. The dashboard shows the active count but cannot edit it at runtime.
+## 4. Put the proxy in front
 
-## Release metadata
+```bash
+sudo cp deploy/caddy/Caddyfile.example /etc/caddy/Caddyfile
+sudo systemctl reload caddy
+```
 
-The public release endpoint must continue returning `available: false` until all of the following exist:
+Caddy issues and renews certificates for all four names on its own.
 
-1. A versioned Windows artifact built from recorded source.
-2. A valid Tauri updater signature over the exact updater artifact.
-3. A recorded SHA-256 hash.
-4. Clean-profile beta verification and rollback evidence.
+The website's headers are written out in the Caddyfile and have to be kept in
+step with `public/_headers` in the website repository, including the inline
+script hash in its CSP. Both portals set their own headers from the policy
+compiled into their image, so the proxy must not add a second
+Content-Security-Policy for them.
 
-Authenticode is a blocker for every Windows distribution. Candidate records
-without verified Authenticode evidence are lab-only and must not be made
-available through account pages, a beta ring, or any download channel. Do not
-publish a private key or ask users to lower Windows security settings.
+## 5. Create the first administrator
 
-Website and API deployment never authorizes uploading a user vault. That boundary requires a separate sync threat model and is explicitly outside these services.
+```bash
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production \
+  run --rm --entrypoint /sesame-adminctl api bootstrap you@usesesame.app
+```
+
+This prints a one-time setup link that expires after one hour. Opening it
+consumes it: the enrollment secret is shown once, and the administrator has 30
+minutes from that first open to finish setting a password and TOTP. After that
+the link is spent and `adminctl reset` issues a fresh one. There is no public
+administrator registration, and no session is issued until TOTP is configured.
+
+Every administrator mutation writes its audit row in the same database
+transaction as the change.
+
+## Backups
+
+Two things matter, and they fail differently.
+
+```bash
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production \
+  exec -T db pg_dump -U sesame sesame | gzip > sesame-$(date +%F).sql.gz
+```
+
+Back up `deploy/compose/.env.production` separately and somewhere else. A lost
+database loses accounts. A lost admin encryption key locks out every
+administrator while the database stays perfectly intact, which is the harder
+failure to recover from.
+
+## Operating notes
+
+- **Registration** defaults to `invite`. With the administration portal running,
+  the `registration_mode` feature flag in the database wins over the
+  environment variable.
+- **Sync stays disabled.** The `cloud_sync_available` flag exists, but the
+  protocol has not passed its security review. A green deployment is not that
+  review.
+- **Public downloads stay off** until the Windows release gate is met: a
+  versioned artifact built from recorded source, a valid Tauri updater
+  signature, a recorded SHA-256, clean-profile verification, and Authenticode.
+  Candidates without verified Authenticode evidence are lab-only and must not
+  reach any download channel.
+- **Trusted proxy ranges** are a reviewed configuration change, since they
+  decide how a client address is trusted before authentication. The dashboard
+  shows the active count but cannot edit it at runtime.
+- The API never accepts a vault. That boundary needs its own threat model and
+  is outside anything here.
+
+## Before opening registration to the public
+
+The privacy policy and terms currently describe an invite-only beta and defer
+the operator's legal identity. Before public registration is enabled, replace
+that wording with the legal operator's name and postal contact, name the
+hosting and other processors the deployment actually uses, state retention
+periods and transfer safeguards, and complete the governing-law and consumer
+information sections. Taking payment for Sync makes this a legal requirement
+rather than a tidy-up. These details must match the real business; do not
+invent them in copy.

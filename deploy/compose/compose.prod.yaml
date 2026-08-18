@@ -1,0 +1,114 @@
+# Production stack for an operated Sesame deployment behind a TLS reverse
+# proxy. Run it with an explicit env file:
+#
+#   docker compose -f deploy/compose/compose.prod.yaml --env-file deploy/compose/.env.production up -d --build
+#
+# This is a separate file rather than an override of compose.yaml. The
+# development stack turns cookie security off, sets SESAME_ENV=development, and
+# routes mail to a local catcher. An override would have to undo each of those,
+# and a single forgotten key there is a production defect that fails open.
+#
+# Every service binds to loopback. The reverse proxy is the only thing that
+# listens on a public interface. The marketing website is not here: it is a
+# static build from the sesame-website repository, served by the proxy.
+
+name: sesame-prod
+
+services:
+  migrate:
+    build:
+      context: ${SESAME_SERVER_CONTEXT}
+    entrypoint: ["/sesame-migrate"]
+    environment:
+      DATABASE_URL: postgres://sesame:${SESAME_DATABASE_PASSWORD:?set in the env file}@db:5432/sesame?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: ${SESAME_SERVER_CONTEXT}
+    environment:
+      SESAME_API_ADDR: 0.0.0.0:8787
+      SESAME_API_VERSION: ${SESAME_API_VERSION:?set to the deployed build version}
+      SESAME_ENV: production
+      SESAME_WEB_ORIGIN: ${SESAME_ACCOUNT_ORIGIN:?}
+      SESAME_ADMIN_ORIGIN: ${SESAME_ADMIN_ORIGIN:?}
+      SESAME_PUBLIC_SITE_ORIGIN: ${SESAME_PUBLIC_SITE_ORIGIN:?}
+      SESAME_REGISTRATION_MODE: ${SESAME_REGISTRATION_MODE:-invite}
+      SESAME_SESSION_SECURE: "true"
+      SESAME_ADMIN_SESSION_SECURE: "true"
+      # Client addresses arrive through the proxy. Without this the rate
+      # limiter and the admin audit log see one address for every visitor.
+      SESAME_TRUSTED_PROXIES: ${SESAME_TRUSTED_PROXIES:?set to the proxy CIDR}
+      # Must be the account portal's registrable domain, or passkeys fail.
+      SESAME_RP_ID: ${SESAME_RP_ID:?}
+      SESAME_RP_NAME: ${SESAME_RP_NAME:-Sesame}
+      # Optional so the stack can boot before a mail provider exists. With these
+      # empty the API runs and reports emailDeliveryAvailable false, which means
+      # no verification, recovery, or email-change mail. STARTTLS is mandatory
+      # once SESAME_SMTP_ADDR is set.
+      SESAME_SMTP_ADDR: ${SESAME_SMTP_ADDR:-}
+      SESAME_SMTP_USERNAME: ${SESAME_SMTP_USERNAME:-}
+      SESAME_SMTP_PASSWORD: ${SESAME_SMTP_PASSWORD:-}
+      SESAME_SMTP_FROM: ${SESAME_SMTP_FROM:-}
+      SESAME_CAPABILITY_SIGNING_KEY: ${SESAME_CAPABILITY_SIGNING_KEY:?}
+      SESAME_ADMIN_ENCRYPTION_KEY: ${SESAME_ADMIN_ENCRYPTION_KEY:?}
+      SESAME_ADMIN_IP_PEPPER: ${SESAME_ADMIN_IP_PEPPER:?}
+      DATABASE_URL: postgres://sesame:${SESAME_DATABASE_PASSWORD}@db:5432/sesame?sslmode=disable
+    ports:
+      - "127.0.0.1:8787:8787"
+    depends_on:
+      db:
+        condition: service_healthy
+        restart: true
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  account:
+    build:
+      context: ${SESAME_ACCOUNT_CONTEXT}
+      args:
+        VITE_SESAME_API_URL: ${SESAME_API_ORIGIN:?}
+        VITE_SESAME_SITE_ORIGIN: ${SESAME_PUBLIC_SITE_ORIGIN}
+        VITE_SESAME_CAPABILITY_PUBLIC_KEY: ${SESAME_CAPABILITY_PUBLIC_KEY:?}
+    ports:
+      - "127.0.0.1:4175:8080"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  admin:
+    build:
+      context: ${SESAME_ADMIN_CONTEXT}
+      args:
+        VITE_SESAME_API_URL: ${SESAME_API_ORIGIN}
+    ports:
+      - "127.0.0.1:4174:8080"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: sesame
+      POSTGRES_USER: sesame
+      POSTGRES_PASSWORD: ${SESAME_DATABASE_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      # PostgreSQL 18 stores data in a major-version subdirectory, so the mount
+      # belongs one level up.
+      - database:/var/lib/postgresql
+    restart: unless-stopped
+
+volumes:
+  database:

@@ -1,0 +1,72 @@
+# Reverse proxy for an operated Sesame deployment on one Debian host.
+#
+#   sudo cp Caddyfile.example /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Caddy obtains and renews certificates for all four names automatically, so
+# nothing here holds a key. Point every name at this host in DNS first, or the
+# ACME challenge fails.
+#
+# Four origins, four cookie boundaries. Do not collapse them onto one host: the
+# API accepts credentialed browser traffic only from the exact account origin
+# and admin traffic only from the exact admin origin, and the static site is
+# kept session-free on purpose.
+
+{
+	email admin@usesesame.app
+}
+
+# The marketing site. A static build from the sesame-website repository.
+# Rebuild and rsync it here; nothing in the server stack serves it.
+usesesame.app, www.usesesame.app {
+	@www host www.usesesame.app
+	redir @www https://usesesame.app{uri} permanent
+
+	root * /srv/usesesame.app
+	encode zstd gzip
+
+	# These must stay in step with the site's own public/_headers. The CSP is
+	# the one the build emits, including the inline structured-data hash and
+	# the API origin it was built against.
+	header {
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()"
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-mktCxBAlzenVOSxI43iU5Xizly4g/yKoU7062ESZCSU='; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.usesesame.app; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	header /assets/* Cache-Control "public, max-age=31536000, immutable"
+
+	# The build emits a real file per route, so a miss is a genuine 404.
+	handle_errors {
+		@notFound expression {err.status_code} == 404
+		rewrite @notFound /404.html
+		file_server
+	}
+	file_server
+}
+
+api.usesesame.app {
+	reverse_proxy 127.0.0.1:8787
+	header -Server
+}
+
+# Both portals set their own security headers, including CSP, from the policy
+# compiled into their image. Do not add a second CSP here: two headers means
+# the strictest wins in some browsers and neither is what was reviewed.
+account.usesesame.app {
+	reverse_proxy 127.0.0.1:4175
+	header -Server
+}
+
+admin.usesesame.app {
+	reverse_proxy 127.0.0.1:4174
+	header -Server
+
+	# Optional and recommended while the beta is invite-only. Replace with your
+	# own addresses, or remove if administrators connect from changing networks.
+	# @notOffice not remote_ip 203.0.113.0/24
+	# respond @notOffice 403
+}
