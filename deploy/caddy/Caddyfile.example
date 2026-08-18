@@ -45,6 +45,11 @@ usesesame.app, www.usesesame.app {
 		rewrite @notFound /404.html
 		file_server
 	}
+
+	# The build emits /pricing/index.html but the sitemap and every canonical
+	# tag name /pricing. Without this, file_server 308s to the trailing-slash
+	# form and every indexed URL redirects.
+	try_files {path} {path}/index.html
 	file_server
 }
 
@@ -69,4 +74,9 @@ admin.usesesame.app {
 	# own addresses, or remove if administrators connect from changing networks.
 	# @notOffice not remote_ip 203.0.113.0/24
 	# respond @notOffice 403
+}
+
+# Exists only so Caddy issues a certificate Postfix can borrow for STARTTLS.
+mail.usesesame.app {
+	respond "Sesame mail host" 200
 }
