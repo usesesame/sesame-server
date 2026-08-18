@@ -53,10 +53,10 @@
     const prefill = (name: string) => (query.get(name) || '').trim()
     const prefilledCategory = prefill('category')
     if (SUPPORT_CATEGORIES.some((option) => option.value === prefilledCategory)) category = prefilledCategory as SupportCategory
-    if (prefill('intent') === 'founding') {
+    if (prefill('intent') === 'sync') {
       category = 'billing'
-      subject = 'Founding Pro interest'
-      message = 'Please tell me when Founding Pro and beta access are available.'
+      subject = 'Sesame Sync interest'
+      message = 'Please tell me when Sesame Sync is available.'
     }
     appVersion = prefill('appVersion').slice(0, 40)
     diagnosticCode = prefill('diagnosticCode').slice(0, 64)

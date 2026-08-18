@@ -623,7 +623,7 @@ func (s *Store) UpdateFeatureFlag(ctx context.Context, actor Account, key, value
 }
 
 func (s *Store) Plans(ctx context.Context) ([]Plan, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, price, billing, description, available, includes, updated_at FROM sesame_product_plans ORDER BY CASE id WHEN 'free' THEN 1 WHEN 'founding-pro' THEN 2 ELSE 3 END, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, price, COALESCE(annual_price, ''), billing, description, available, includes, updated_at FROM sesame_product_plans ORDER BY CASE id WHEN 'free' THEN 1 WHEN 'sync' THEN 2 ELSE 3 END, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -632,7 +632,7 @@ func (s *Store) Plans(ctx context.Context) ([]Plan, error) {
 	for rows.Next() {
 		var plan Plan
 		var includes []byte
-		if err := rows.Scan(&plan.ID, &plan.Name, &plan.Price, &plan.Billing, &plan.Description, &plan.Available, &includes, &plan.UpdatedAt); err != nil {
+		if err := rows.Scan(&plan.ID, &plan.Name, &plan.Price, &plan.AnnualPrice, &plan.Billing, &plan.Description, &plan.Available, &includes, &plan.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(includes, &plan.Includes); err != nil {
@@ -648,8 +648,12 @@ func (s *Store) UpdatePlan(ctx context.Context, actor Account, plan Plan, ipHash
 	if err != nil {
 		return err
 	}
-	return s.mutate(ctx, actor, "plan.update", "plan", plan.ID, ipHash, map[string]any{"name": plan.Name, "price": plan.Price, "available": plan.Available}, func(tx *sql.Tx) error {
-		return affected(tx.ExecContext(ctx, `UPDATE sesame_product_plans SET name = $2, price = $3, billing = $4, description = $5, available = $6, includes = $7, updated_by = $8, updated_at = NOW() WHERE id = $1`, plan.ID, plan.Name, plan.Price, plan.Billing, plan.Description, plan.Available, includes, actor.ID))
+	annualPrice := any(plan.AnnualPrice)
+	if plan.AnnualPrice == "" {
+		annualPrice = nil
+	}
+	return s.mutate(ctx, actor, "plan.update", "plan", plan.ID, ipHash, map[string]any{"name": plan.Name, "price": plan.Price, "annualPrice": plan.AnnualPrice, "available": plan.Available}, func(tx *sql.Tx) error {
+		return affected(tx.ExecContext(ctx, `UPDATE sesame_product_plans SET name = $2, price = $3, annual_price = $4, billing = $5, description = $6, available = $7, includes = $8, updated_by = $9, updated_at = NOW() WHERE id = $1`, plan.ID, plan.Name, plan.Price, annualPrice, plan.Billing, plan.Description, plan.Available, includes, actor.ID))
 	})
 }
 func (s *Store) Admins(ctx context.Context) ([]Account, error) {

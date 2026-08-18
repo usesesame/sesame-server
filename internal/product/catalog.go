@@ -14,19 +14,14 @@ type Plan struct {
 func Plans() []Plan {
 	return []Plan{
 		{
-			ID: "free", Name: "Local Vault", Price: "0", Billing: "none", Available: true,
-			Description: "Your everyday password vault, with no subscription.",
-			Includes:    []string{"Encrypted vault", "15 import formats", "Nine record types", "2FA and recovery details", "Backup, restore, and export"},
+			ID: "free", Name: "Sesame", Price: "0", Billing: "none", Available: true,
+			Description: "The whole app, free and open source under the AGPL.",
+			Includes:    []string{"Encrypted vault", "15 import formats", "Nine record types", "2FA and recovery details", "Windows Hello and PIN unlock", "Backup, restore, and export"},
 		},
 		{
-			ID: "founding-pro", Name: "Founding Pro", Price: "20.00", Billing: "one_time", Available: false,
-			Description: "Pay once for the first set of Pro desktop tools.",
-			Includes:    []string{"Multiple vault profiles", "Bulk cleanup tools", "Backup health checks", "All Pro updates in Sesame 1.x", "12 months of Sync if it launches"},
-		},
-		{
-			ID: "sync", Name: "Sesame Sync", Price: "2.50", AnnualPrice: "24.00", Billing: "monthly", Available: false,
-			Description: "Optional encrypted Sync after independent review.",
-			Includes:    []string{"Approved devices", "End-to-end encryption", "Conflict review", "Local access if Sync ends"},
+			ID: "sync", Name: "Sesame Sync", Price: "1.00", AnnualPrice: "10.00", Billing: "monthly", Available: false,
+			Description: "Optional hosted sync between your own approved devices. Not available until its security review passes.",
+			Includes:    []string{"Approved devices", "End-to-end encryption", "Conflict review", "Local access if Sync ends", "Self-host it instead if you prefer"},
 		},
 	}
 }

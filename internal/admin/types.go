@@ -116,6 +116,7 @@ type Plan struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Price       string    `json:"price"`
+	AnnualPrice string    `json:"annualPrice,omitempty"`
 	Billing     string    `json:"billing"`
 	Description string    `json:"description"`
 	Available   bool      `json:"available"`

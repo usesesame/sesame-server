@@ -60,7 +60,8 @@ the website clear only the stale signed-in state.
 Read-only. These reject mutation methods and every request body without parsing
 it.
 
-- `GET /v1/plans` → public Free and planned Founding Pro information.
+- `GET /v1/plans` → the free app and the planned Sesame Sync subscription,
+  including its optional `annualPrice`.
 - `GET /v1/product/status` → current phase, platform, account, sign-in, sync,
   and download availability.
 - `GET /v1/releases/latest?platform=windows` → release availability. Stays
