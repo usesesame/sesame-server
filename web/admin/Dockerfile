@@ -18,7 +18,7 @@ ENV VITE_SESAME_API_URL=$VITE_SESAME_API_URL \
     VITE_SESAME_CAPABILITY_PUBLIC_KEY=$VITE_SESAME_CAPABILITY_PUBLIC_KEY
 RUN npm run build
 
-FROM nginx:1.29-alpine
+FROM nginx:1.31-alpine
 # Both portals are single-page applications: every path that is not a file has
 # to return index.html, or a reload of /account or /reset-password is a 404.
 # The header set is generated from dist/_headers during the build, so the
