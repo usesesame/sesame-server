@@ -1,6 +1,6 @@
 module usesesame.app/backend
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/go-webauthn/webauthn v0.17.4
