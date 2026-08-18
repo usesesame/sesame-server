@@ -28,8 +28,8 @@ const (
 	desktopSessionTTL = 90 * 24 * time.Hour
 	desktopLinkTTL    = 10 * time.Minute
 	securityUpdated   = "2026-07-13"
-	termsVersion      = "2026-07-14"
-	privacyVersion    = "2026-07-14"
+	termsVersion      = "2026-08-18"
+	privacyVersion    = "2026-08-18"
 )
 
 type Config struct {
@@ -376,16 +376,26 @@ func (a *api) productStatus(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	registrationMode := a.runtimeRegistrationMode(request.Context())
+	publicDownload := a.runtimeFlagBool(request.Context(), "public_download", false)
+	// Every other field here is read from runtime state, so the phase is too.
+	// A literal would keep announcing an invite-only beta to the website long
+	// after the download gate was opened.
+	phase := "private-beta-foundation"
+	accountPurposes := []string{"beta access", "signed downloads", "licences", "connected-device management"}
+	if publicDownload {
+		phase = "public-beta"
+		accountPurposes = []string{"signed downloads", "licences", "connected-device management"}
+	}
 	writeJSON(response, http.StatusOK, map[string]any{
-		"phase":                      "private-beta-foundation",
+		"phase":                      phase,
 		"platforms":                  []string{"windows"},
 		"accountRequired":            false,
 		"webSignInAvailable":         a.config.Accounts != nil,
 		"desktopConnectionAvailable": hasDesktopStore(a.config.Accounts),
 		"registrationMode":           registrationMode,
-		"accountPurposes":            []string{"beta access", "signed downloads", "licences", "connected-device management"},
+		"accountPurposes":            accountPurposes,
 		"cloudSyncAvailable":         a.syncEnabled(request.Context()),
-		"publicDownload":             a.runtimeFlagBool(request.Context(), "public_download", false),
+		"publicDownload":             publicDownload,
 		"updated":                    securityUpdated,
 	})
 }
