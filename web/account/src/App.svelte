@@ -42,10 +42,10 @@
 <a class="skip-link" href="#top">Skip to content</a>
 
 <header class="site-header">
-  <div class="header-inner">
+  <div class="site-header-inner">
     <a class="brand" href="/account">
-      <span class="brand-mark" aria-hidden="true">S</span>
-      <span>Sesame <span class="brand-portal">account</span></span>
+      <img class="brand-mark" src="/favicon.svg" alt="" />
+      <strong>Sesame <span class="brand-portal">account</span></strong>
     </a>
     <nav aria-label="Portal navigation">
       <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
@@ -98,15 +98,34 @@
 
 <footer class="site-footer">
   <div class="footer-inner">
-    <p class="footer-note">
-      Sesame never receives your vault. This portal manages only the optional website account.
-    </p>
-    <nav aria-label="Site links">
+    <div class="footer-brand">
+      <a class="brand" href="/account">
+        <img class="brand-mark" src="/favicon.svg" alt="" />
+        <strong>Sesame</strong>
+      </a>
+      <p>Sesame never receives your vault. This portal manages only the optional website account.</p>
+    </div>
+    <nav class="footer-col" aria-label="Portal">
+      <strong>Portal</strong>
+      <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
+      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support</a>
+    </nav>
+    <nav class="footer-col" aria-label="Legal">
+      <strong>Legal</strong>
       <a href={`${siteOrigin}/privacy`}>Privacy</a>
       <a href={`${siteOrigin}/terms`}>Terms</a>
       <a href={`${siteOrigin}/security`}>Security</a>
-      <a href={siteOrigin}>{siteHost}</a>
     </nav>
+    <nav class="footer-col" aria-label="Sesame">
+      <strong>Sesame</strong>
+      <a href={siteOrigin}>{siteHost}</a>
+      <a href={`${siteOrigin}/releases`}>Releases</a>
+    </nav>
+  </div>
+  <div class="footer-bottom">
+    <span>&copy; 2026 Sesame</span>
+    <span>AGPL-3.0-or-later &middot; no trackers &middot; no ads</span>
+    <span>{siteHost}</span>
   </div>
 </footer>
 
