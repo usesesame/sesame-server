@@ -22,7 +22,7 @@
                             "@eslint/js":  "^10.0.1",
                             "@sveltejs/vite-plugin-svelte":  "^7.1.2",
                             "@tsconfig/svelte":  "^5.0.8",
-                            "@types/node":  "^24.13.2",
+                            "@types/node":  "^26.2.0",
                             "eslint":  "^10.8.0",
                             "eslint-plugin-svelte":  "^3.22.0",
                             "globals":  "^17.8.0",
