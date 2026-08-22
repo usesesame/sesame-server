@@ -7,7 +7,7 @@
 
 # Tags rather than digests: pinning these belongs with the rest of the supply
 # chain work, and a digest invented here would simply fail to pull.
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
