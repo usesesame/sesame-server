@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/support"
 )
 
 var (
@@ -1144,15 +1145,11 @@ func (s *Store) SetTicketStatus(ctx context.Context, actor Account, ticketID str
 			return err
 		}
 		if status == TicketClosed {
-			if _, err := tx.ExecContext(ctx, `UPDATE sesame_support_requests SET status = $2, updated_at = NOW(), closed_at = NOW(), closed_by = $3 WHERE id = $1`, ticketID, string(status), actor.ID); err != nil {
-				return err
-			}
-		} else {
-			if _, err := tx.ExecContext(ctx, `UPDATE sesame_support_requests SET status = $2, updated_at = NOW(), closed_at = NULL, closed_by = NULL WHERE id = $1`, ticketID, string(status)); err != nil {
-				return err
-			}
+			_, err := support.Close(ctx, tx, ticketID, actor.ID, time.Now().UTC(), "")
+			return err
 		}
-		return nil
+		_, err := support.SetOpenStatus(ctx, tx, ticketID, string(status), time.Now().UTC(), "")
+		return err
 	})
 }
 
