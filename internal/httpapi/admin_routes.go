@@ -50,9 +50,6 @@ func pagination(request *http.Request) (int, int) {
 }
 
 func (a *api) adminUsers(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersRead); !ok {
 		return
 	}
@@ -70,95 +67,113 @@ func (a *api) adminUsers(response http.ResponseWriter, request *http.Request) {
 	writeJSON(response, http.StatusOK, map[string]any{"users": users, "page": page, "size": size, "total": total})
 }
 
-func (a *api) adminUserRoute(response http.ResponseWriter, request *http.Request) {
-	parts := adminPathParts(request.URL.Path, "/v1/admin/users/")
-	if len(parts) == 0 || parts[0] == "" {
+func (a *api) adminUserView(response http.ResponseWriter, request *http.Request) {
+	accountID := request.PathValue("accountID")
+	if accountID == "" {
 		a.notFound(response, request)
 		return
 	}
-	accountID := parts[0]
-	if len(parts) == 1 && request.Method == http.MethodGet {
-		if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersRead); !ok {
-			return
-		}
-		user, err := a.config.Admin.User(request.Context(), accountID)
-		if err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		writeJSON(response, http.StatusOK, map[string]any{"user": user})
+	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersRead); !ok {
 		return
 	}
-	if len(parts) == 1 && request.Method == http.MethodDelete {
-		actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersDelete)
-		if !ok {
-			return
-		}
-		if err := a.config.Admin.DeleteUser(request.Context(), actor, accountID, a.adminIPHash(request)); err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
+	user, err := a.config.Admin.User(request.Context(), accountID)
+	if err != nil {
+		adminStoreError(response, err)
 		return
 	}
-	if len(parts) == 2 && parts[1] == "owner-release" && (request.Method == http.MethodPost || request.Method == http.MethodDelete) {
-		actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
-		if !ok {
-			return
-		}
-		if err := a.config.Admin.SetOwnerReleaseRingMember(request.Context(), actor, accountID, request.Method == http.MethodPost, a.adminIPHash(request)); err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
+	writeJSON(response, http.StatusOK, map[string]any{"user": user})
+}
+
+func (a *api) adminUserDelete(response http.ResponseWriter, request *http.Request) {
+	accountID := request.PathValue("accountID")
+	if accountID == "" {
+		a.notFound(response, request)
 		return
 	}
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersDelete)
 	if !ok {
 		return
 	}
-	if len(parts) == 2 && parts[1] == "beta" && (request.Method == http.MethodPost || request.Method == http.MethodDelete) {
-		if err := a.config.Admin.SetBeta(request.Context(), actor, accountID, request.Method == http.MethodPost, a.adminIPHash(request)); err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
+	if err := a.config.Admin.DeleteUser(request.Context(), actor, accountID, a.adminIPHash(request)); err != nil {
+		adminStoreError(response, err)
 		return
 	}
-	if len(parts) == 2 && parts[1] == "suspend" && (request.Method == http.MethodPost || request.Method == http.MethodDelete) {
-		reason := ""
-		if request.Method == http.MethodPost {
-			var input suspendUserRequest
-			if !decodeAdminJSON(response, request, &input) || !safeReason(input.Reason) {
-				writeError(response, http.StatusBadRequest, "invalid_suspend_reason", "Use an ASCII reason of at most 200 characters.")
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		accountID := request.PathValue("accountID")
+		if accountID == "" {
+			a.notFound(response, request)
+			return
+		}
+		switch action {
+		case "owner-release":
+			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+			if !ok {
 				return
 			}
-			reason = strings.TrimSpace(input.Reason)
-		}
-		if err := a.config.Admin.SetSuspended(request.Context(), actor, accountID, request.Method == http.MethodPost, reason, a.adminIPHash(request)); err != nil {
-			adminStoreError(response, err)
+			if err := a.config.Admin.SetOwnerReleaseRingMember(request.Context(), actor, accountID, enable, a.adminIPHash(request)); err != nil {
+				adminStoreError(response, err)
+				return
+			}
+		case "beta":
+			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			if !ok {
+				return
+			}
+			if err := a.config.Admin.SetBeta(request.Context(), actor, accountID, enable, a.adminIPHash(request)); err != nil {
+				adminStoreError(response, err)
+				return
+			}
+		case "suspend":
+			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			if !ok {
+				return
+			}
+			reason := ""
+			if enable {
+				var input suspendUserRequest
+				if !decodeAdminJSON(response, request, &input) || !safeReason(input.Reason) {
+					writeError(response, http.StatusBadRequest, "invalid_suspend_reason", "Use an ASCII reason of at most 200 characters.")
+					return
+				}
+				reason = strings.TrimSpace(input.Reason)
+			}
+			if err := a.config.Admin.SetSuspended(request.Context(), actor, accountID, enable, reason, a.adminIPHash(request)); err != nil {
+				adminStoreError(response, err)
+				return
+			}
+		case "sessions":
+			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			if !ok {
+				return
+			}
+			if err := a.config.Admin.RevokeUserSessions(request.Context(), actor, accountID, a.adminIPHash(request)); err != nil {
+				adminStoreError(response, err)
+				return
+			}
+		case "devices":
+			deviceID := request.PathValue("deviceID")
+			if deviceID == "" {
+				a.notFound(response, request)
+				return
+			}
+			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			if !ok {
+				return
+			}
+			if err := a.config.Admin.RevokeUserDevice(request.Context(), actor, accountID, deviceID, a.adminIPHash(request)); err != nil {
+				adminStoreError(response, err)
+				return
+			}
+		default:
+			a.notFound(response, request)
 			return
 		}
 		response.WriteHeader(http.StatusNoContent)
-		return
 	}
-	if len(parts) == 2 && parts[1] == "sessions" && request.Method == http.MethodDelete {
-		if err := a.config.Admin.RevokeUserSessions(request.Context(), actor, accountID, a.adminIPHash(request)); err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if len(parts) == 3 && parts[1] == "devices" && request.Method == http.MethodDelete {
-		if err := a.config.Admin.RevokeUserDevice(request.Context(), actor, accountID, parts[2], a.adminIPHash(request)); err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
-		return
-	}
-	a.notFound(response, request)
 }
 
 func safeReason(value string) bool {
@@ -175,9 +190,6 @@ func safeReason(value string) bool {
 }
 
 func (a *api) adminFlags(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	account, ok := a.adminForRequest(response, request)
 	if !ok || !(adminstore.Allowed(account.Role, adminstore.PermissionFlagsManage) || account.Role == adminstore.RoleReadonly) {
 		if ok {
@@ -194,24 +206,17 @@ func (a *api) adminFlags(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPatch) {
-		return
-	}
 	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionFlagsManage)
 	if !ok {
 		return
 	}
-	parts := adminPathParts(request.URL.Path, "/v1/admin/flags/")
-	if len(parts) != 1 {
-		a.notFound(response, request)
-		return
-	}
 	var input featureFlagRequest
-	if !decodeAdminJSON(response, request, &input) || !validFeatureFlag(parts[0], input.Value) {
+	key := request.PathValue("key")
+	if !decodeAdminJSON(response, request, &input) || !validFeatureFlag(key, input.Value) {
 		writeError(response, http.StatusBadRequest, "invalid_feature_flag", "That feature flag value is not allowed.")
 		return
 	}
-	if err := a.config.Admin.UpdateFeatureFlag(request.Context(), actor, parts[0], input.Value, a.adminIPHash(request)); err != nil {
+	if err := a.config.Admin.UpdateFeatureFlag(request.Context(), actor, key, input.Value, a.adminIPHash(request)); err != nil {
 		adminStoreError(response, err)
 		return
 	}
@@ -230,9 +235,6 @@ func validFeatureFlag(key, value string) bool {
 }
 
 func (a *api) adminPlans(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	account, ok := a.adminForRequest(response, request)
 	if !ok || !(adminstore.Allowed(account.Role, adminstore.PermissionPlansWrite) || account.Role == adminstore.RoleReadonly) {
 		if ok {
@@ -249,23 +251,15 @@ func (a *api) adminPlans(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminPlan(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPatch) {
-		return
-	}
 	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionPlansWrite)
 	if !ok {
-		return
-	}
-	parts := adminPathParts(request.URL.Path, "/v1/admin/plans/")
-	if len(parts) != 1 {
-		a.notFound(response, request)
 		return
 	}
 	var input adminstore.Plan
 	if !decodeAdminJSON(response, request, &input) {
 		return
 	}
-	input.ID = parts[0]
+	input.ID = request.PathValue("planID")
 	if !validPlan(input) {
 		writeError(response, http.StatusBadRequest, "invalid_plan", "The plan fields are invalid.")
 		return
@@ -293,9 +287,6 @@ func validPlan(plan adminstore.Plan) bool {
 }
 
 func (a *api) adminReleases(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	account, ok := a.adminForRequest(response, request)
 	if !ok || !(adminstore.Allowed(account.Role, adminstore.PermissionReleaseWrite) || account.Role == adminstore.RoleReadonly) {
 		if ok {
@@ -312,23 +303,15 @@ func (a *api) adminReleases(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) adminRelease(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPut) {
-		return
-	}
 	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
-		return
-	}
-	parts := adminPathParts(request.URL.Path, "/v1/admin/releases/")
-	if len(parts) != 1 {
-		a.notFound(response, request)
 		return
 	}
 	var input adminstore.Release
 	if !decodeAdminJSON(response, request, &input) {
 		return
 	}
-	input.Platform = parts[0]
+	input.Platform = request.PathValue("platform")
 	if !validRelease(input) {
 		writeError(response, http.StatusBadRequest, "invalid_release", "Release metadata must be complete, signed, and use HTTPS URLs before it can be saved.")
 		return
@@ -359,29 +342,25 @@ func validRelease(release adminstore.Release) bool {
 }
 
 func (a *api) adminAccounts(response http.ResponseWriter, request *http.Request) {
-	if request.Method == http.MethodGet {
-		actor, ok := a.adminForRequest(response, request)
-		if !ok {
-			return
-		}
-		if !adminstore.Allowed(actor.Role, adminstore.PermissionAdminsManage) && actor.Role != adminstore.RoleReadonly {
-			writeError(response, http.StatusForbidden, "admin_forbidden", "Your admin role cannot view administrators.")
-			return
-		}
-		admins, err := a.config.Admin.Admins(request.Context())
-		if err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		writeJSON(response, http.StatusOK, map[string]any{"admins": admins})
-		return
-	}
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	actor, ok := a.adminForRequest(response, request)
 	if !ok {
 		return
 	}
-	if request.Method != http.MethodPost {
-		allowMethod(response, request, http.MethodPost)
+	if !adminstore.Allowed(actor.Role, adminstore.PermissionAdminsManage) && actor.Role != adminstore.RoleReadonly {
+		writeError(response, http.StatusForbidden, "admin_forbidden", "Your admin role cannot view administrators.")
+		return
+	}
+	admins, err := a.config.Admin.Admins(request.Context())
+	if err != nil {
+		adminStoreError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"admins": admins})
+}
+
+func (a *api) inviteAdminAccount(response http.ResponseWriter, request *http.Request) {
+	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	if !ok {
 		return
 	}
 	var input inviteAdminRequest
@@ -402,26 +381,21 @@ func (a *api) adminAccounts(response http.ResponseWriter, request *http.Request)
 	writeJSON(response, http.StatusCreated, map[string]any{"admin": created, "setupUrl": setupURL, "expiresAt": time.Now().UTC().Add(time.Hour)})
 }
 
-func (a *api) adminAccountRoute(response http.ResponseWriter, request *http.Request) {
+func (a *api) deleteAdminAccount(response http.ResponseWriter, request *http.Request) {
 	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
 	if !ok {
 		return
 	}
-	parts := adminPathParts(request.URL.Path, "/v1/admin/admins/")
-	if len(parts) != 1 {
-		a.notFound(response, request)
+	if err := a.config.Admin.DeleteAdmin(request.Context(), actor, request.PathValue("adminID"), a.adminIPHash(request)); err != nil {
+		adminStoreError(response, err)
 		return
 	}
-	if request.Method == http.MethodDelete {
-		if err := a.config.Admin.DeleteAdmin(request.Context(), actor, parts[0], a.adminIPHash(request)); err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
-		return
-	}
-	if request.Method != http.MethodPatch {
-		allowMethod(response, request, http.MethodPatch)
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (a *api) updateAdminAccount(response http.ResponseWriter, request *http.Request) {
+	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	if !ok {
 		return
 	}
 	var input updateAdminRequest
@@ -429,7 +403,7 @@ func (a *api) adminAccountRoute(response http.ResponseWriter, request *http.Requ
 		writeError(response, http.StatusBadRequest, "invalid_admin_update", "Use a valid admin role and suspension state.")
 		return
 	}
-	if err := a.config.Admin.UpdateAdmin(request.Context(), actor, parts[0], input.Role, input.Suspended, a.adminIPHash(request)); err != nil {
+	if err := a.config.Admin.UpdateAdmin(request.Context(), actor, request.PathValue("adminID"), input.Role, input.Suspended, a.adminIPHash(request)); err != nil {
 		adminStoreError(response, err)
 		return
 	}
@@ -437,9 +411,6 @@ func (a *api) adminAccountRoute(response http.ResponseWriter, request *http.Requ
 }
 
 func (a *api) adminAudit(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAuditAll)
 	if !ok {
 		return
@@ -448,9 +419,6 @@ func (a *api) adminAudit(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminAuditMe(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	actor, ok := a.adminForRequest(response, request)
 	if !ok {
 		return
@@ -494,9 +462,6 @@ func adminAuditFilter(response http.ResponseWriter, request *http.Request) (admi
 }
 
 func (a *api) adminAuditExport(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAuditAll)
 	if !ok {
 		return
@@ -545,9 +510,6 @@ func csvSafe(value string) string {
 }
 
 func (a *api) adminSystemHealth(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
 		return
 	}
@@ -564,9 +526,6 @@ func (a *api) adminSystemHealth(response http.ResponseWriter, request *http.Requ
 }
 
 func (a *api) adminRateLimits(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
 		return
 	}
@@ -579,9 +538,6 @@ func (a *api) adminRateLimits(response http.ResponseWriter, request *http.Reques
 }
 
 func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
 		return
 	}
@@ -599,9 +555,6 @@ func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Requ
 }
 
 func (a *api) adminOverview(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	if _, ok := a.adminForRequest(response, request); !ok {
 		return
 	}
@@ -634,9 +587,6 @@ type ticketPriorityRequest struct {
 }
 
 func (a *api) adminSupportTickets(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	actor, ok := a.adminForRequest(response, request)
 	if !ok {
 		return
@@ -681,33 +631,40 @@ func (a *api) adminSupportTickets(response http.ResponseWriter, request *http.Re
 	writeJSON(response, http.StatusOK, map[string]any{"tickets": tickets, "page": page, "size": size, "total": total})
 }
 
-func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *http.Request) {
-	parts := adminPathParts(request.URL.Path, "/v1/admin/support/")
-	if len(parts) == 0 || parts[0] == "" {
+func (a *api) adminSupportTicketView(response http.ResponseWriter, request *http.Request) {
+	ticketID := request.PathValue("ticketID")
+	if ticketID == "" {
 		a.notFound(response, request)
 		return
 	}
-	ticketID := parts[0]
-
-	if len(parts) == 1 && request.Method == http.MethodGet {
-		actor, ok := a.adminForRequest(response, request)
-		if !ok {
-			return
-		}
-		if !adminstore.Allowed(actor.Role, adminstore.PermissionSupportRead) {
-			writeError(response, http.StatusForbidden, "admin_forbidden", "Your admin role cannot view support tickets.")
-			return
-		}
-		ticket, err := a.config.Admin.Ticket(request.Context(), ticketID)
-		if err != nil {
-			adminStoreError(response, err)
-			return
-		}
-		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
+	actor, ok := a.adminForRequest(response, request)
+	if !ok {
 		return
 	}
+	if !adminstore.Allowed(actor.Role, adminstore.PermissionSupportRead) {
+		writeError(response, http.StatusForbidden, "admin_forbidden", "Your admin role cannot view support tickets.")
+		return
+	}
+	ticket, err := a.config.Admin.Ticket(request.Context(), ticketID)
+	if err != nil {
+		adminStoreError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
+}
 
-	if len(parts) == 2 && parts[1] == "reply" && request.Method == http.MethodPost {
+func (a *api) adminSupportTicketAction(action string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		request.SetPathValue("action", action)
+		a.adminSupportTicketRoute(response, request)
+	}
+}
+
+func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *http.Request) {
+	ticketID := request.PathValue("ticketID")
+	action := request.PathValue("action")
+
+	if action == "reply" {
 		actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportManage)
 		if !ok {
 			return
@@ -751,7 +708,7 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 		return
 	}
 
-	if len(parts) == 2 && parts[1] == "notes" && request.Method == http.MethodPost {
+	if action == "notes" {
 		actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportManage)
 		if !ok {
 			return
@@ -778,7 +735,7 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 		return
 	}
 
-	if len(parts) == 2 && parts[1] == "assign" && request.Method == http.MethodPost {
+	if action == "assign" {
 		actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportManage)
 		if !ok {
 			return
@@ -796,7 +753,7 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 		return
 	}
 
-	if len(parts) == 2 && parts[1] == "status" && request.Method == http.MethodPost {
+	if action == "status" {
 		actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportManage)
 		if !ok {
 			return
@@ -814,7 +771,7 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 		return
 	}
 
-	if len(parts) == 2 && parts[1] == "priority" && request.Method == http.MethodPost {
+	if action == "priority" {
 		actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportManage)
 		if !ok {
 			return
@@ -837,9 +794,6 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 
 // Only id and email, and only for roles AssignTicket would accept as a target.
 func (a *api) adminSupportAssignees(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	actor, ok := a.adminForRequest(response, request)
 	if !ok {
 		return

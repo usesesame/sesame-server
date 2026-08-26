@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
-	"strings"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
@@ -37,32 +36,49 @@ type adminSetupRequest struct {
 }
 
 func (a *api) registerAdminRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/v1/admin/auth/csrf", a.adminCSRF)
-	mux.HandleFunc("/v1/admin/auth/login", a.adminLogin)
-	mux.HandleFunc("/v1/admin/auth/logout", a.adminLogout)
-	mux.HandleFunc("/v1/admin/auth/me", a.adminMe)
-	mux.HandleFunc("/v1/admin/auth/setup/begin", a.adminSetupBegin)
-	mux.HandleFunc("/v1/admin/auth/setup/complete", a.adminSetupComplete)
-	mux.HandleFunc("/v1/admin/overview", a.adminOverview)
-	mux.HandleFunc("/v1/admin/users", a.adminUsers)
-	mux.HandleFunc("/v1/admin/users/", a.adminUserRoute)
-	mux.HandleFunc("/v1/admin/flags", a.adminFlags)
-	mux.HandleFunc("/v1/admin/flags/", a.adminFlag)
-	mux.HandleFunc("/v1/admin/releases", a.adminReleases)
-	mux.HandleFunc("/v1/admin/releases/", a.adminRelease)
-	mux.HandleFunc("/v1/admin/plans", a.adminPlans)
-	mux.HandleFunc("/v1/admin/plans/", a.adminPlan)
-	mux.HandleFunc("/v1/admin/admins", a.adminAccounts)
-	mux.HandleFunc("/v1/admin/admins/", a.adminAccountRoute)
-	mux.HandleFunc("/v1/admin/audit", a.adminAudit)
-	mux.HandleFunc("/v1/admin/audit/me", a.adminAuditMe)
-	mux.HandleFunc("/v1/admin/audit/export", a.adminAuditExport)
-	mux.HandleFunc("/v1/admin/system/health", a.adminSystemHealth)
-	mux.HandleFunc("/v1/admin/system/rate-limits", a.adminRateLimits)
-	mux.HandleFunc("/v1/admin/system/config", a.adminSystemConfig)
-	mux.HandleFunc("/v1/admin/support", a.adminSupportTickets)
-	mux.HandleFunc("/v1/admin/support/assignees", a.adminSupportAssignees)
-	mux.HandleFunc("/v1/admin/support/", a.adminSupportTicketRoute)
+	admin := routePolicy{audience: audienceAdminConsole}
+	a.route(mux, admin, "GET /v1/admin/auth/csrf", a.adminCSRF)
+	a.route(mux, admin, "POST /v1/admin/auth/login", a.adminLogin)
+	a.route(mux, admin, "POST /v1/admin/auth/logout", a.adminLogout)
+	a.route(mux, admin, "GET /v1/admin/auth/me", a.adminMe)
+	a.route(mux, admin, "POST /v1/admin/auth/setup/begin", a.adminSetupBegin)
+	a.route(mux, admin, "POST /v1/admin/auth/setup/complete", a.adminSetupComplete)
+	a.route(mux, admin, "GET /v1/admin/overview", a.adminOverview)
+	a.route(mux, admin, "GET /v1/admin/users", a.adminUsers)
+	a.route(mux, admin, "GET /v1/admin/users/{accountID}", a.adminUserView)
+	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}", a.adminUserDelete)
+	a.route(mux, admin, "POST /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", true))
+	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", false))
+	a.route(mux, admin, "POST /v1/admin/users/{accountID}/beta", a.adminUserAction("beta", true))
+	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/beta", a.adminUserAction("beta", false))
+	a.route(mux, admin, "POST /v1/admin/users/{accountID}/suspend", a.adminUserAction("suspend", true))
+	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/suspend", a.adminUserAction("suspend", false))
+	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/sessions", a.adminUserAction("sessions", false))
+	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/devices/{deviceID}", a.adminUserAction("devices", false))
+	a.route(mux, admin, "GET /v1/admin/flags", a.adminFlags)
+	a.route(mux, admin, "PATCH /v1/admin/flags/{key}", a.adminFlag)
+	a.route(mux, admin, "GET /v1/admin/releases", a.adminReleases)
+	a.route(mux, admin, "PUT /v1/admin/releases/{platform}", a.adminRelease)
+	a.route(mux, admin, "GET /v1/admin/plans", a.adminPlans)
+	a.route(mux, admin, "PATCH /v1/admin/plans/{planID}", a.adminPlan)
+	a.route(mux, admin, "GET /v1/admin/admins", a.adminAccounts)
+	a.route(mux, admin, "POST /v1/admin/admins", a.inviteAdminAccount)
+	a.route(mux, admin, "DELETE /v1/admin/admins/{adminID}", a.deleteAdminAccount)
+	a.route(mux, admin, "PATCH /v1/admin/admins/{adminID}", a.updateAdminAccount)
+	a.route(mux, admin, "GET /v1/admin/audit", a.adminAudit)
+	a.route(mux, admin, "GET /v1/admin/audit/me", a.adminAuditMe)
+	a.route(mux, admin, "GET /v1/admin/audit/export", a.adminAuditExport)
+	a.route(mux, admin, "GET /v1/admin/system/health", a.adminSystemHealth)
+	a.route(mux, admin, "GET /v1/admin/system/rate-limits", a.adminRateLimits)
+	a.route(mux, admin, "GET /v1/admin/system/config", a.adminSystemConfig)
+	a.route(mux, admin, "GET /v1/admin/support", a.adminSupportTickets)
+	a.route(mux, admin, "GET /v1/admin/support/assignees", a.adminSupportAssignees)
+	a.route(mux, admin, "GET /v1/admin/support/{ticketID}", a.adminSupportTicketView)
+	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/reply", a.adminSupportTicketAction("reply"))
+	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/notes", a.adminSupportTicketAction("notes"))
+	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/assign", a.adminSupportTicketAction("assign"))
+	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/status", a.adminSupportTicketAction("status"))
+	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/priority", a.adminSupportTicketAction("priority"))
 }
 
 func (a *api) requireAdminStore(response http.ResponseWriter) (*adminstore.Store, bool) {
@@ -74,9 +90,6 @@ func (a *api) requireAdminStore(response http.ResponseWriter) (*adminstore.Store
 }
 
 func (a *api) adminCSRF(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		writeError(response, http.StatusServiceUnavailable, "csrf_unavailable", "The admin security token is temporarily unavailable.")
@@ -109,9 +122,6 @@ func (a *api) adminIPHash(request *http.Request) string {
 }
 
 func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	store, ok := a.requireAdminStore(response)
 	if !ok {
 		return
@@ -173,9 +183,6 @@ func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminSetupBegin(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	if !a.allowRequest(response, request, "admin-setup-begin", 10, time.Minute) {
 		return
 	}
@@ -201,9 +208,6 @@ func (a *api) adminSetupBegin(response http.ResponseWriter, request *http.Reques
 }
 
 func (a *api) adminSetupComplete(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	if !a.allowRequest(response, request, "admin-setup-complete", 5, time.Minute) {
 		return
 	}
@@ -273,9 +277,6 @@ func (a *api) requireAdminPermission(response http.ResponseWriter, request *http
 }
 
 func (a *api) adminMe(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	account, ok := a.adminForRequest(response, request)
 	if ok {
 		writeJSON(response, http.StatusOK, map[string]any{"admin": account})
@@ -283,9 +284,6 @@ func (a *api) adminMe(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminLogout(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	store, ok := a.requireAdminStore(response)
 	if !ok {
 		return
@@ -353,14 +351,6 @@ func containsVaultShapedField(value any) bool {
 		}
 	}
 	return false
-}
-
-func adminPathParts(path, prefix string) []string {
-	trimmed := strings.Trim(strings.TrimPrefix(path, prefix), "/")
-	if trimmed == "" {
-		return nil
-	}
-	return strings.Split(trimmed, "/")
 }
 
 func adminStoreError(response http.ResponseWriter, err error) {

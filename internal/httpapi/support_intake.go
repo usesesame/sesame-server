@@ -32,7 +32,7 @@ var (
 )
 
 func (a *api) createSupportRequest(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowRequest(response, request, "support", 5, time.Hour) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "support", 5, time.Hour) {
 		return
 	}
 	if strings.HasPrefix(strings.ToLower(request.Header.Get("Content-Type")), "multipart/") {

@@ -278,7 +278,7 @@
     "/v1/account/desktop-link": {
       "get": {
         "operationId": "getV1AccountDesktopLink",
-        "summary": "GET create desktop link",
+        "summary": "GET desktop link status",
         "tags": [
           "account"
         ],
@@ -305,12 +305,12 @@
         },
         "x-sesame-auth": "browser-session",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "createDesktopLink",
+        "x-sesame-handler": "desktopLinkStatus",
         "x-sesame-registration-pattern": "/v1/account/desktop-link"
       },
       "post": {
         "operationId": "postV1AccountDesktopLink",
-        "summary": "POST create desktop link",
+        "summary": "POST regenerate desktop link",
         "tags": [
           "account"
         ],
@@ -339,12 +339,12 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "createDesktopLink",
+        "x-sesame-handler": "regenerateDesktopLink",
         "x-sesame-registration-pattern": "/v1/account/desktop-link"
       },
       "delete": {
         "operationId": "deleteV1AccountDesktopLink",
-        "summary": "DELETE create desktop link",
+        "summary": "DELETE cancel desktop link",
         "tags": [
           "account"
         ],
@@ -373,7 +373,7 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "createDesktopLink",
+        "x-sesame-handler": "cancelDesktopLink",
         "x-sesame-registration-pattern": "/v1/account/desktop-link"
       }
     },
@@ -411,10 +411,10 @@
         "x-sesame-registration-pattern": "/v1/account/devices"
       }
     },
-    "/v1/account/devices/{deviceId}": {
+    "/v1/account/devices/{deviceID}": {
       "delete": {
-        "operationId": "deleteV1AccountDevicesDeviceId",
-        "summary": "DELETE account device",
+        "operationId": "deleteV1AccountDevicesDeviceID",
+        "summary": "DELETE revoke account device",
         "tags": [
           "account"
         ],
@@ -427,7 +427,7 @@
         ],
         "parameters": [
           {
-            "name": "deviceId",
+            "name": "deviceID",
             "in": "path",
             "required": true,
             "description": "Opaque device id.",
@@ -454,12 +454,12 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "accountDevice",
-        "x-sesame-registration-pattern": "/v1/account/devices/"
+        "x-sesame-handler": "revokeAccountDevice",
+        "x-sesame-registration-pattern": "/v1/account/devices/{deviceID}"
       },
       "patch": {
-        "operationId": "patchV1AccountDevicesDeviceId",
-        "summary": "PATCH account device",
+        "operationId": "patchV1AccountDevicesDeviceID",
+        "summary": "PATCH rename account device",
         "tags": [
           "account"
         ],
@@ -472,7 +472,7 @@
         ],
         "parameters": [
           {
-            "name": "deviceId",
+            "name": "deviceID",
             "in": "path",
             "required": true,
             "description": "Opaque device id.",
@@ -499,8 +499,8 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "accountDevice",
-        "x-sesame-registration-pattern": "/v1/account/devices/"
+        "x-sesame-handler": "renameAccountDevice",
+        "x-sesame-registration-pattern": "/v1/account/devices/{deviceID}"
       }
     },
     "/v1/account/download-tickets": {
@@ -680,7 +680,7 @@
       },
       "patch": {
         "operationId": "patchV1AccountNotifications",
-        "summary": "PATCH account notification preferences",
+        "summary": "PATCH update account notification preferences",
         "tags": [
           "account"
         ],
@@ -709,7 +709,7 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "accountNotificationPreferences",
+        "x-sesame-handler": "updateAccountNotificationPreferences",
         "x-sesame-registration-pattern": "/v1/account/notifications"
       }
     },
@@ -788,7 +788,7 @@
     "/v1/account/passkeys": {
       "get": {
         "operationId": "getV1AccountPasskeys",
-        "summary": "GET passkeys",
+        "summary": "GET list passkeys",
         "tags": [
           "account"
         ],
@@ -815,12 +815,12 @@
         },
         "x-sesame-auth": "browser-session",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "passkeys",
+        "x-sesame-handler": "listPasskeys",
         "x-sesame-registration-pattern": "/v1/account/passkeys"
       },
       "delete": {
         "operationId": "deleteV1AccountPasskeys",
-        "summary": "DELETE passkeys",
+        "summary": "DELETE delete passkey",
         "tags": [
           "account"
         ],
@@ -849,7 +849,7 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "passkeys",
+        "x-sesame-handler": "deletePasskey",
         "x-sesame-registration-pattern": "/v1/account/passkeys"
       }
     },
@@ -928,7 +928,7 @@
     "/v1/account/sessions": {
       "get": {
         "operationId": "getV1AccountSessions",
-        "summary": "GET account sessions",
+        "summary": "GET list account sessions",
         "tags": [
           "account"
         ],
@@ -955,12 +955,12 @@
         },
         "x-sesame-auth": "browser-session",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "accountSessions",
+        "x-sesame-handler": "listAccountSessions",
         "x-sesame-registration-pattern": "/v1/account/sessions"
       },
       "delete": {
         "operationId": "deleteV1AccountSessions",
-        "summary": "DELETE account sessions",
+        "summary": "DELETE revoke all account sessions",
         "tags": [
           "account"
         ],
@@ -989,13 +989,13 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "accountSessions",
+        "x-sesame-handler": "revokeAllAccountSessions",
         "x-sesame-registration-pattern": "/v1/account/sessions"
       }
     },
-    "/v1/account/sessions/{sessionId}": {
+    "/v1/account/sessions/{sessionID}": {
       "delete": {
-        "operationId": "deleteV1AccountSessionsSessionId",
+        "operationId": "deleteV1AccountSessionsSessionID",
         "summary": "DELETE account session",
         "tags": [
           "account"
@@ -1009,7 +1009,7 @@
         ],
         "parameters": [
           {
-            "name": "sessionId",
+            "name": "sessionID",
             "in": "path",
             "required": true,
             "description": "Opaque session id.",
@@ -1037,7 +1037,7 @@
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
         "x-sesame-handler": "accountSession",
-        "x-sesame-registration-pattern": "/v1/account/sessions/"
+        "x-sesame-registration-pattern": "/v1/account/sessions/{sessionID}"
       }
     },
     "/v1/account/support": {
@@ -1074,9 +1074,9 @@
         "x-sesame-registration-pattern": "/v1/account/support"
       }
     },
-    "/v1/account/support/{ticketId}": {
+    "/v1/account/support/{ticketID}": {
       "get": {
-        "operationId": "getV1AccountSupportTicketId",
+        "operationId": "getV1AccountSupportTicketID",
         "summary": "GET account support ticket",
         "tags": [
           "account"
@@ -1088,7 +1088,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -1116,13 +1116,13 @@
         "x-sesame-auth": "browser-session",
         "x-sesame-availability": "shipped",
         "x-sesame-handler": "accountSupportTicket",
-        "x-sesame-registration-pattern": "/v1/account/support/"
+        "x-sesame-registration-pattern": "/v1/account/support/{ticketID}"
       }
     },
-    "/v1/account/support/{ticketId}/close": {
+    "/v1/account/support/{ticketID}/close": {
       "post": {
-        "operationId": "postV1AccountSupportTicketIdClose",
-        "summary": "POST account support ticket",
+        "operationId": "postV1AccountSupportTicketIDClose",
+        "summary": "POST account support ticket action",
         "tags": [
           "account"
         ],
@@ -1135,7 +1135,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -1162,14 +1162,14 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "accountSupportTicket",
-        "x-sesame-registration-pattern": "/v1/account/support/"
+        "x-sesame-handler": "accountSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/account/support/{ticketID}/close"
       }
     },
-    "/v1/account/support/{ticketId}/reopen": {
+    "/v1/account/support/{ticketID}/reopen": {
       "post": {
-        "operationId": "postV1AccountSupportTicketIdReopen",
-        "summary": "POST account support ticket",
+        "operationId": "postV1AccountSupportTicketIDReopen",
+        "summary": "POST account support ticket action",
         "tags": [
           "account"
         ],
@@ -1182,7 +1182,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -1209,14 +1209,14 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "accountSupportTicket",
-        "x-sesame-registration-pattern": "/v1/account/support/"
+        "x-sesame-handler": "accountSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/account/support/{ticketID}/reopen"
       }
     },
-    "/v1/account/support/{ticketId}/reply": {
+    "/v1/account/support/{ticketID}/reply": {
       "post": {
-        "operationId": "postV1AccountSupportTicketIdReply",
-        "summary": "POST account support ticket",
+        "operationId": "postV1AccountSupportTicketIDReply",
+        "summary": "POST account support ticket action",
         "tags": [
           "account"
         ],
@@ -1229,7 +1229,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -1256,8 +1256,8 @@
         },
         "x-sesame-auth": "browser-session-csrf",
         "x-sesame-availability": "shipped",
-        "x-sesame-handler": "accountSupportTicket",
-        "x-sesame-registration-pattern": "/v1/account/support/"
+        "x-sesame-handler": "accountSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/account/support/{ticketID}/reply"
       }
     },
     "/v1/admin/admins": {
@@ -1295,7 +1295,7 @@
       },
       "post": {
         "operationId": "postV1AdminAdmins",
-        "summary": "POST admin accounts",
+        "summary": "POST invite admin account",
         "tags": [
           "admin"
         ],
@@ -1324,14 +1324,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminAccounts",
+        "x-sesame-handler": "inviteAdminAccount",
         "x-sesame-registration-pattern": "/v1/admin/admins"
       }
     },
-    "/v1/admin/admins/{adminId}": {
+    "/v1/admin/admins/{adminID}": {
       "delete": {
-        "operationId": "deleteV1AdminAdminsAdminId",
-        "summary": "DELETE admin account route",
+        "operationId": "deleteV1AdminAdminsAdminID",
+        "summary": "DELETE delete admin account",
         "tags": [
           "admin"
         ],
@@ -1344,7 +1344,7 @@
         ],
         "parameters": [
           {
-            "name": "adminId",
+            "name": "adminID",
             "in": "path",
             "required": true,
             "description": "Opaque admin id.",
@@ -1371,12 +1371,12 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminAccountRoute",
-        "x-sesame-registration-pattern": "/v1/admin/admins/"
+        "x-sesame-handler": "deleteAdminAccount",
+        "x-sesame-registration-pattern": "/v1/admin/admins/{adminID}"
       },
       "patch": {
-        "operationId": "patchV1AdminAdminsAdminId",
-        "summary": "PATCH admin account route",
+        "operationId": "patchV1AdminAdminsAdminID",
+        "summary": "PATCH update admin account",
         "tags": [
           "admin"
         ],
@@ -1389,7 +1389,7 @@
         ],
         "parameters": [
           {
-            "name": "adminId",
+            "name": "adminID",
             "in": "path",
             "required": true,
             "description": "Opaque admin id.",
@@ -1416,8 +1416,8 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminAccountRoute",
-        "x-sesame-registration-pattern": "/v1/admin/admins/"
+        "x-sesame-handler": "updateAdminAccount",
+        "x-sesame-registration-pattern": "/v1/admin/admins/{adminID}"
       }
     },
     "/v1/admin/audit": {
@@ -1761,9 +1761,9 @@
         "x-sesame-registration-pattern": "/v1/admin/flags"
       }
     },
-    "/v1/admin/flags/{flag}": {
+    "/v1/admin/flags/{key}": {
       "patch": {
-        "operationId": "patchV1AdminFlagsFlag",
+        "operationId": "patchV1AdminFlagsKey",
         "summary": "PATCH admin flag",
         "tags": [
           "admin"
@@ -1777,10 +1777,10 @@
         ],
         "parameters": [
           {
-            "name": "flag",
+            "name": "key",
             "in": "path",
             "required": true,
-            "description": "Opaque flag.",
+            "description": "Opaque key.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -1805,7 +1805,7 @@
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
         "x-sesame-handler": "adminFlag",
-        "x-sesame-registration-pattern": "/v1/admin/flags/"
+        "x-sesame-registration-pattern": "/v1/admin/flags/{key}"
       }
     },
     "/v1/admin/overview": {
@@ -1876,9 +1876,9 @@
         "x-sesame-registration-pattern": "/v1/admin/plans"
       }
     },
-    "/v1/admin/plans/{planId}": {
+    "/v1/admin/plans/{planID}": {
       "patch": {
-        "operationId": "patchV1AdminPlansPlanId",
+        "operationId": "patchV1AdminPlansPlanID",
         "summary": "PATCH admin plan",
         "tags": [
           "admin"
@@ -1892,7 +1892,7 @@
         ],
         "parameters": [
           {
-            "name": "planId",
+            "name": "planID",
             "in": "path",
             "required": true,
             "description": "Opaque plan id.",
@@ -1920,7 +1920,7 @@
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
         "x-sesame-handler": "adminPlan",
-        "x-sesame-registration-pattern": "/v1/admin/plans/"
+        "x-sesame-registration-pattern": "/v1/admin/plans/{planID}"
       }
     },
     "/v1/admin/releases": {
@@ -2001,7 +2001,7 @@
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
         "x-sesame-handler": "adminRelease",
-        "x-sesame-registration-pattern": "/v1/admin/releases/"
+        "x-sesame-registration-pattern": "/v1/admin/releases/{platform}"
       }
     },
     "/v1/admin/support": {
@@ -2038,10 +2038,10 @@
         "x-sesame-registration-pattern": "/v1/admin/support"
       }
     },
-    "/v1/admin/support/{ticketId}": {
+    "/v1/admin/support/{ticketID}": {
       "get": {
-        "operationId": "getV1AdminSupportTicketId",
-        "summary": "GET admin support ticket route",
+        "operationId": "getV1AdminSupportTicketID",
+        "summary": "GET admin support ticket view",
         "tags": [
           "admin"
         ],
@@ -2052,7 +2052,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -2079,14 +2079,14 @@
         },
         "x-sesame-auth": "admin-session",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminSupportTicketRoute",
-        "x-sesame-registration-pattern": "/v1/admin/support/"
+        "x-sesame-handler": "adminSupportTicketView",
+        "x-sesame-registration-pattern": "/v1/admin/support/{ticketID}"
       }
     },
-    "/v1/admin/support/{ticketId}/assign": {
+    "/v1/admin/support/{ticketID}/assign": {
       "post": {
-        "operationId": "postV1AdminSupportTicketIdAssign",
-        "summary": "POST admin support ticket route",
+        "operationId": "postV1AdminSupportTicketIDAssign",
+        "summary": "POST admin support ticket action",
         "tags": [
           "admin"
         ],
@@ -2099,7 +2099,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -2126,14 +2126,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminSupportTicketRoute",
-        "x-sesame-registration-pattern": "/v1/admin/support/"
+        "x-sesame-handler": "adminSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/admin/support/{ticketID}/assign"
       }
     },
-    "/v1/admin/support/{ticketId}/notes": {
+    "/v1/admin/support/{ticketID}/notes": {
       "post": {
-        "operationId": "postV1AdminSupportTicketIdNotes",
-        "summary": "POST admin support ticket route",
+        "operationId": "postV1AdminSupportTicketIDNotes",
+        "summary": "POST admin support ticket action",
         "tags": [
           "admin"
         ],
@@ -2146,7 +2146,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -2173,14 +2173,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminSupportTicketRoute",
-        "x-sesame-registration-pattern": "/v1/admin/support/"
+        "x-sesame-handler": "adminSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/admin/support/{ticketID}/notes"
       }
     },
-    "/v1/admin/support/{ticketId}/reply": {
+    "/v1/admin/support/{ticketID}/priority": {
       "post": {
-        "operationId": "postV1AdminSupportTicketIdReply",
-        "summary": "POST admin support ticket route",
+        "operationId": "postV1AdminSupportTicketIDPriority",
+        "summary": "POST admin support ticket action",
         "tags": [
           "admin"
         ],
@@ -2193,7 +2193,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -2220,14 +2220,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminSupportTicketRoute",
-        "x-sesame-registration-pattern": "/v1/admin/support/"
+        "x-sesame-handler": "adminSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/admin/support/{ticketID}/priority"
       }
     },
-    "/v1/admin/support/{ticketId}/status": {
+    "/v1/admin/support/{ticketID}/reply": {
       "post": {
-        "operationId": "postV1AdminSupportTicketIdStatus",
-        "summary": "POST admin support ticket route",
+        "operationId": "postV1AdminSupportTicketIDReply",
+        "summary": "POST admin support ticket action",
         "tags": [
           "admin"
         ],
@@ -2240,7 +2240,7 @@
         ],
         "parameters": [
           {
-            "name": "ticketId",
+            "name": "ticketID",
             "in": "path",
             "required": true,
             "description": "Opaque ticket id.",
@@ -2267,8 +2267,55 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminSupportTicketRoute",
-        "x-sesame-registration-pattern": "/v1/admin/support/"
+        "x-sesame-handler": "adminSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/admin/support/{ticketID}/reply"
+      }
+    },
+    "/v1/admin/support/{ticketID}/status": {
+      "post": {
+        "operationId": "postV1AdminSupportTicketIDStatus",
+        "summary": "POST admin support ticket action",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/admin/support/{ticketID}/status"
       }
     },
     "/v1/admin/support/assignees": {
@@ -2441,10 +2488,10 @@
         "x-sesame-registration-pattern": "/v1/admin/users"
       }
     },
-    "/v1/admin/users/{accountId}": {
+    "/v1/admin/users/{accountID}": {
       "get": {
-        "operationId": "getV1AdminUsersAccountId",
-        "summary": "GET admin user route",
+        "operationId": "getV1AdminUsersAccountID",
+        "summary": "GET admin user view",
         "tags": [
           "admin"
         ],
@@ -2455,7 +2502,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2482,12 +2529,12 @@
         },
         "x-sesame-auth": "admin-session",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserView",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}"
       },
       "delete": {
-        "operationId": "deleteV1AdminUsersAccountId",
-        "summary": "DELETE admin user route",
+        "operationId": "deleteV1AdminUsersAccountID",
+        "summary": "DELETE admin user delete",
         "tags": [
           "admin"
         ],
@@ -2500,7 +2547,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2527,14 +2574,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserDelete",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}"
       }
     },
-    "/v1/admin/users/{accountId}/beta": {
+    "/v1/admin/users/{accountID}/beta": {
       "post": {
-        "operationId": "postV1AdminUsersAccountIdBeta",
-        "summary": "POST admin user route",
+        "operationId": "postV1AdminUsersAccountIDBeta",
+        "summary": "POST admin user action",
         "tags": [
           "admin"
         ],
@@ -2547,7 +2594,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2574,12 +2621,12 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserAction",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}/beta"
       },
       "delete": {
-        "operationId": "deleteV1AdminUsersAccountIdBeta",
-        "summary": "DELETE admin user route",
+        "operationId": "deleteV1AdminUsersAccountIDBeta",
+        "summary": "DELETE admin user action",
         "tags": [
           "admin"
         ],
@@ -2592,7 +2639,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2619,14 +2666,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserAction",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}/beta"
       }
     },
-    "/v1/admin/users/{accountId}/devices/{deviceId}": {
+    "/v1/admin/users/{accountID}/devices/{deviceID}": {
       "delete": {
-        "operationId": "deleteV1AdminUsersAccountIdDevicesDeviceId",
-        "summary": "DELETE admin user route",
+        "operationId": "deleteV1AdminUsersAccountIDDevicesDeviceID",
+        "summary": "DELETE admin user action",
         "tags": [
           "admin"
         ],
@@ -2639,7 +2686,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2649,7 +2696,7 @@
             }
           },
           {
-            "name": "deviceId",
+            "name": "deviceID",
             "in": "path",
             "required": true,
             "description": "Opaque device id.",
@@ -2676,14 +2723,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserAction",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}/devices/{deviceID}"
       }
     },
-    "/v1/admin/users/{accountId}/owner-release": {
+    "/v1/admin/users/{accountID}/owner-release": {
       "post": {
-        "operationId": "postV1AdminUsersAccountIdOwnerRelease",
-        "summary": "POST admin user route",
+        "operationId": "postV1AdminUsersAccountIDOwnerRelease",
+        "summary": "POST admin user action",
         "tags": [
           "admin"
         ],
@@ -2696,7 +2743,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2723,12 +2770,12 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserAction",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}/owner-release"
       },
       "delete": {
-        "operationId": "deleteV1AdminUsersAccountIdOwnerRelease",
-        "summary": "DELETE admin user route",
+        "operationId": "deleteV1AdminUsersAccountIDOwnerRelease",
+        "summary": "DELETE admin user action",
         "tags": [
           "admin"
         ],
@@ -2741,7 +2788,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2768,14 +2815,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserAction",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}/owner-release"
       }
     },
-    "/v1/admin/users/{accountId}/sessions": {
+    "/v1/admin/users/{accountID}/sessions": {
       "delete": {
-        "operationId": "deleteV1AdminUsersAccountIdSessions",
-        "summary": "DELETE admin user route",
+        "operationId": "deleteV1AdminUsersAccountIDSessions",
+        "summary": "DELETE admin user action",
         "tags": [
           "admin"
         ],
@@ -2788,7 +2835,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2815,14 +2862,14 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserAction",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}/sessions"
       }
     },
-    "/v1/admin/users/{accountId}/suspend": {
+    "/v1/admin/users/{accountID}/suspend": {
       "post": {
-        "operationId": "postV1AdminUsersAccountIdSuspend",
-        "summary": "POST admin user route",
+        "operationId": "postV1AdminUsersAccountIDSuspend",
+        "summary": "POST admin user action",
         "tags": [
           "admin"
         ],
@@ -2835,7 +2882,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2862,12 +2909,12 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserAction",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}/suspend"
       },
       "delete": {
-        "operationId": "deleteV1AdminUsersAccountIdSuspend",
-        "summary": "DELETE admin user route",
+        "operationId": "deleteV1AdminUsersAccountIDSuspend",
+        "summary": "DELETE admin user action",
         "tags": [
           "admin"
         ],
@@ -2880,7 +2927,7 @@
         ],
         "parameters": [
           {
-            "name": "accountId",
+            "name": "accountID",
             "in": "path",
             "required": true,
             "description": "Opaque account id.",
@@ -2907,8 +2954,8 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminUserRoute",
-        "x-sesame-registration-pattern": "/v1/admin/users/"
+        "x-sesame-handler": "adminUserAction",
+        "x-sesame-registration-pattern": "/v1/admin/users/{accountID}/suspend"
       }
     },
     "/v1/auth/csrf": {
@@ -3560,7 +3607,7 @@
         "x-sesame-auth": "desktop-token",
         "x-sesame-availability": "shipped",
         "x-sesame-handler": "redeemDesktopUpdateTicket",
-        "x-sesame-registration-pattern": "/v1/desktop/update-tickets/"
+        "x-sesame-registration-pattern": "/v1/desktop/update-tickets/{ticket}"
       }
     },
     "/v1/desktop/updates": {
@@ -3639,7 +3686,7 @@
         "x-sesame-auth": "browser-session",
         "x-sesame-availability": "shipped",
         "x-sesame-handler": "redeemDownloadTicket",
-        "x-sesame-registration-pattern": "/v1/downloads/"
+        "x-sesame-registration-pattern": "/v1/downloads/{ticket}"
       }
     },
     "/v1/plans": {
@@ -3929,10 +3976,10 @@
         "x-sesame-registration-pattern": "/v1/sync/devices"
       }
     },
-    "/v1/sync/devices/{deviceId}": {
+    "/v1/sync/devices/{deviceID}": {
       "delete": {
-        "operationId": "deleteV1SyncDevicesDeviceId",
-        "summary": "DELETE sync device route",
+        "operationId": "deleteV1SyncDevicesDeviceID",
+        "summary": "DELETE sync revoke device route",
         "tags": [
           "sync-disabled"
         ],
@@ -3943,7 +3990,7 @@
         ],
         "parameters": [
           {
-            "name": "deviceId",
+            "name": "deviceID",
             "in": "path",
             "required": true,
             "description": "Opaque device id.",
@@ -3970,14 +4017,14 @@
         },
         "x-sesame-auth": "desktop-token-built-disabled",
         "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncDeviceRoute",
-        "x-sesame-registration-pattern": "/v1/sync/devices/"
+        "x-sesame-handler": "syncRevokeDeviceRoute",
+        "x-sesame-registration-pattern": "/v1/sync/devices/{deviceID}"
       }
     },
-    "/v1/sync/devices/{deviceId}/approve": {
+    "/v1/sync/devices/{deviceID}/approve": {
       "post": {
-        "operationId": "postV1SyncDevicesDeviceIdApprove",
-        "summary": "POST sync device route",
+        "operationId": "postV1SyncDevicesDeviceIDApprove",
+        "summary": "POST sync approve device route",
         "tags": [
           "sync-disabled"
         ],
@@ -3988,7 +4035,7 @@
         ],
         "parameters": [
           {
-            "name": "deviceId",
+            "name": "deviceID",
             "in": "path",
             "required": true,
             "description": "Opaque device id.",
@@ -4015,14 +4062,14 @@
         },
         "x-sesame-auth": "desktop-token-built-disabled",
         "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncDeviceRoute",
-        "x-sesame-registration-pattern": "/v1/sync/devices/"
+        "x-sesame-handler": "syncApproveDeviceRoute",
+        "x-sesame-registration-pattern": "/v1/sync/devices/{deviceID}/approve"
       }
     },
-    "/v1/sync/devices/{deviceId}/deny": {
+    "/v1/sync/devices/{deviceID}/deny": {
       "post": {
-        "operationId": "postV1SyncDevicesDeviceIdDeny",
-        "summary": "POST sync device route",
+        "operationId": "postV1SyncDevicesDeviceIDDeny",
+        "summary": "POST sync deny device route",
         "tags": [
           "sync-disabled"
         ],
@@ -4033,7 +4080,7 @@
         ],
         "parameters": [
           {
-            "name": "deviceId",
+            "name": "deviceID",
             "in": "path",
             "required": true,
             "description": "Opaque device id.",
@@ -4060,14 +4107,14 @@
         },
         "x-sesame-auth": "desktop-token-built-disabled",
         "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncDeviceRoute",
-        "x-sesame-registration-pattern": "/v1/sync/devices/"
+        "x-sesame-handler": "syncDenyDeviceRoute",
+        "x-sesame-registration-pattern": "/v1/sync/devices/{deviceID}/deny"
       }
     },
-    "/v1/sync/devices/{deviceId}/rekey": {
+    "/v1/sync/devices/{deviceID}/rekey": {
       "post": {
-        "operationId": "postV1SyncDevicesDeviceIdRekey",
-        "summary": "POST sync device route",
+        "operationId": "postV1SyncDevicesDeviceIDRekey",
+        "summary": "POST sync rekey device route",
         "tags": [
           "sync-disabled"
         ],
@@ -4078,7 +4125,7 @@
         ],
         "parameters": [
           {
-            "name": "deviceId",
+            "name": "deviceID",
             "in": "path",
             "required": true,
             "description": "Opaque device id.",
@@ -4105,8 +4152,8 @@
         },
         "x-sesame-auth": "desktop-token-built-disabled",
         "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncDeviceRoute",
-        "x-sesame-registration-pattern": "/v1/sync/devices/"
+        "x-sesame-handler": "syncRekeyDeviceRoute",
+        "x-sesame-registration-pattern": "/v1/sync/devices/{deviceID}/rekey"
       }
     },
     "/v1/sync/enroll/begin": {
@@ -4180,7 +4227,7 @@
     "/v1/sync/envelope": {
       "get": {
         "operationId": "getV1SyncEnvelope",
-        "summary": "GET sync envelope",
+        "summary": "GET sync download envelope handler",
         "tags": [
           "sync-disabled"
         ],
@@ -4207,12 +4254,12 @@
         },
         "x-sesame-auth": "desktop-token-built-disabled",
         "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncEnvelope",
+        "x-sesame-handler": "syncDownloadEnvelopeHandler",
         "x-sesame-registration-pattern": "/v1/sync/envelope"
       },
       "post": {
         "operationId": "postV1SyncEnvelope",
-        "summary": "POST sync envelope",
+        "summary": "POST sync upload envelope handler",
         "tags": [
           "sync-disabled"
         ],
@@ -4239,7 +4286,7 @@
         },
         "x-sesame-auth": "desktop-token-built-disabled",
         "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncEnvelope",
+        "x-sesame-handler": "syncUploadEnvelopeHandler",
         "x-sesame-registration-pattern": "/v1/sync/envelope"
       }
     },
@@ -4390,5 +4437,5 @@
     "internal/httpapi/admin_auth.go",
     "internal/httpapi/sync_routes.go"
   ],
-  "x-sesame-operation-count": 114
+  "x-sesame-operation-count": 115
 }

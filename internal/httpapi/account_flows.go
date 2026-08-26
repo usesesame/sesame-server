@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/releases"
 )
 
 const (
@@ -68,9 +69,6 @@ type downloadTicketRequest struct {
 }
 
 func (a *api) registrationStatus(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	mode := a.runtimeRegistrationMode(request.Context())
 	_, securityReady := a.config.Accounts.(accounts.AccountSecurityStore)
 	writeJSON(response, http.StatusOK, map[string]any{
@@ -82,7 +80,7 @@ func (a *api) registrationStatus(response http.ResponseWriter, request *http.Req
 }
 
 func (a *api) requestEmailVerification(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "email-verification") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "email-verification") {
 		return
 	}
 	if request.ContentLength > 0 || len(request.TransferEncoding) > 0 {
@@ -122,7 +120,7 @@ func (a *api) requestEmailVerification(response http.ResponseWriter, request *ht
 }
 
 func (a *api) confirmEmailVerification(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "email-verification-confirm") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "email-verification-confirm") {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -150,7 +148,7 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 }
 
 func (a *api) requestPasswordRecovery(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "password-recovery") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "password-recovery") {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -199,7 +197,7 @@ func (a *api) requestPasswordRecovery(response http.ResponseWriter, request *htt
 }
 
 func (a *api) confirmPasswordRecovery(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "password-recovery-confirm") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "password-recovery-confirm") {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -241,7 +239,7 @@ func (a *api) confirmPasswordRecovery(response http.ResponseWriter, request *htt
 }
 
 func (a *api) reauthenticate(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "reauthenticate") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "reauthenticate") {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -273,7 +271,7 @@ func (a *api) reauthenticate(response http.ResponseWriter, request *http.Request
 }
 
 func (a *api) requestEmailChange(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "email-change") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "email-change") {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -323,7 +321,7 @@ func (a *api) requestEmailChange(response http.ResponseWriter, request *http.Req
 }
 
 func (a *api) confirmEmailChange(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "email-change-confirm") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "email-change-confirm") {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -422,7 +420,7 @@ func (a *api) revokeAllAccountSessions(response http.ResponseWriter, request *ht
 }
 
 func (a *api) accountSession(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodDelete) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "session-revoke") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "session-revoke") {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -433,7 +431,7 @@ func (a *api) accountSession(response http.ResponseWriter, request *http.Request
 	if !ok {
 		return
 	}
-	id := strings.TrimPrefix(request.URL.Path, "/v1/account/sessions/")
+	id := request.PathValue("sessionID")
 	if !validOpaqueID(id) {
 		writeError(response, http.StatusBadRequest, "invalid_session", "That website session id is invalid.")
 		return
@@ -452,7 +450,7 @@ func (a *api) accountSession(response http.ResponseWriter, request *http.Request
 }
 
 func (a *api) accountAccess(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) || !a.requireAccounts(response) || !a.allowRequest(response, request, "account-access", 60, time.Minute) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "account-access", 60, time.Minute) {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -472,7 +470,7 @@ func (a *api) accountAccess(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) accountActivity(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) || !a.requireAccounts(response) || !a.allowRequest(response, request, "account-activity", 60, time.Minute) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "account-activity", 60, time.Minute) {
 		return
 	}
 	user, ok := a.userForRequest(response, request)
@@ -493,45 +491,53 @@ func (a *api) accountActivity(response http.ResponseWriter, request *http.Reques
 }
 
 func (a *api) accountNotificationPreferences(response http.ResponseWriter, request *http.Request) {
-	if !a.requireAccounts(response) || !a.allowRequest(response, request, "account-notifications", 60, time.Minute) {
+	user, store, ok := a.notifierForRequest(response, request)
+	if !ok {
 		return
+	}
+	preferences, err := store.NotificationPreferences(request.Context(), user.ID)
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "notifications_unavailable", "Notification preferences are temporarily unavailable.")
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"securityMandatory": true, "preferences": preferences})
+}
+
+func (a *api) updateAccountNotificationPreferences(response http.ResponseWriter, request *http.Request) {
+	user, store, ok := a.notifierForRequest(response, request)
+	if !ok {
+		return
+	}
+	var input notificationPreferencesRequest
+	if !decodeJSONBodyWith(response, request, &input, "invalid_notification_preferences", "Notification preferences could not be read.") {
+		return
+	}
+	if err := store.UpdateNotificationPreferences(request.Context(), user.ID, accounts.NotificationPreferences{BetaReleases: input.BetaReleases, SupportReplies: input.SupportReplies, ProductAnnouncements: input.ProductAnnouncements}); err != nil {
+		writeError(response, http.StatusServiceUnavailable, "notifications_unavailable", "Notification preferences are temporarily unavailable.")
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (a *api) notifierForRequest(response http.ResponseWriter, request *http.Request) (accounts.User, accounts.NotificationPreferencesStore, bool) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "account-notifications", 60, time.Minute) {
+		return accounts.User{}, nil, false
 	}
 	user, ok := a.userForRequest(response, request)
 	if !ok {
-		return
+		return accounts.User{}, nil, false
 	}
 	store, ok := a.config.Accounts.(accounts.NotificationPreferencesStore)
 	if !ok {
 		writeError(response, http.StatusServiceUnavailable, "notifications_unavailable", "Notification preferences are temporarily unavailable.")
-		return
+		return accounts.User{}, nil, false
 	}
-	switch request.Method {
-	case http.MethodGet:
-		preferences, err := store.NotificationPreferences(request.Context(), user.ID)
-		if err != nil {
-			writeError(response, http.StatusServiceUnavailable, "notifications_unavailable", "Notification preferences are temporarily unavailable.")
-			return
-		}
-		writeJSON(response, http.StatusOK, map[string]any{"securityMandatory": true, "preferences": preferences})
-	case http.MethodPatch:
-		var input notificationPreferencesRequest
-		if !decodeJSONBodyWith(response, request, &input, "invalid_notification_preferences", "Notification preferences could not be read.") {
-			return
-		}
-		if err := store.UpdateNotificationPreferences(request.Context(), user.ID, accounts.NotificationPreferences{BetaReleases: input.BetaReleases, SupportReplies: input.SupportReplies, ProductAnnouncements: input.ProductAnnouncements}); err != nil {
-			writeError(response, http.StatusServiceUnavailable, "notifications_unavailable", "Notification preferences are temporarily unavailable.")
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
-	default:
-		response.Header().Set("Allow", "GET, PATCH, OPTIONS")
-		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "This endpoint does not allow that method.")
-	}
+	return user, store, true
 }
 
 // Never includes vault data, tokens, IP addresses, or browser-helper installation claims.
 func (a *api) accountBootstrap(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) || !a.requireAccounts(response) || !a.allowRequest(response, request, "account-bootstrap", 60, time.Minute) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "account-bootstrap", 60, time.Minute) {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -613,7 +619,7 @@ func (a *api) accountDownloads(response http.ResponseWriter, request *http.Reque
 		writeError(response, http.StatusServiceUnavailable, "downloads_disabled", "Verified private-beta downloads are temporarily unavailable.")
 		return
 	}
-	if !allowMethod(response, request, http.MethodGet) || !a.requireAccounts(response) || !a.allowRequest(response, request, "account-downloads", 60, time.Minute) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "account-downloads", 60, time.Minute) {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -638,7 +644,7 @@ func (a *api) accountDownloadTickets(response http.ResponseWriter, request *http
 		writeError(response, http.StatusServiceUnavailable, "downloads_disabled", "Verified private-beta downloads are temporarily unavailable.")
 		return
 	}
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowRequest(response, request, "download-ticket", 12, time.Minute) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "download-ticket", 12, time.Minute) {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -730,21 +736,18 @@ func distributableWindowsReleases(releases []accounts.DownloadRelease) []account
 }
 
 func distributableWindowsRelease(release accounts.DownloadRelease) bool {
-	if release.Platform != "windows" || !release.SigstoreVerified {
+	if release.Platform != "windows" {
 		return false
 	}
-	if release.DistributionClass == "early_access" {
-		return !release.AuthenticodeVerified
-	}
-	return release.DistributionClass == "production" && release.AuthenticodeVerified
+	return releases.ArtifactEligible(release.DistributionClass, release.SigstoreVerified, release.AuthenticodeVerified)
 }
 
 func (a *api) redeemDownloadTicket(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) || !a.requireAccounts(response) {
+	if !a.requireAccounts(response) {
 		return
 	}
-	token := strings.TrimPrefix(request.URL.Path, "/v1/downloads/")
-	if token == "" || strings.Contains(token, "/") || len(token) < 32 || len(token) > 128 {
+	token := request.PathValue("ticket")
+	if token == "" || len(token) < 32 || len(token) > 128 {
 		writeError(response, http.StatusNotFound, "download_ticket_not_found", "That download ticket is invalid or expired.")
 		return
 	}
