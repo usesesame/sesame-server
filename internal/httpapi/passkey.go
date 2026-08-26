@@ -44,7 +44,7 @@ func (a *api) passkeyContext(response http.ResponseWriter) (*webauthn.WebAuthn, 
 }
 
 func (a *api) passkeyRegisterBegin(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowRequest(response, request, "passkey-register-begin", 8, time.Minute) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "passkey-register-begin", 8, time.Minute) {
 		return
 	}
 	wa, store, ok := a.passkeyContext(response)
@@ -71,7 +71,7 @@ func (a *api) passkeyRegisterBegin(response http.ResponseWriter, request *http.R
 }
 
 func (a *api) passkeyRegisterFinish(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowRequest(response, request, "passkey-register-finish", 8, time.Minute) {
+	if !a.requireAccounts(response) || !a.allowRequest(response, request, "passkey-register-finish", 8, time.Minute) {
 		return
 	}
 	wa, store, ok := a.passkeyContext(response)
@@ -111,7 +111,7 @@ func (a *api) passkeyRegisterFinish(response http.ResponseWriter, request *http.
 }
 
 func (a *api) passkeyLoginBegin(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "passkey-login") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "passkey-login") {
 		return
 	}
 	wa, _, ok := a.passkeyContext(response)
@@ -130,7 +130,7 @@ func (a *api) passkeyLoginBegin(response http.ResponseWriter, request *http.Requ
 }
 
 func (a *api) passkeyLoginFinish(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) || !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "passkey-login") {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "passkey-login") {
 		return
 	}
 	wa, store, ok := a.passkeyContext(response)
@@ -194,18 +194,6 @@ func (a *api) passkeyLoginFinish(response http.ResponseWriter, request *http.Req
 	a.recordAccountEvent(request.Context(), user.ID, "sign_in", "Passkey", map[string]string{"method": "passkey"})
 	a.sendSecurityNotification(request.Context(), user, "security-sign-in", "New Sesame account sign-in", "A new passkey sign-in to your Sesame website account was completed.")
 	writeJSON(response, http.StatusOK, map[string]any{"user": user})
-}
-
-func (a *api) passkeys(response http.ResponseWriter, request *http.Request) {
-	switch request.Method {
-	case http.MethodGet:
-		a.listPasskeys(response, request)
-	case http.MethodDelete:
-		a.deletePasskey(response, request)
-	default:
-		response.Header().Set("Allow", "GET, DELETE, OPTIONS")
-		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "This endpoint does not allow that method.")
-	}
 }
 
 func (a *api) listPasskeys(response http.ResponseWriter, request *http.Request) {

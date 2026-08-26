@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"usesesame.app/backend/internal/support"
 )
 
 const (
@@ -830,11 +832,7 @@ func (s *PostgresStore) SupportTicketForAccount(ctx context.Context, accountID, 
 }
 
 func (s *PostgresStore) CloseSupportTicket(ctx context.Context, accountID, ticketID string, now time.Time) (SupportTicketDetail, error) {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE sesame_support_requests
-		SET status = 'closed', closed_at = $3, account_reopen_until = $3 + INTERVAL '30 days', updated_at = $3
-		WHERE id = $1 AND account_id = $2 AND status <> 'closed'
-	`, ticketID, accountID, now.UTC())
+	result, err := support.Close(ctx, s.db, ticketID, "", now, " AND account_id = $4 AND status <> 'closed'", accountID)
 	if err != nil {
 		return SupportTicketDetail{}, err
 	}
@@ -853,11 +851,7 @@ func (s *PostgresStore) CloseSupportTicket(ctx context.Context, accountID, ticke
 }
 
 func (s *PostgresStore) ReopenSupportTicket(ctx context.Context, accountID, ticketID string, now time.Time) (SupportTicketDetail, error) {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE sesame_support_requests
-		SET status = 'open', closed_at = NULL, closed_by = NULL, account_reopen_until = NULL, updated_at = $3
-		WHERE id = $1 AND account_id = $2 AND status = 'closed' AND account_reopen_until > $3
-	`, ticketID, accountID, now.UTC())
+	result, err := support.SetOpenStatus(ctx, s.db, ticketID, "open", now, " AND account_id = $4 AND status = 'closed' AND account_reopen_until > $3", accountID)
 	if err != nil {
 		return SupportTicketDetail{}, err
 	}

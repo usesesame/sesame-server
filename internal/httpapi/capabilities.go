@@ -20,9 +20,6 @@ type capabilityDocument struct {
 }
 
 func (a *api) capabilities(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	if len(a.config.CapabilitySigningKey) != ed25519.PrivateKeySize {
 		writeError(response, http.StatusServiceUnavailable, "capabilities_unavailable", "Capability configuration is temporarily unavailable.")
 		return

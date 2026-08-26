@@ -275,19 +275,6 @@ func (a *api) notFound(response http.ResponseWriter, request *http.Request) {
 	writeError(response, http.StatusNotFound, "not_found", "The requested API endpoint does not exist.")
 }
 
-func allowMethod(response http.ResponseWriter, request *http.Request, allowed string) bool {
-	if request.Method == allowed {
-		return true
-	}
-	response.Header().Set("Allow", allowed+", OPTIONS")
-	writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "This endpoint does not allow that method.")
-	return false
-}
-
-func isUnsafeMethod(method string) bool {
-	return method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
-}
-
 func (a *api) clientIP(request *http.Request) string {
 	peer := requestIP(request)
 	if a.isTrustedProxy(peer) {

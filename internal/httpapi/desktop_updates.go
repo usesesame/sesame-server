@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
@@ -15,7 +14,7 @@ import (
 const desktopUpdateTicketTTL = 30 * time.Minute
 
 func (a *api) desktopUpdate(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) || !a.requireAccounts(response) {
+	if !a.requireAccounts(response) {
 		return
 	}
 	if !a.capabilityEnabled(request.Context(), "updater_enabled") {
@@ -111,13 +110,10 @@ func (a *api) desktopUpdate(response http.ResponseWriter, request *http.Request)
 }
 
 func distributableReleaseArtifact(artifact *adminstore.ReleaseArtifact) bool {
-	if artifact == nil || !artifact.SigstoreVerified {
+	if artifact == nil {
 		return false
 	}
-	if artifact.DistributionClass == "early_access" {
-		return !artifact.AuthenticodeVerified
-	}
-	return artifact.DistributionClass == "production" && artifact.AuthenticodeVerified
+	return releases.ArtifactEligible(artifact.DistributionClass, artifact.SigstoreVerified, artifact.AuthenticodeVerified)
 }
 
 func highestEligibleDesktopRelease(candidates []adminstore.Release, current releases.Version, accountID string) (adminstore.Release, bool) {
@@ -174,15 +170,15 @@ func includedInRollout(releaseID, accountID string, percent int) bool {
 }
 
 func (a *api) redeemDesktopUpdateTicket(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) || !a.requireAccounts(response) {
+	if !a.requireAccounts(response) {
 		return
 	}
 	connection, ok := a.desktopConnectionForRequest(response, request)
 	if !ok {
 		return
 	}
-	token := strings.TrimPrefix(request.URL.Path, "/v1/desktop/update-tickets/")
-	if token == "" || strings.Contains(token, "/") {
+	token := request.PathValue("ticket")
+	if token == "" {
 		a.notFound(response, request)
 		return
 	}
