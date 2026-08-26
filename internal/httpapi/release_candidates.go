@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -28,7 +29,16 @@ func (a *api) releaseCandidateIngest(response http.ResponseWriter, request *http
 		return
 	}
 	var candidate adminstore.ReleaseCandidate
-	if !decodeAdminJSON(response, request, &candidate) || !validReleaseCandidate(candidate) || !a.verifyReleaseCandidate(candidate) {
+	if !decodeAdminJSON(response, request, &candidate) {
+		return
+	}
+	if reason := releaseCandidateValidationError(candidate); reason != "" {
+		slog.Warn("release candidate validation failed", "reason", reason)
+		writeError(response, http.StatusBadRequest, "invalid_release_candidate", "This release candidate did not pass cryptographic verification.")
+		return
+	}
+	if !a.verifyReleaseCandidate(candidate) {
+		slog.Warn("release candidate signature verification failed")
 		writeError(response, http.StatusBadRequest, "invalid_release_candidate", "This release candidate did not pass cryptographic verification.")
 		return
 	}
@@ -59,7 +69,7 @@ func (a *api) validReleaseCandidateToken(request *http.Request) bool {
 	return subtle.ConstantTimeCompare(digest[:], a.config.ReleaseCandidateTokenHash) == 1
 }
 
-func validReleaseCandidate(candidate adminstore.ReleaseCandidate) bool {
+func releaseCandidateValidationError(candidate adminstore.ReleaseCandidate) string {
 	validHTTPS := func(raw string) bool {
 		parsed, err := url.Parse(raw)
 		return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && parsed.Fragment == ""
@@ -67,33 +77,52 @@ func validReleaseCandidate(candidate adminstore.ReleaseCandidate) bool {
 	values := []string{candidate.Channel, candidate.Platform, candidate.Architecture, candidate.SupportedWindows, candidate.ReleaseNotesURL, candidate.Artifact.ObjectKey, candidate.Artifact.SHA256, candidate.Artifact.UpdaterSignature, candidate.Artifact.UpdaterSigningKeyID, candidate.Artifact.DistributionClass, candidate.Artifact.SigstoreIssuer, candidate.Artifact.SigstoreIdentity, candidate.Artifact.SigstoreBundleSHA256, candidate.CandidateSigningKeyID, candidate.CandidateSignature}
 	for _, value := range values {
 		if value == "" || len(value) > 16*1024 || strings.ContainsAny(value, "\r\n") {
-			return false
+			return "required-text"
 		}
 	}
 	for _, value := range []string{candidate.Artifact.AuthenticodeSubject, candidate.Artifact.AuthenticodeThumbprint} {
 		if len(value) > 16*1024 || strings.ContainsAny(value, "\r\n") {
-			return false
+			return "authenticode-text"
 		}
 	}
-	if candidate.SchemaVersion != 2 || !releases.ValidVersion(candidate.Version) || (candidate.Channel != "owner" && candidate.Channel != "beta") || candidate.Platform != "windows" || (candidate.Architecture != "x86_64" && candidate.Architecture != "aarch64") || !validHTTPS(candidate.ReleaseNotesURL) || !validArtifactObjectKey(candidate.Artifact.ObjectKey) || !sha256Pattern.MatchString(candidate.Artifact.SHA256) || candidate.Artifact.Bytes <= 0 || candidate.Artifact.Bytes > 8*1024*1024*1024 {
-		return false
+	if candidate.SchemaVersion != 2 {
+		return "schema-version"
 	}
-	// The download URL is part of the signed payload, so a valid signature over
-	// a URL that is not HTTPS would still be refused here rather than stored.
-	if !validHTTPS(candidate.Artifact.URL) {
-		return false
+	if !releases.ValidVersion(candidate.Version) {
+		return "version"
+	}
+	if candidate.Channel != "owner" && candidate.Channel != "beta" {
+		return "channel"
+	}
+	if candidate.Platform != "windows" || (candidate.Architecture != "x86_64" && candidate.Architecture != "aarch64") {
+		return "platform"
+	}
+	if !validHTTPS(candidate.ReleaseNotesURL) || !validHTTPS(candidate.Artifact.URL) {
+		return "https-url"
+	}
+	if !validArtifactObjectKey(candidate.Artifact.ObjectKey) {
+		return "artifact-object-key"
+	}
+	if !sha256Pattern.MatchString(candidate.Artifact.SHA256) {
+		return "artifact-sha256"
+	}
+	if candidate.Artifact.Bytes <= 0 || candidate.Artifact.Bytes > 8*1024*1024*1024 {
+		return "artifact-size"
 	}
 	if !validSigstoreCandidateEvidence(candidate) {
-		return false
+		return "sigstore-evidence"
 	}
 	if candidate.Artifact.AuthenticodeVerified && (len(candidate.Artifact.AuthenticodeEvidence) == 0 || candidate.Artifact.AuthenticodeSubject == "" || candidate.Artifact.AuthenticodeThumbprint == "") {
-		return false
+		return "authenticode-evidence"
 	}
 	if !releases.ArtifactEligible(candidate.Artifact.DistributionClass, candidate.Artifact.SigstoreVerified, candidate.Artifact.AuthenticodeVerified) {
-		return false
+		return "distribution-eligibility"
 	}
 	_, err := base64.RawURLEncoding.DecodeString(candidate.CandidateSignature)
-	return err == nil
+	if err != nil {
+		return "candidate-signature"
+	}
+	return ""
 }
 
 func validSigstoreCandidateEvidence(candidate adminstore.ReleaseCandidate) bool {
