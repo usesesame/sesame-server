@@ -17,9 +17,6 @@ func (a *api) syncKeyPackage(response http.ResponseWriter, request *http.Request
 	if !ok {
 		return
 	}
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	vault, caller, ok := a.syncVaultForApprovedDevice(response, request, store, syncKeyPackageLimit)
 	if !ok {
 		return
@@ -42,23 +39,20 @@ func (a *api) syncKeyPackage(response http.ResponseWriter, request *http.Request
 	})
 }
 
-func (a *api) syncEnvelope(response http.ResponseWriter, request *http.Request) {
+func (a *api) syncDownloadEnvelopeHandler(response http.ResponseWriter, request *http.Request) {
 	store, ok := a.requireSync(response, request)
-	if !ok {
+	if !ok || !a.requireAccounts(response) {
 		return
 	}
-	if !a.requireAccounts(response) {
+	a.syncDownloadEnvelope(response, request, store)
+}
+
+func (a *api) syncUploadEnvelopeHandler(response http.ResponseWriter, request *http.Request) {
+	store, ok := a.requireSync(response, request)
+	if !ok || !a.requireAccounts(response) {
 		return
 	}
-	switch request.Method {
-	case http.MethodGet:
-		a.syncDownloadEnvelope(response, request, store)
-	case http.MethodPost:
-		a.syncUploadEnvelope(response, request, store)
-	default:
-		response.Header().Set("Allow", "GET, POST, OPTIONS")
-		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "This endpoint does not allow that method.")
-	}
+	a.syncUploadEnvelope(response, request, store)
 }
 
 func (a *api) syncDownloadEnvelope(response http.ResponseWriter, request *http.Request, store *syncstore.Store) {

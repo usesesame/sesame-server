@@ -14,7 +14,7 @@ type supportReplyInput struct {
 }
 
 func (a *api) accountSupportTickets(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodGet) || !a.requireAccounts(response) {
+	if !a.requireAccounts(response) {
 		return
 	}
 	store, ok := a.accountSecurity(response)
@@ -37,9 +37,8 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 	if !a.requireAccounts(response) {
 		return
 	}
-	path := strings.TrimPrefix(request.URL.Path, "/v1/account/support/")
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) == 0 || parts[0] == "" || len(parts[0]) > 128 {
+	ticketID := request.PathValue("ticketID")
+	if ticketID == "" || len(ticketID) > 128 {
 		a.notFound(response, request)
 		return
 	}
@@ -51,8 +50,8 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 	if !ok {
 		return
 	}
-	ticketID := parts[0]
-	if len(parts) == 1 && request.Method == http.MethodGet {
+	action := request.PathValue("action")
+	if action == "" {
 		ticket, err := store.SupportTicketForAccount(request.Context(), user.ID, ticketID)
 		if err != nil {
 			accountSupportError(response, err)
@@ -61,7 +60,7 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
 		return
 	}
-	if len(parts) == 2 && parts[1] == "reply" && request.Method == http.MethodPost {
+	if action == "reply" {
 		if !a.allowRequest(response, request, "support-reply", 12, time.Hour) {
 			return
 		}
@@ -86,7 +85,7 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 		writeJSON(response, http.StatusCreated, map[string]any{"ticket": ticket})
 		return
 	}
-	if len(parts) == 2 && parts[1] == "close" && request.Method == http.MethodPost {
+	if action == "close" {
 		if !a.allowRequest(response, request, "support-close", 12, time.Hour) {
 			return
 		}
@@ -98,7 +97,7 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
 		return
 	}
-	if len(parts) == 2 && parts[1] == "reopen" && request.Method == http.MethodPost {
+	if action == "reopen" {
 		if !a.allowRequest(response, request, "support-reopen", 12, time.Hour) {
 			return
 		}
@@ -110,16 +109,14 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
 		return
 	}
-	if len(parts) == 1 {
-		response.Header().Set("Allow", http.MethodGet)
-	} else if len(parts) == 2 && (parts[1] == "reply" || parts[1] == "close" || parts[1] == "reopen") {
-		response.Header().Set("Allow", http.MethodPost)
-	}
-	if response.Header().Get("Allow") != "" {
-		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "That method is not available for this support request.")
-		return
-	}
 	a.notFound(response, request)
+}
+
+func (a *api) accountSupportTicketAction(action string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		request.SetPathValue("action", action)
+		a.accountSupportTicket(response, request)
+	}
 }
 
 func accountSupportError(response http.ResponseWriter, err error) {

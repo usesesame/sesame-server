@@ -17,9 +17,6 @@ import (
 )
 
 func (a *api) releaseCandidateIngest(response http.ResponseWriter, request *http.Request) {
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	if !a.validReleaseCandidateToken(request) {
 		writeError(response, http.StatusUnauthorized, "release_pipeline_unauthorized", "This endpoint accepts only the configured release pipeline credential.")
 		return

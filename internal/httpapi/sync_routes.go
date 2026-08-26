@@ -24,14 +24,19 @@ const (
 )
 
 func (a *api) registerSyncRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/v1/sync/enroll/begin", a.syncEnrollBegin)
-	mux.HandleFunc("/v1/sync/enroll/finish", a.syncEnrollFinish)
-	mux.HandleFunc("/v1/sync/devices", a.syncDevices)
-	mux.HandleFunc("/v1/sync/devices/", a.syncDeviceRoute)
-	mux.HandleFunc("/v1/sync/key-package", a.syncKeyPackage)
-	mux.HandleFunc("/v1/sync/activate", a.syncActivateDevice)
-	mux.HandleFunc("/v1/sync/reset", a.syncResetVault)
-	mux.HandleFunc("/v1/sync/envelope", a.syncEnvelope)
+	sync := routePolicy{audience: audienceDesktopClient}
+	a.route(mux, sync, "POST /v1/sync/enroll/begin", a.syncEnrollBegin)
+	a.route(mux, sync, "POST /v1/sync/enroll/finish", a.syncEnrollFinish)
+	a.route(mux, sync, "GET /v1/sync/devices", a.syncDevices)
+	a.route(mux, sync, "DELETE /v1/sync/devices/{deviceID}", a.syncRevokeDeviceRoute)
+	a.route(mux, sync, "POST /v1/sync/devices/{deviceID}/approve", a.syncApproveDeviceRoute)
+	a.route(mux, sync, "POST /v1/sync/devices/{deviceID}/deny", a.syncDenyDeviceRoute)
+	a.route(mux, sync, "POST /v1/sync/devices/{deviceID}/rekey", a.syncRekeyDeviceRoute)
+	a.route(mux, sync, "GET /v1/sync/key-package", a.syncKeyPackage)
+	a.route(mux, sync, "POST /v1/sync/activate", a.syncActivateDevice)
+	a.route(mux, sync, "POST /v1/sync/reset", a.syncResetVault)
+	a.route(mux, sync, "GET /v1/sync/envelope", a.syncDownloadEnvelopeHandler)
+	a.route(mux, sync, "POST /v1/sync/envelope", a.syncUploadEnvelopeHandler)
 }
 
 // Sync fails closed: unlike capabilityEnabled, the fallback here is an explicit false.
@@ -157,9 +162,6 @@ func (a *api) syncEnrollBegin(response http.ResponseWriter, request *http.Reques
 	if !ok {
 		return
 	}
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	connection, ok := a.requireSyncCaller(response, request, syncEnrollBeginLimit)
 	if !ok {
 		return
@@ -202,9 +204,6 @@ type syncEnrollFinishRequest struct {
 func (a *api) syncEnrollFinish(response http.ResponseWriter, request *http.Request) {
 	store, ok := a.requireSync(response, request)
 	if !ok {
-		return
-	}
-	if !allowMethod(response, request, http.MethodPost) {
 		return
 	}
 	vault, connection, ok := a.syncVaultForDevice(response, request, store, syncEnrollFinishLimit)
@@ -276,9 +275,6 @@ func (a *api) syncDevices(response http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
-	if !allowMethod(response, request, http.MethodGet) {
-		return
-	}
 	vault, _, ok := a.syncVaultForApprovedDevice(response, request, store, syncDevicesLimit)
 	if !ok {
 		return
@@ -302,39 +298,52 @@ type syncApproveRequest struct {
 	Signature          string `json:"signature"`
 }
 
-func (a *api) syncDeviceRoute(response http.ResponseWriter, request *http.Request) {
+func (a *api) syncDeviceStore(response http.ResponseWriter, request *http.Request) (*syncstore.Store, string, bool) {
 	store, ok := a.requireSync(response, request)
 	if !ok {
-		return
+		return nil, "", false
 	}
 	if !a.requireAccounts(response) {
-		return
+		return nil, "", false
 	}
-	rest := strings.TrimPrefix(request.URL.Path, "/v1/sync/devices/")
-	deviceID, action, _ := strings.Cut(rest, "/")
+	deviceID := request.PathValue("deviceID")
 	if !validOpaqueSyncID(deviceID) {
 		writeError(response, http.StatusNotFound, "sync_device_not_found", "That device is not registered.")
-		return
+		return nil, "", false
 	}
-	switch action {
-	case "approve":
+	return store, deviceID, true
+}
+
+func (a *api) syncApproveDeviceRoute(response http.ResponseWriter, request *http.Request) {
+	store, deviceID, ok := a.syncDeviceStore(response, request)
+	if ok {
 		a.syncApproveDevice(response, request, store, deviceID)
-	case "deny":
+	}
+}
+
+func (a *api) syncDenyDeviceRoute(response http.ResponseWriter, request *http.Request) {
+	store, deviceID, ok := a.syncDeviceStore(response, request)
+	if ok {
 		a.syncDenyDevice(response, request, store, deviceID)
-	case "rekey":
+	}
+}
+
+func (a *api) syncRekeyDeviceRoute(response http.ResponseWriter, request *http.Request) {
+	store, deviceID, ok := a.syncDeviceStore(response, request)
+	if ok {
 		a.syncRekeyDevice(response, request, store, deviceID)
-	case "":
+	}
+}
+
+func (a *api) syncRevokeDeviceRoute(response http.ResponseWriter, request *http.Request) {
+	store, deviceID, ok := a.syncDeviceStore(response, request)
+	if ok {
 		a.syncRevokeDevice(response, request, store, deviceID)
-	default:
-		writeError(response, http.StatusNotFound, "not_found", "That endpoint does not exist.")
 	}
 }
 
 // The service cannot produce this key package: it holds no vault key.
 func (a *api) syncApproveDevice(response http.ResponseWriter, request *http.Request, store *syncstore.Store, deviceID string) {
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	vault, _, ok := a.syncVaultForApprovedDevice(response, request, store, syncApproveLimit)
 	if !ok {
 		return
@@ -379,9 +388,6 @@ func (a *api) syncApproveDevice(response http.ResponseWriter, request *http.Requ
 
 // It only ever acts on the caller's own device ID.
 func (a *api) syncRevokeDevice(response http.ResponseWriter, request *http.Request, store *syncstore.Store, deviceID string) {
-	if !allowMethod(response, request, http.MethodDelete) {
-		return
-	}
 	vault, caller, ok := a.syncVaultForApprovedDevice(response, request, store, syncRevokeLimit)
 	if !ok {
 		return
@@ -414,9 +420,6 @@ type syncRekeyRequest struct {
 }
 
 func (a *api) syncRekeyDevice(response http.ResponseWriter, request *http.Request, store *syncstore.Store, deviceID string) {
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	vault, caller, ok := a.syncVaultForApprovedDevice(response, request, store, syncRevokeLimit)
 	if !ok {
 		return
@@ -515,9 +518,6 @@ func (a *api) syncRekeyDevice(response http.ResponseWriter, request *http.Reques
 
 // A pending device never held the vault key, so there is nothing to rotate.
 func (a *api) syncDenyDevice(response http.ResponseWriter, request *http.Request, store *syncstore.Store, deviceID string) {
-	if !allowMethod(response, request, http.MethodPost) {
-		return
-	}
 	vault, _, ok := a.syncVaultForApprovedDevice(response, request, store, syncRevokeLimit)
 	if !ok {
 		return
@@ -538,9 +538,6 @@ func (a *api) syncDenyDevice(response http.ResponseWriter, request *http.Request
 func (a *api) syncActivateDevice(response http.ResponseWriter, request *http.Request) {
 	store, ok := a.requireSync(response, request)
 	if !ok {
-		return
-	}
-	if !allowMethod(response, request, http.MethodPost) {
 		return
 	}
 	// Deliberately the weaker gate: an activating device is not yet live.
@@ -584,9 +581,6 @@ func (a *api) syncActivateDevice(response http.ResponseWriter, request *http.Req
 func (a *api) syncResetVault(response http.ResponseWriter, request *http.Request) {
 	store, ok := a.requireSync(response, request)
 	if !ok {
-		return
-	}
-	if !allowMethod(response, request, http.MethodPost) {
 		return
 	}
 	vault, _, ok := a.syncVaultForDevice(response, request, store, syncResetLimit)

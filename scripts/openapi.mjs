@@ -12,66 +12,17 @@ const goSources = readdirSync(httpRoot)
   .map((name) => [name, readFileSync(join(httpRoot, name), 'utf8')])
 
 const dynamicRoutes = {
-  '/v1/account/sessions/': [
-    ['/v1/account/sessions/{sessionId}', ['DELETE']],
-  ],
-  '/v1/downloads/': [
-    ['/v1/downloads/{ticket}', ['GET']],
-  ],
-  '/v1/account/support/': [
-    ['/v1/account/support/{ticketId}', ['GET']],
-    ['/v1/account/support/{ticketId}/reply', ['POST']],
-    ['/v1/account/support/{ticketId}/close', ['POST']],
-    ['/v1/account/support/{ticketId}/reopen', ['POST']],
-  ],
-  '/v1/account/devices/': [
-    ['/v1/account/devices/{deviceId}', ['DELETE', 'PATCH']],
-  ],
-  '/v1/desktop/update-tickets/': [
-    ['/v1/desktop/update-tickets/{ticket}', ['GET']],
-  ],
-  '/v1/admin/users/': [
-    ['/v1/admin/users/{accountId}', ['GET', 'DELETE']],
-    ['/v1/admin/users/{accountId}/owner-release', ['POST', 'DELETE']],
-    ['/v1/admin/users/{accountId}/beta', ['POST', 'DELETE']],
-    ['/v1/admin/users/{accountId}/suspend', ['POST', 'DELETE']],
-    ['/v1/admin/users/{accountId}/sessions', ['DELETE']],
-    ['/v1/admin/users/{accountId}/devices/{deviceId}', ['DELETE']],
-  ],
-  '/v1/admin/flags/': [
-    ['/v1/admin/flags/{flag}', ['PATCH']],
-  ],
-  '/v1/admin/releases/': [
-    ['/v1/admin/releases/{platform}', ['PUT']],
-  ],
-  '/v1/admin/plans/': [
-    ['/v1/admin/plans/{planId}', ['PATCH']],
-  ],
-  '/v1/admin/admins/': [
-    ['/v1/admin/admins/{adminId}', ['DELETE', 'PATCH']],
-  ],
-  '/v1/admin/support/': [
-    ['/v1/admin/support/{ticketId}', ['GET']],
-    ['/v1/admin/support/{ticketId}/reply', ['POST']],
-    ['/v1/admin/support/{ticketId}/notes', ['POST']],
-    ['/v1/admin/support/{ticketId}/assign', ['POST']],
-    ['/v1/admin/support/{ticketId}/status', ['POST']],
-  ],
-  '/v1/sync/devices/': [
-    ['/v1/sync/devices/{deviceId}', ['DELETE']],
-    ['/v1/sync/devices/{deviceId}/approve', ['POST']],
-    ['/v1/sync/devices/{deviceId}/deny', ['POST']],
-    ['/v1/sync/devices/{deviceId}/rekey', ['POST']],
-  ],
 }
 
 function registeredHandlers() {
   const routes = []
-  const pattern = /mux[.]HandleFunc[(]"([^"]+)",[ \t]*(?:service|a)[.]([A-Za-z0-9_]+)[)]/g
+  const pattern = /(?:service|a)[.]route\(mux, [^,]+, "([^"]+)", (?:service|a)[.]([A-Za-z0-9_]+)(?:[(][^)]*[)])?\)/g
   for (const name of registrationFiles) {
     const source = readFileSync(join(httpRoot, name), 'utf8')
     for (const match of source.matchAll(pattern)) {
-      routes.push({ registration: match[1], handler: match[2] })
+      const parts = match[1].split(/\s+/, 2)
+      const method = /^[A-Z]+$/.test(parts[0]) ? parts[0] : undefined
+      routes.push({ registration: method ? parts[1] : parts[0], handler: match[2], methods: method ? [method] : undefined })
     }
   }
   return routes
@@ -164,15 +115,15 @@ function parameterName(segment) {
 
 function build() {
   const registrations = registeredHandlers().filter((route) => route.registration !== '/')
-  const covered = new Set()
+  const dynamicCovered = new Set()
   const paths = {}
   const operationIds = new Set()
 
   for (const route of registrations) {
-    const expanded = dynamicRoutes[route.registration]
-      ?? [[route.registration, handlerMethods(route.handler)]]
+    const dynamic = dynamicRoutes[route.registration]
+    if (dynamic) dynamicCovered.add(route.registration)
+    const expanded = dynamic ?? [[route.registration, route.methods ?? handlerMethods(route.handler)]]
     assert.ok(expanded.length > 0, `${route.registration} has no OpenAPI expansion`)
-    covered.add(route.registration)
     for (const [path, methods] of expanded) {
       paths[path] ??= {}
       for (const method of methods) {
@@ -210,9 +161,8 @@ function build() {
     }
   }
 
-  assert.equal(covered.size, registrations.length, 'not every mux registration was covered')
   assert.deepEqual(
-    Object.keys(dynamicRoutes).filter((pattern) => !covered.has(pattern)),
+    Object.keys(dynamicRoutes).filter((pattern) => !dynamicCovered.has(pattern)),
     [],
     'dynamic OpenAPI expansion names an unregistered route',
   )
