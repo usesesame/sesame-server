@@ -89,7 +89,7 @@ func validReleaseCandidate(candidate adminstore.ReleaseCandidate) bool {
 	if candidate.Artifact.AuthenticodeVerified && (len(candidate.Artifact.AuthenticodeEvidence) == 0 || candidate.Artifact.AuthenticodeSubject == "" || candidate.Artifact.AuthenticodeThumbprint == "") {
 		return false
 	}
-	if (candidate.Artifact.DistributionClass == "early_access" && candidate.Artifact.AuthenticodeVerified) || (candidate.Artifact.DistributionClass == "production" && !candidate.Artifact.AuthenticodeVerified) || (candidate.Artifact.DistributionClass != "early_access" && candidate.Artifact.DistributionClass != "production") {
+	if !releases.ArtifactEligible(candidate.Artifact.DistributionClass, candidate.Artifact.SigstoreVerified, candidate.Artifact.AuthenticodeVerified) {
 		return false
 	}
 	_, err := base64.RawURLEncoding.DecodeString(candidate.CandidateSignature)

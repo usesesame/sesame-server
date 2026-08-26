@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/releases"
 )
 
 const (
@@ -730,13 +731,10 @@ func distributableWindowsReleases(releases []accounts.DownloadRelease) []account
 }
 
 func distributableWindowsRelease(release accounts.DownloadRelease) bool {
-	if release.Platform != "windows" || !release.SigstoreVerified {
+	if release.Platform != "windows" {
 		return false
 	}
-	if release.DistributionClass == "early_access" {
-		return !release.AuthenticodeVerified
-	}
-	return release.DistributionClass == "production" && release.AuthenticodeVerified
+	return releases.ArtifactEligible(release.DistributionClass, release.SigstoreVerified, release.AuthenticodeVerified)
 }
 
 func (a *api) redeemDownloadTicket(response http.ResponseWriter, request *http.Request) {

@@ -111,13 +111,10 @@ func (a *api) desktopUpdate(response http.ResponseWriter, request *http.Request)
 }
 
 func distributableReleaseArtifact(artifact *adminstore.ReleaseArtifact) bool {
-	if artifact == nil || !artifact.SigstoreVerified {
+	if artifact == nil {
 		return false
 	}
-	if artifact.DistributionClass == "early_access" {
-		return !artifact.AuthenticodeVerified
-	}
-	return artifact.DistributionClass == "production" && artifact.AuthenticodeVerified
+	return releases.ArtifactEligible(artifact.DistributionClass, artifact.SigstoreVerified, artifact.AuthenticodeVerified)
 }
 
 func highestEligibleDesktopRelease(candidates []adminstore.Release, current releases.Version, accountID string) (adminstore.Release, bool) {
