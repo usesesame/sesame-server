@@ -8,14 +8,19 @@ This file records the current boundary and the remaining release work. It is not
 
 ## Implemented
 
-### Website and account portal
+### Public website and account portal
 
-- Guests and signed-in users can create a request through `POST /v1/support/requests`.
+- The public website links to the account portal's support form when an account
+  origin is configured. It does not submit support content itself.
+- Guests and signed-in users can create a request through
+  `POST /v1/support/requests` from the account portal.
 - The API rejects attachment content types, unknown fields, oversized content, and common secret-shaped text before storing a request.
 - Intake is rate-limited and returns a reference number without exposing ticket contents publicly.
 - A signed-in user can list and read only requests owned by that account under `/v1/account/support/*`.
-- Signed-in users can add a follow-up to an open request. Closed requests cannot be reopened by the requester.
-- The website repeats the no-secrets boundary before intake and follow-up submission.
+- Signed-in users can add a follow-up to an open request, close it, and reopen
+  it for 30 days after closure.
+- Both sites repeat the no-secrets boundary before directing or submitting a
+  request.
 
 ### Desktop app
 
@@ -32,26 +37,36 @@ This file records the current boundary and the remaining release work. It is not
 - Internal notes are never exposed through the account portal.
 - Admin mutations use the same fail-closed audit transaction as the rest of the control plane. If the audit write fails, the support mutation fails.
 - Replies and notes pass the secret-shaped-content guard before storage.
+- A staff reply queues a short notification email only when the owning account
+  opted in to support-reply notifications and SMTP is configured. The email
+  links to the portal and never contains the reply body.
 - Read-only and unrelated admin roles cannot mutate support data.
 
 ### Database
 
 - Migration `0008_support_workspace.sql` adds conversation messages, internal notes, assignment, priority, timestamps, and the `open | in_progress | waiting | closed` workflow.
 - Migration `0009_support_portal.sql` aligns new intake with the workspace and account portal.
+- Migration `0019_support_lifecycle.sql` adds unread state, the bounded reopen
+  window, and durable email-delivery linkage. Migration
+  `0028_support_ticket_category.sql` adds the triage category.
 - Ticket ownership is tied to the website account when the requester is signed in. A guest reference number is not an authentication credential.
 
 ## Delivery status
 
-Staff replies are visible in the signed-in website portal. Outbound email delivery for support replies is **not implemented** and must not be described as sent. Account-action mail for verification and recovery is a separate SMTP-backed system.
+Staff replies are visible in the signed-in account portal. When the account
+has opted in and SMTP is configured, a durable outbox delivers a notification
+that a reply is waiting. The worker records pending, delivered, and failed
+states with bounded retries. Portal visibility does not depend on email
+delivery, and no notification contains the support message.
 
 The public support flow is suitable for controlled beta testing, not a promise of continuous support. There is no attachment handling, live chat, phone support, automatic desktop-log upload, or vault recovery service.
 
 ## Release checks still required
 
-- Run migrations `0001` through `0009` against a fresh PostgreSQL database and an upgrade fixture.
+- Run every checked-in migration against a fresh PostgreSQL database and an
+  upgrade fixture.
 - Add end-to-end tests with the real website, API, admin app, and PostgreSQL for guest intake, account ownership, follow-up, assignment, notes, status changes, and audit failure.
 - Verify rate limits and secret-shape rejection without logging rejected content.
-- Remove or disable any UI that claims a support reply was emailed until a real delivery result is recorded.
 - Define retention, deletion, abuse handling, response expectations, and incident escalation before public launch.
 - Exercise keyboard navigation, focus restoration, Narrator, 200% zoom, and narrow layouts in both support interfaces.
 
