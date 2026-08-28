@@ -86,6 +86,9 @@ func (a *api) createSupportRequest(response http.ResponseWriter, request *http.R
 	if cookie, err := request.Cookie(a.sessionCookieName()); err == nil && cookie.Value != "" {
 		if user, err := a.config.Accounts.UserBySession(request.Context(), accounts.HashSessionToken(cookie.Value)); err == nil {
 			accountID = user.ID
+			if accountEmail, ok := normalizedEmail(user.Email); ok {
+				email = accountEmail
+			}
 		}
 	}
 	id, err := store.CreateSupportRequest(request.Context(), accounts.SupportRequest{
