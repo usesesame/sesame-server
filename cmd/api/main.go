@@ -80,6 +80,10 @@ func main() {
 	adminOrigin := ""
 	adminSecure := envBool("SESAME_ADMIN_SESSION_SECURE", sessionSecure)
 	adminIPPepper := strings.TrimSpace(os.Getenv("SESAME_ADMIN_IP_PEPPER"))
+	if adminIPPepper == "" {
+		slog.Error("Sesame API configuration is invalid", "error", "SESAME_ADMIN_IP_PEPPER is required because identity rate-limit keys are peppered with it")
+		os.Exit(1)
+	}
 	if adminKeyValue != "" {
 		var originErr error
 		adminOrigin, originErr = configuredOrigin("SESAME_ADMIN_ORIGIN")
@@ -94,10 +98,6 @@ func main() {
 		}
 		if strings.HasPrefix(adminOrigin, "https://") && !adminSecure {
 			slog.Error("Sesame admin configuration is invalid", "error", "Secure admin cookies are required for an HTTPS admin origin")
-			os.Exit(1)
-		}
-		if adminIPPepper == "" {
-			slog.Error("Sesame admin configuration is invalid", "error", "SESAME_ADMIN_IP_PEPPER is required when the admin service is enabled")
 			os.Exit(1)
 		}
 		adminService, err = adminstore.Open(ctx, databaseURL, adminKey)

@@ -1,11 +1,12 @@
 # Security policy
 
 This repository holds the Sesame server: the vault-blind Go API, the account
-portal, and the administration portal. It is part of a password manager in
-private beta and has not had an independent security audit.
+portal, and the administration portal. It is early software and has not had an
+independent security audit.
 
-The rule this service exists to keep: it stores account records and opaque
-bytes. It has no vault endpoint and no vault-shaped type.
+The rule this service exists to keep: the shipping API stores account and
+release records, not vault data. The development-only Sync preview can store
+opaque ciphertext but has no decryption key.
 
 ## Reporting a vulnerability
 
@@ -56,8 +57,10 @@ In scope:
 
 Out of scope:
 
-- Sync. It is built-disabled, reachable from no route, and has its own open
-  findings recorded in the desktop repository. Report Sync issues there.
+- Sync remains unavailable in the shipping API. Its routes are registered but
+  fail closed because `cmd/api` does not provide a Sync store. A separate
+  loopback-only development binary can wire the preview store when
+  `SESAME_ENV=development`; report findings against that preview here.
 - Missing hardening with no demonstrated impact: header audits, version
   disclosure, rate limits without a working amplification, scanner output.
 - Denial of service through traffic volume, and social engineering.

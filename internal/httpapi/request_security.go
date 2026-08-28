@@ -277,13 +277,25 @@ func (a *api) notFound(response http.ResponseWriter, request *http.Request) {
 
 func (a *api) clientIP(request *http.Request) string {
 	peer := requestIP(request)
-	if a.isTrustedProxy(peer) {
-		if forwarded := request.Header.Get("X-Forwarded-For"); forwarded != "" {
-			first := strings.TrimSpace(strings.SplitN(forwarded, ",", 2)[0])
-			if ip, err := netip.ParseAddr(first); err == nil {
-				return ip.Unmap().String()
-			}
+	if !a.isTrustedProxy(peer) {
+		return peer
+	}
+	forwarded := request.Header.Get("X-Forwarded-For")
+	if forwarded == "" {
+		return peer
+	}
+	hops := strings.Split(forwarded, ",")
+	for index := len(hops) - 1; index >= 0; index-- {
+		hop := strings.TrimSpace(hops[index])
+		ip, err := netip.ParseAddr(hop)
+		if err != nil {
+			return peer
 		}
+		ip = ip.Unmap()
+		if a.isTrustedProxy(ip.String()) {
+			continue
+		}
+		return ip.String()
 	}
 	return peer
 }

@@ -4,7 +4,7 @@ This document is the complete closed request and response schema contract for
 the Go API. The generated [OpenAPI inventory](./openapi/openapi.json) is the
 source of truth for route and method enumeration, authentication and CSRF
 classes, availability, and Go handler ownership. Regenerate it with
-`npm run openapi:generate` from this directory; backend CI compares it byte for
+`npm run openapi:generate` from this directory; server CI compares it byte for
 byte.
 
 The API is vault-blind. These contracts must never carry a vault file,
@@ -317,10 +317,19 @@ usable:
   an already-approved device. The service cannot produce this package, which is
   what makes "Sesame cannot add a device to your vault" a property rather than a
   promise.
-- `DELETE /v1/sync/devices/{id}` → revokes a device and advances the vault
-  epoch, invalidating envelopes signed under the previous epoch.
+- `POST /v1/sync/devices/{id}/deny` → removes a pending device, which never had
+  the vault key and therefore needs no key rotation.
+- `POST /v1/sync/devices/{id}/rekey` → removes another approved device while
+  atomically advancing the vault epoch, replacing the encrypted envelope, and
+  supplying new encrypted key packages for every survivor.
+- `DELETE /v1/sync/devices/{id}` → lets only the calling device leave the
+  vault. Removing another approved device requires the signed rekey ceremony.
 - `GET /v1/sync/key-package?deviceId=` → the wrapped vault key addressed to one
   device.
+- `POST /v1/sync/activate` → proves that an approved device received its key
+  package before making it active.
+- `POST /v1/sync/reset` → deletes an abandoned synced vault only when no
+  approved device remains.
 - `GET /v1/sync/envelope` → current revision and opaque ciphertext.
 - `POST /v1/sync/envelope` → compare-and-swap upload. Returns
   `409 sync_conflict` with the current revision when another device got there
