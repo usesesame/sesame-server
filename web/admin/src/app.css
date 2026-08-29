@@ -27,7 +27,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 h1, h2, h3 { font-family: var(--font-display); color: var(--text-heading); font-weight: 500; letter-spacing: -.01em; overflow-wrap: break-word; }
 h1, h2, h3, p { margin-top: 0; }
 
-button, .button-link {
+button {
   display: inline-flex;
   min-height: 40px;
   align-items: center;
@@ -45,7 +45,7 @@ button, .button-link {
   cursor: pointer;
   transition: background-color .16s ease, color .16s ease, transform .1s ease;
 }
-button:hover:not(:disabled), .button-link:hover { background: var(--tint-hover); }
+button:hover:not(:disabled) { background: var(--tint-hover); }
 button:active:not(:disabled) { transform: scale(.97); }
 .primary { color: var(--on-accent); background: var(--accent); box-shadow: var(--shadow-btn); }
 .primary:hover:not(:disabled) { background: var(--accent-hover); }
@@ -154,7 +154,7 @@ dt { color: var(--text-muted); } dd { margin: 0; color: var(--text-heading); tex
 .audit-filters > div:first-child { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 12px; }
 .audit-filters label { margin-top: 0; }
 .audit-filters .toolbar { margin: 16px 0 0; }
-.mono, code, pre { font-family: "Cascadia Code", ui-monospace, SFMono-Regular, Consolas, monospace; }
+code, pre { font-family: var(--font-code); }
 td code { border-radius: 5px; padding: 2px 6px; background: var(--tint); color: var(--accent-link); font-size: .95em; }
 pre { max-height: 420px; overflow: auto; padding: 16px; border-radius: var(--radius-sm); background: var(--admin-nav-bg); color: #d6e3d8; font-size: 11px; line-height: 1.5; }
 
