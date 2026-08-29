@@ -1,14 +1,13 @@
+/* =========================================================================
+   Sesame account portal.
 
-change the canonical token
-   source and refresh every product snapshot.
+   A snapshot of the public site's stylesheet, taken when the portal became
+   its own build unit. The two surfaces share a visual language and no build
+   input, the same way each product owns its design token snapshot.
 
-   The design language: warm serif display,
-humanist sans body,
-green surface
-   with a single gold accent,
-floating cards on soft layered shadows,
-and the
-   app's iOS-style buttons.
+   Colour, type, spacing, radii, shadows, and motion come from
+   design/tokens.css. account/src/main.ts imports it before this file. When
+   you change the canonical token source, refresh this snapshot to match.
    ========================================================================= */
 
 :root {
@@ -102,9 +101,6 @@ p { overflow-wrap: break-word; }
   backdrop-filter: blur(14px);
   transition: background-color var(--t-mid) var(--ease-inout), border-color var(--t-mid) ease, box-shadow var(--t-mid) ease;
 }
-it earns its surface and a
-   soft shadow only once content has moved underneath it. Without JavaScript
-   the attribute is never set and the header keeps this solid default. */
 .site-header[data-scrolled="false"] { border-bottom-color: transparent; background: transparent; backdrop-filter: none; }
 .site-header[data-scrolled="true"] { box-shadow: var(--shadow-header); }
 .site-header-inner { display: flex; width: min(1120px, calc(100% - 40px)); align-items: center; gap: 20px; margin: 0 auto; padding: 14px 0; }
