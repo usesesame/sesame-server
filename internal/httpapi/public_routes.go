@@ -41,7 +41,7 @@ func (a *api) productStatus(response http.ResponseWriter, request *http.Request)
 	}
 	writeJSON(response, http.StatusOK, map[string]any{
 		"phase":                      phase,
-		"platforms":                  []string{"windows"},
+		"platforms":                  []string{"windows", "linux"},
 		"accountRequired":            false,
 		"webSignInAvailable":         a.config.Accounts != nil,
 		"desktopConnectionAvailable": hasDesktopStore(a.config.Accounts),
