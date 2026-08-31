@@ -64,22 +64,37 @@ func (a *api) plans(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) latestRelease(response http.ResponseWriter, request *http.Request) {
-	if platform := request.URL.Query().Get("platform"); platform != "" && platform != "windows" {
-		writeError(response, http.StatusBadRequest, "unsupported_platform", "Only the Windows release channel exists.")
+	platform := request.URL.Query().Get("platform")
+	if platform == "" {
+		platform = "windows"
+	}
+	if platform != "windows" && platform != "linux" {
+		writeError(response, http.StatusBadRequest, "unsupported_platform", "This platform has no Sesame release channel.")
 		return
 	}
 	if a.config.Admin != nil && a.runtimeFlagBool(request.Context(), "public_download", false) {
-		if release, err := a.config.Admin.LatestPublishedRelease(request.Context(), "windows"); err == nil {
-			supported := splitPublicList(release.SupportedWindows)
+		if release, err := a.config.Admin.LatestPublishedRelease(request.Context(), platform); err == nil {
+			message := "This Windows build has a verified Tauri updater signature."
+			if platform == "linux" {
+				message = "This Linux build has a verified Tauri updater signature."
+			}
+			supported := []string{}
+			if platform == "windows" {
+				supported = splitPublicList(release.SupportedWindows)
+			}
 			writeJSON(response, http.StatusOK, map[string]any{
 				"channel": release.Channel, "platform": release.Platform, "available": true,
 				"version": release.Version, "url": release.URL, "sha256": release.SHA256, "signed": release.Signature != "",
-				"message": "This Windows build has a verified Tauri updater signature.", "publishedAt": release.PublishedAt,
+				"message": message, "publishedAt": release.PublishedAt,
 				"supportedWindows": supported, "rollbackNotice": release.RollbackNotice,
 				"releaseNotesUrl": release.ReleaseNotesURL, "signingKeyId": release.SigningKeyID,
 			})
 			return
 		}
+	}
+	if platform == "linux" {
+		writeJSON(response, http.StatusOK, product.LatestLinuxRelease())
+		return
 	}
 	writeJSON(response, http.StatusOK, product.LatestWindowsRelease())
 }

@@ -328,7 +328,7 @@ func validRelease(release adminstore.Release) bool {
 		parsed, err := url.Parse(raw)
 		return err == nil && parsed.Scheme == "https" && parsed.Host != ""
 	}
-	baseValid := len(release.Channel) > 0 && len(release.Channel) <= 40 && len(release.Platform) > 0 && len(release.Platform) <= 40 && len(release.Architecture) > 0 && len(release.Architecture) <= 40 && release.RolloutPercent >= 0 && release.RolloutPercent <= 100 &&
+	baseValid := len(release.Channel) > 0 && len(release.Channel) <= 40 && (release.Platform == "windows" || release.Platform == "linux") && len(release.Architecture) > 0 && len(release.Architecture) <= 40 && release.RolloutPercent >= 0 && release.RolloutPercent <= 100 &&
 		len(release.Version) <= 80 && releases.ValidVersion(release.Version) && (release.Status == "draft" || release.Status == "published" || release.Status == "withdrawn")
 	if !baseValid {
 		return false
@@ -338,7 +338,8 @@ func validRelease(release adminstore.Release) bool {
 			(release.SHA256 == "" || sha256Pattern.MatchString(release.SHA256)) && len(release.SigningKeyID) <= 120
 	}
 	return validHTTPS(release.URL) && sha256Pattern.MatchString(release.SHA256) && len(release.Signature) >= 64 &&
-		len(release.SigningKeyID) > 0 && len(release.SigningKeyID) <= 120 && len(release.SupportedWindows) > 0 && validHTTPS(release.ReleaseNotesURL)
+		len(release.SigningKeyID) > 0 && len(release.SigningKeyID) <= 120 &&
+		(release.Platform == "linux" || len(release.SupportedWindows) > 0) && validHTTPS(release.ReleaseNotesURL)
 }
 
 func (a *api) adminAccounts(response http.ResponseWriter, request *http.Request) {

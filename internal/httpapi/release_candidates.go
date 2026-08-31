@@ -71,7 +71,7 @@ func releaseCandidateValidationError(candidate adminstore.ReleaseCandidate) stri
 		parsed, err := url.Parse(raw)
 		return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && parsed.Fragment == ""
 	}
-	values := []string{candidate.Channel, candidate.Platform, candidate.Architecture, candidate.SupportedWindows, candidate.ReleaseNotesURL, candidate.Artifact.ObjectKey, candidate.Artifact.SHA256, candidate.Artifact.UpdaterSignature, candidate.Artifact.UpdaterSigningKeyID, candidate.Artifact.DistributionClass, candidate.Artifact.SigstoreIssuer, candidate.Artifact.SigstoreIdentity, candidate.Artifact.SigstoreBundleSHA256, candidate.CandidateSigningKeyID, candidate.CandidateSignature}
+	values := []string{candidate.Channel, candidate.Platform, candidate.Architecture, candidate.ReleaseNotesURL, candidate.Artifact.ObjectKey, candidate.Artifact.SHA256, candidate.Artifact.UpdaterSignature, candidate.Artifact.UpdaterSigningKeyID, candidate.Artifact.DistributionClass, candidate.Artifact.SigstoreIssuer, candidate.Artifact.SigstoreIdentity, candidate.Artifact.SigstoreBundleSHA256, candidate.CandidateSigningKeyID, candidate.CandidateSignature}
 	for _, value := range values {
 		if value == "" || len(value) > 16*1024 || strings.ContainsAny(value, "\r\n") {
 			return "required-text"
@@ -91,8 +91,17 @@ func releaseCandidateValidationError(candidate adminstore.ReleaseCandidate) stri
 	if candidate.Channel != "owner" && candidate.Channel != "beta" {
 		return "channel"
 	}
-	if candidate.Platform != "windows" || (candidate.Architecture != "x86_64" && candidate.Architecture != "aarch64") {
+	if candidate.Platform != "windows" && candidate.Platform != "linux" {
 		return "platform"
+	}
+	if candidate.Architecture != "x86_64" && candidate.Architecture != "aarch64" {
+		return "platform"
+	}
+	if candidate.Platform == "windows" && candidate.SupportedWindows == "" {
+		return "supported-windows"
+	}
+	if candidate.Platform == "linux" && candidate.SupportedWindows != "" {
+		return "supported-windows"
 	}
 	if !validHTTPS(candidate.ReleaseNotesURL) || !validHTTPS(candidate.Artifact.URL) {
 		return "https-url"
