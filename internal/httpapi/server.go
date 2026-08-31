@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -26,6 +27,7 @@ const (
 
 type Config struct {
 	Version       string
+	Commit        string
 	AllowedOrigin string
 	// The marketing site: it may read published metadata only, never act on a session.
 	PublicSiteOrigin string
@@ -53,6 +55,9 @@ type Config struct {
 	ReleaseCandidateTokenHash []byte
 	DesktopUpdateBaseURL      string
 	ArtifactDelivery          ArtifactDelivery
+	OperationalOutbox         OperationalOutbox
+	Maintenance               *MaintenanceState
+	OperationalSnapshot       OperationalSnapshotProvider
 	RegistrationMode          string
 	WebBaseURL                string
 	EmailSender               EmailSender
@@ -70,11 +75,97 @@ type ReleaseRegistry interface {
 	PublishedReleasesForUpdate(context.Context, string, string, bool) ([]adminstore.Release, error)
 }
 
+type OperationalStatus string
+
+const (
+	OperationalReady         OperationalStatus = "ready"
+	OperationalDegraded      OperationalStatus = "degraded"
+	OperationalUnavailable   OperationalStatus = "unavailable"
+	OperationalNotConfigured OperationalStatus = "not_configured"
+	OperationalNotRun        OperationalStatus = "not_run"
+)
+
+type OperationalSnapshot struct {
+	API              OperationalComponent   `json:"api"`
+	Version          OperationalVersion     `json:"version"`
+	Schema           OperationalSchema      `json:"schema"`
+	Database         OperationalDatabase    `json:"database"`
+	ReleasePipeline  OperationalComponent   `json:"releasePipeline"`
+	ArtifactDelivery OperationalComponent   `json:"artifactDelivery"`
+	EmailOutbox      OperationalEmailOutbox `json:"emailOutbox"`
+	Maintenance      OperationalMaintenance `json:"maintenance"`
+}
+
+type OperationalComponent struct {
+	Status OperationalStatus `json:"status"`
+}
+
+type OperationalVersion struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+}
+
+type OperationalSchema struct {
+	Status  OperationalStatus `json:"status"`
+	Version string            `json:"version"`
+}
+
+type OperationalDatabase struct {
+	Status   OperationalStatus `json:"status"`
+	TimedOut bool              `json:"timedOut"`
+}
+
+type OperationalEmailOutbox struct {
+	Status  OperationalStatus `json:"status"`
+	Pending int               `json:"pending"`
+	Failed  int               `json:"failed"`
+}
+
+type OperationalMaintenance struct {
+	Status    OperationalStatus `json:"status"`
+	LastRunAt *time.Time        `json:"lastRunAt"`
+}
+
+type OperationalOutbox interface {
+	OperationalSummary(context.Context) (OperationalEmailOutbox, error)
+}
+
+type OperationalSnapshotProvider interface {
+	Snapshot(context.Context) OperationalSnapshot
+}
+
+type MaintenanceState struct {
+	mu        sync.RWMutex
+	status    OperationalStatus
+	lastRunAt *time.Time
+}
+
+func NewMaintenanceState() *MaintenanceState {
+	return &MaintenanceState{status: OperationalNotRun}
+}
+
+func (s *MaintenanceState) Record(status OperationalStatus, at time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status = status
+	s.lastRunAt = &at
+}
+
+func (s *MaintenanceState) Snapshot() OperationalMaintenance {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := OperationalMaintenance{Status: s.status}
+	if s.lastRunAt != nil {
+		at := *s.lastRunAt
+		result.LastRunAt = &at
+	}
+	return result
+}
+
 type api struct {
-	config    Config
-	limits    *authLimiter
-	startedAt time.Time
-	routes    *routeRegistry
+	config Config
+	limits *authLimiter
+	routes *routeRegistry
 }
 
 func New(config Config) http.Handler {
@@ -105,11 +196,13 @@ func New(config Config) http.Handler {
 	if strings.TrimSpace(config.WebBaseURL) == "" {
 		config.WebBaseURL = strings.TrimSuffix(config.AllowedOrigin, "/")
 	}
+	if config.OperationalSnapshot == nil {
+		config.OperationalSnapshot = newOperationalSnapshotProvider(config)
+	}
 	service := &api{
-		config:    config,
-		limits:    &authLimiter{attempts: make(map[string]*limitEntry), recency: list.New()},
-		startedAt: time.Now().UTC(),
-		routes:    newRouteRegistry(),
+		config: config,
+		limits: &authLimiter{attempts: make(map[string]*limitEntry), recency: list.New()},
+		routes: newRouteRegistry(),
 	}
 
 	mux := http.NewServeMux()

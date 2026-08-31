@@ -198,6 +198,10 @@ operations control plane changes these fields transactionally and audits the
 change. A kill switch excludes the release from account download eligibility
 immediately; it does not require a website deployment.
 
+Release controls use `POST` commands for publish, rollout, emergency stop, and
+withdrawal. Every command includes the current manifest revision. Stale
+commands return `409`; artifact fields are never accepted by these routes.
+
 Release candidates are accepted only through `POST /v1/release-candidates`.
 The release pipeline authenticates with its dedicated bearer credential, never
 an admin browser session or CSRF token, and submits an Ed25519-signed descriptor containing the exact
@@ -212,6 +216,10 @@ substitutes for the updater signature.
 The exact candidate signing payload, signing-key ID, and signature are retained
 with the immutable artifact. Older artifact rows without that receipt are not
 eligible for desktop update delivery.
+
+Replaying the same signed candidate returns the existing release and does not
+add another audit row. A request for the same channel, platform, architecture,
+and version with different signed evidence returns `409`.
 
 Artifact locations are never included in an account response. Tickets expire
 after five minutes, are one-time, bound to the issuing account, release and
@@ -356,3 +364,10 @@ the append-only audit log. Every mutation writes its audit entry in the same
 database transaction as the change. Requests are decoded with a small body
 limit and unknown-field rejection, and vault-shaped fields are rejected before
 route decoding.
+
+- `GET /v1/admin/system/health` returns a typed operational snapshot for
+  `system:read`. It reports deployed version and commit, schema and database
+  readiness, release pipeline and artifact delivery state, capped email outbox
+  pending and failed totals, and the last maintenance result. Dependency waits
+	stop after two seconds and return a safe status rather than config values
+  or credentials. Each outbox total is capped at 100.

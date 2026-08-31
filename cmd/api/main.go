@@ -127,8 +127,11 @@ func main() {
 	if worker != nil {
 		go worker.Run(ctx)
 	}
+	operationalOutbox, _ := outbox.(httpapi.OperationalOutbox)
+	maintenance := httpapi.NewMaintenanceState()
 	config := httpapi.Config{
 		Version:                   env("SESAME_API_VERSION", "0.1.0-dev"),
+		Commit:                    env("SESAME_API_COMMIT", "unknown"),
 		AllowedOrigin:             webOrigin,
 		PublicSiteOrigin:          strings.TrimSuffix(strings.TrimSpace(os.Getenv("SESAME_PUBLIC_SITE_ORIGIN")), "/"),
 		SessionSecure:             sessionSecure,
@@ -157,11 +160,11 @@ func main() {
 		ReleaseCandidateTokenHash: releaseCandidateToken,
 		DesktopUpdateBaseURL:      strings.TrimRight(strings.TrimSpace(os.Getenv("SESAME_DESKTOP_UPDATE_BASE_URL")), "/"),
 		ArtifactDelivery:          artifactDelivery,
+		OperationalOutbox:         operationalOutbox,
+		Maintenance:               maintenance,
 	}
-	if err := store.PurgeExpired(ctx); err != nil {
-		slog.Warn("Sesame API could not purge expired security records", "error", err)
-	}
-	go runMaintenance(ctx, store, outbox)
+	runMaintenanceOnce(ctx, store, outbox, maintenance)
+	go runMaintenance(ctx, store, outbox, maintenance)
 	server := &http.Server{
 		Addr:              env("SESAME_API_ADDR", "127.0.0.1:8787"),
 		Handler:           httpapi.New(config),
@@ -288,7 +291,7 @@ func parseTrustedProxies(value string) ([]netip.Prefix, error) {
 	return prefixes, nil
 }
 
-func runMaintenance(ctx context.Context, store accounts.MaintenanceStore, outbox notifications.Outbox) {
+func runMaintenance(ctx context.Context, store accounts.MaintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -297,24 +300,33 @@ func runMaintenance(ctx context.Context, store accounts.MaintenanceStore, outbox
 			return
 		case <-ticker.C:
 			purgeContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-			if err := store.PurgeExpired(purgeContext); err != nil {
-				slog.Warn("Sesame API could not purge expired security records", "error", err)
-			}
-			if outbox != nil {
-				if n, err := outbox.PurgeDeliveredOlderThan(purgeContext, 7*24*time.Hour); err != nil {
-					slog.Warn("Sesame API could not purge delivered email outbox records", "error", err)
-				} else if n > 0 {
-					slog.Info("purged delivered email outbox records", "count", n)
-				}
-				if n, err := outbox.PurgeFailedOlderThan(purgeContext, 7*24*time.Hour); err != nil {
-					slog.Warn("Sesame API could not purge failed email outbox records", "error", err)
-				} else if n > 0 {
-					slog.Info("purged failed email outbox records", "count", n)
-				}
-			}
+			runMaintenanceOnce(purgeContext, store, outbox, maintenance)
 			cancel()
 		}
 	}
+}
+
+func runMaintenanceOnce(ctx context.Context, store accounts.MaintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState) {
+	status := httpapi.OperationalReady
+	if err := store.PurgeExpired(ctx); err != nil {
+		slog.Warn("Sesame API could not purge expired security records", "error", err)
+		status = httpapi.OperationalDegraded
+	}
+	if outbox != nil {
+		if n, err := outbox.PurgeDeliveredOlderThan(ctx, 7*24*time.Hour); err != nil {
+			slog.Warn("Sesame API could not purge delivered email outbox records", "error", err)
+			status = httpapi.OperationalDegraded
+		} else if n > 0 {
+			slog.Info("purged delivered email outbox records", "count", n)
+		}
+		if n, err := outbox.PurgeFailedOlderThan(ctx, 7*24*time.Hour); err != nil {
+			slog.Warn("Sesame API could not purge failed email outbox records", "error", err)
+			status = httpapi.OperationalDegraded
+		} else if n > 0 {
+			slog.Info("purged failed email outbox records", "count", n)
+		}
+	}
+	maintenance.Record(status, time.Now().UTC())
 }
 
 func buildPasskeys(origin, rpID, rpName string) *webauthn.WebAuthn {

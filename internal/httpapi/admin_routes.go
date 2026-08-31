@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -13,7 +14,6 @@ import (
 
 	"usesesame.app/backend/internal/accounts"
 	adminstore "usesesame.app/backend/internal/admin"
-	"usesesame.app/backend/internal/releases"
 )
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -302,44 +302,76 @@ func (a *api) adminReleases(response http.ResponseWriter, request *http.Request)
 	writeJSON(response, http.StatusOK, map[string]any{"releases": releases})
 }
 
-func (a *api) adminRelease(response http.ResponseWriter, request *http.Request) {
+func (a *api) adminReleasePublish(response http.ResponseWriter, request *http.Request) {
 	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
-	var input adminstore.Release
+	var input adminstore.PublishReleaseInput
 	if !decodeAdminJSON(response, request, &input) {
 		return
 	}
-	input.Platform = request.PathValue("platform")
-	if !validRelease(input) {
-		writeError(response, http.StatusBadRequest, "invalid_release", "Release metadata must be complete, signed, and use HTTPS URLs before it can be saved.")
-		return
-	}
-	if err := a.config.Admin.UpdateRelease(request.Context(), actor, input, a.adminIPHash(request)); err != nil {
-		adminStoreError(response, err)
+	if err := a.config.Admin.PublishRelease(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
+		adminReleaseCommandError(response, err)
 		return
 	}
 	response.WriteHeader(http.StatusNoContent)
 }
 
-func validRelease(release adminstore.Release) bool {
-	validHTTPS := func(raw string) bool {
-		parsed, err := url.Parse(raw)
-		return err == nil && parsed.Scheme == "https" && parsed.Host != ""
+func (a *api) adminReleaseRollout(response http.ResponseWriter, request *http.Request) {
+	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	if !ok {
+		return
 	}
-	baseValid := len(release.Channel) > 0 && len(release.Channel) <= 40 && (release.Platform == "windows" || release.Platform == "linux") && len(release.Architecture) > 0 && len(release.Architecture) <= 40 && release.RolloutPercent >= 0 && release.RolloutPercent <= 100 &&
-		len(release.Version) <= 80 && releases.ValidVersion(release.Version) && (release.Status == "draft" || release.Status == "published" || release.Status == "withdrawn")
-	if !baseValid {
-		return false
+	var input adminstore.RolloutReleaseInput
+	if !decodeAdminJSON(response, request, &input) {
+		return
 	}
-	if release.Status == "draft" {
-		return (release.URL == "" || validHTTPS(release.URL)) && (release.ReleaseNotesURL == "" || validHTTPS(release.ReleaseNotesURL)) &&
-			(release.SHA256 == "" || sha256Pattern.MatchString(release.SHA256)) && len(release.SigningKeyID) <= 120
+	if err := a.config.Admin.SetReleaseRollout(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
+		adminReleaseCommandError(response, err)
+		return
 	}
-	return validHTTPS(release.URL) && sha256Pattern.MatchString(release.SHA256) && len(release.Signature) >= 64 &&
-		len(release.SigningKeyID) > 0 && len(release.SigningKeyID) <= 120 &&
-		(release.Platform == "linux" || len(release.SupportedWindows) > 0) && validHTTPS(release.ReleaseNotesURL)
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (a *api) adminReleaseEmergencyStop(response http.ResponseWriter, request *http.Request) {
+	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	if !ok {
+		return
+	}
+	var input adminstore.EmergencyStopReleaseInput
+	if !decodeAdminJSON(response, request, &input) {
+		return
+	}
+	if err := a.config.Admin.EmergencyStopRelease(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
+		adminReleaseCommandError(response, err)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (a *api) adminReleaseWithdraw(response http.ResponseWriter, request *http.Request) {
+	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	if !ok {
+		return
+	}
+	var input adminstore.WithdrawReleaseInput
+	if !decodeAdminJSON(response, request, &input) {
+		return
+	}
+	if err := a.config.Admin.WithdrawRelease(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
+		adminReleaseCommandError(response, err)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func adminReleaseCommandError(response http.ResponseWriter, err error) {
+	if errors.Is(err, adminstore.ErrManifestRevisionConflict) {
+		writeError(response, http.StatusConflict, "release_manifest_conflict", "This release changed. Reload it before trying again.")
+		return
+	}
+	adminStoreError(response, err)
 }
 
 func (a *api) adminAccounts(response http.ResponseWriter, request *http.Request) {
@@ -514,16 +546,9 @@ func (a *api) adminSystemHealth(response http.ResponseWriter, request *http.Requ
 	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
 		return
 	}
-	db := "ok"
-	if err := a.config.Admin.Ping(request.Context()); err != nil {
-		db = "unavailable"
-	}
-	overview, err := a.config.Admin.Overview(request.Context())
-	if err != nil {
-		adminStoreError(response, err)
-		return
-	}
-	writeJSON(response, http.StatusOK, map[string]any{"api": "ok", "database": db, "version": a.config.Version, "uptimeSeconds": int(time.Since(a.startedAt).Seconds()), "overview": overview})
+	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+	defer cancel()
+	writeJSON(response, http.StatusOK, a.config.OperationalSnapshot.Snapshot(ctx))
 }
 
 func (a *api) adminRateLimits(response http.ResponseWriter, request *http.Request) {

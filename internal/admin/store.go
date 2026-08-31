@@ -16,10 +16,12 @@ import (
 )
 
 var (
-	ErrNotFound      = errors.New("admin record not found")
-	ErrNotAllowed    = errors.New("admin action not allowed")
-	ErrBootstrapDone = errors.New("a super admin already exists")
-	ErrTOTPReplay    = errors.New("admin TOTP code was already used")
+	ErrNotFound                 = errors.New("admin record not found")
+	ErrNotAllowed               = errors.New("admin action not allowed")
+	ErrReleaseCandidateConflict = errors.New("release candidate conflicts with accepted evidence")
+	ErrManifestRevisionConflict = errors.New("release manifest revision conflicts with current state")
+	ErrBootstrapDone            = errors.New("a super admin already exists")
+	ErrTOTPReplay               = errors.New("admin TOTP code was already used")
 	// Fails closed like a wrong password; its own error tells the operator the key is wrong.
 	ErrSecretUnreadable = errors.New("admin MFA secret cannot be decrypted with the configured key")
 
@@ -393,6 +395,7 @@ func (s *Store) AccountBySession(ctx context.Context, tokenHash []byte) (Account
 	if errors.Is(err, sql.ErrNoRows) {
 		return Account{}, ErrNotFound
 	}
+	account.Permissions = EffectivePermissions(account.Role)
 	return account, err
 }
 

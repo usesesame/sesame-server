@@ -1,6 +1,9 @@
 package admin
 
-import "context"
+import (
+	"context"
+	"database/sql"
+)
 
 func (s *Store) Overview(ctx context.Context) (Overview, error) {
 	var overview Overview
@@ -37,3 +40,12 @@ func (s *Store) RateLimitMetrics(ctx context.Context) ([]RateLimitMetric, error)
 }
 
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
+
+func (s *Store) SchemaVersion(ctx context.Context) (string, error) {
+	var version string
+	err := s.db.QueryRowContext(ctx, `SELECT version FROM sesame_schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return version, err
+}

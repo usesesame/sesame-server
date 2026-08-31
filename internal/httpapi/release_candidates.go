@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -46,6 +47,10 @@ func (a *api) releaseCandidateIngest(response http.ResponseWriter, request *http
 	}
 	release, err := a.config.ReleaseRegistry.AcceptReleaseCandidate(request.Context(), adminstore.Account{Email: "release-pipeline"}, candidate, a.adminIPHash(request))
 	if err != nil {
+		if errors.Is(err, adminstore.ErrReleaseCandidateConflict) {
+			writeError(response, http.StatusConflict, "release_candidate_conflict", "This release tuple is already bound to different signed evidence.")
+			return
+		}
 		adminStoreError(response, err)
 		return
 	}

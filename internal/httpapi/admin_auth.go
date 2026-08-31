@@ -58,7 +58,10 @@ func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	a.route(mux, admin, "GET /v1/admin/flags", a.adminFlags)
 	a.route(mux, admin, "PATCH /v1/admin/flags/{key}", a.adminFlag)
 	a.route(mux, admin, "GET /v1/admin/releases", a.adminReleases)
-	a.route(mux, admin, "PUT /v1/admin/releases/{platform}", a.adminRelease)
+	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/publish", a.adminReleasePublish)
+	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/rollout", a.adminReleaseRollout)
+	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/emergency-stop", a.adminReleaseEmergencyStop)
+	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/withdraw", a.adminReleaseWithdraw)
 	a.route(mux, admin, "GET /v1/admin/plans", a.adminPlans)
 	a.route(mux, admin, "PATCH /v1/admin/plans/{planID}", a.adminPlan)
 	a.route(mux, admin, "GET /v1/admin/admins", a.adminAccounts)
@@ -179,6 +182,7 @@ func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	a.setAdminSessionCookie(response, token)
+	admin.Permissions = adminstore.EffectivePermissions(admin.Role)
 	writeJSON(response, http.StatusOK, map[string]any{"admin": admin})
 }
 
@@ -242,6 +246,7 @@ func (a *api) adminSetupComplete(response http.ResponseWriter, request *http.Req
 		return
 	}
 	a.setAdminSessionCookie(response, token)
+	account.Permissions = adminstore.EffectivePermissions(account.Role)
 	writeJSON(response, http.StatusOK, map[string]any{"admin": account})
 }
 

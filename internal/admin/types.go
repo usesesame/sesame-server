@@ -63,6 +63,16 @@ func Allowed(role Role, permission Permission) bool {
 	}
 }
 
+func EffectivePermissions(role Role) []Permission {
+	permissions := make([]Permission, 0, len([]Permission{PermissionUsersRead, PermissionUsersManage, PermissionUsersDelete, PermissionFlagsManage, PermissionReleaseWrite, PermissionPlansWrite, PermissionAdminsManage, PermissionAuditAll, PermissionSystemRead, PermissionSupportManage, PermissionSupportRead}))
+	for _, permission := range []Permission{PermissionUsersRead, PermissionUsersManage, PermissionUsersDelete, PermissionFlagsManage, PermissionReleaseWrite, PermissionPlansWrite, PermissionAdminsManage, PermissionAuditAll, PermissionSystemRead, PermissionSupportManage, PermissionSupportRead} {
+		if Allowed(role, permission) {
+			permissions = append(permissions, permission)
+		}
+	}
+	return permissions
+}
+
 type Account struct {
 	ID          string    `json:"id"`
 	Email       string    `json:"email"`
@@ -71,6 +81,7 @@ type Account struct {
 	Suspended   bool      `json:"suspended"`
 	CreatedAt   time.Time `json:"createdAt"`
 	LastLoginAt time.Time `json:"lastLoginAt,omitempty"`
+	Permissions []Permission `json:"permissions"`
 }
 
 type UserSummary struct {
@@ -125,26 +136,45 @@ type Plan struct {
 }
 
 type Release struct {
-	ID                string           `json:"id"`
-	Channel           string           `json:"channel"`
-	Platform          string           `json:"platform"`
-	Architecture      string           `json:"architecture"`
-	Version           string           `json:"version"`
-	URL               string           `json:"url"`
-	ArtifactObjectKey string           `json:"-"`
-	SHA256            string           `json:"sha256"`
-	Signature         string           `json:"signature"`
-	SigningKeyID      string           `json:"signingKeyId"`
-	SupportedWindows  string           `json:"supportedWindows"`
-	ReleaseNotesURL   string           `json:"releaseNotesUrl"`
-	RollbackNotice    string           `json:"rollbackNotice"`
-	Status            string           `json:"status"`
-	RolloutPercent    int              `json:"rolloutPercent"`
-	UpdateEnabled     bool             `json:"updateEnabled"`
-	KillSwitch        bool             `json:"killSwitch"`
-	ManifestRevision  int64            `json:"manifestRevision"`
-	PublishedAt       *time.Time       `json:"publishedAt,omitempty"`
-	Artifact          *ReleaseArtifact `json:"artifact,omitempty"`
+	ID                  string           `json:"id"`
+	Channel             string           `json:"channel"`
+	Platform            string           `json:"platform"`
+	Architecture        string           `json:"architecture"`
+	Version             string           `json:"version"`
+	URL                 string           `json:"url"`
+	ArtifactObjectKey   string           `json:"-"`
+	SHA256              string           `json:"sha256"`
+	Signature           string           `json:"signature"`
+	SigningKeyID        string           `json:"signingKeyId"`
+	SupportedWindows    string           `json:"supportedWindows"`
+	ReleaseNotesURL     string           `json:"releaseNotesUrl"`
+	RollbackNotice      string           `json:"rollbackNotice"`
+	Status              string           `json:"status"`
+	RolloutPercent      int              `json:"rolloutPercent"`
+	UpdateEnabled       bool             `json:"updateEnabled"`
+	KillSwitch          bool             `json:"killSwitch"`
+	ManifestRevision    int64            `json:"manifestRevision"`
+	PublishedAt         *time.Time       `json:"publishedAt,omitempty"`
+	Artifact            *ReleaseArtifact `json:"artifact,omitempty"`
+	PublicationBlockers []string         `json:"publicationBlockers"`
+	Audit               []AuditEntry     `json:"audit"`
+}
+
+type PublishReleaseInput struct {
+	ExpectedManifestRevision int64 `json:"expectedManifestRevision"`
+}
+
+type RolloutReleaseInput struct {
+	ExpectedManifestRevision int64 `json:"expectedManifestRevision"`
+	RolloutPercent           int   `json:"rolloutPercent"`
+}
+
+type EmergencyStopReleaseInput struct {
+	ExpectedManifestRevision int64 `json:"expectedManifestRevision"`
+}
+
+type WithdrawReleaseInput struct {
+	ExpectedManifestRevision int64 `json:"expectedManifestRevision"`
 }
 
 // Verification output from the signed release pipeline; read-only, not editable through release controls.
