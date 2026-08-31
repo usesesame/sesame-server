@@ -43,3 +43,10 @@ func LatestWindowsRelease() Release {
 		Message: "A public Windows download will appear only after signing and beta verification are complete.",
 	}
 }
+
+func LatestLinuxRelease() Release {
+	return Release{
+		Channel: "private-beta", Platform: "linux", Available: false, Signed: false,
+		Message: "A public Linux download will appear only after signing and beta verification are complete.",
+	}
+}

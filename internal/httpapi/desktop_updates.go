@@ -30,7 +30,11 @@ func (a *api) desktopUpdate(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusBadRequest, "invalid_desktop_version", "The desktop version is invalid.")
 		return
 	}
-	if connection.Platform != "" && connection.Platform != "windows" {
+	platform := connection.Platform
+	if platform == "" {
+		platform = "windows"
+	}
+	if platform != "windows" && platform != "linux" {
 		a.noDesktopUpdate(response, request, "")
 		return
 	}
@@ -48,7 +52,7 @@ func (a *api) desktopUpdate(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusServiceUnavailable, "updater_unavailable", "Desktop updates are temporarily unavailable.")
 		return
 	}
-	candidates, err := registry.PublishedReleasesForUpdate(request.Context(), "windows", architecture, owner)
+	candidates, err := registry.PublishedReleasesForUpdate(request.Context(), platform, architecture, owner)
 	if errors.Is(err, accounts.ErrNotFound) || errors.Is(err, adminstore.ErrNotFound) || len(candidates) == 0 {
 		a.noDesktopUpdate(response, request, "beta")
 		return
