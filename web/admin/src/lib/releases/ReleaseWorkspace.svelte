@@ -27,7 +27,16 @@
     <div class="release-edit">
       <div class="two"><label>Version<input value={release.version} readonly /></label><label>Status<input value={release.status} readonly /></label></div>
       <div class="two"><label>Platform<input value={release.platform} readonly /></label><label>Channel<input value={release.channel} readonly /></label></div>
-      {#if release.artifact}<div class="release-evidence"><strong>Verified artifact</strong><dl><div><dt>SHA-256</dt><dd><code>{release.artifact.sha256}</code></dd></div><div><dt>Distribution</dt><dd>{release.artifact.distributionClass}</dd></div></dl></div>{:else}<p class="empty">No eligible artifact evidence.</p>{/if}
+      {#if release.artifacts.length > 0}
+        <div class="release-evidence">
+          <strong>Verified artifact set</strong>
+          <dl>
+            {#each release.artifacts as artifact (artifact.id)}
+              <div><dt>{artifact.format} ({artifact.architecture})</dt><dd><code>{artifact.sha256}</code>{artifact.updaterCapable ? ' · updater capable' : ''}</dd></div>
+            {/each}
+          </dl>
+        </div>
+      {:else}<p class="empty">No eligible artifact evidence.</p>{/if}
       <p>Revision {release.manifestRevision}</p>
       {#if release.audit.length}<h3>Recent release activity</h3><ul>{#each release.audit as entry (entry.id)}<li>{entry.action.replace('release.', '').replaceAll('_', ' ')} by {entry.adminEmail || 'release pipeline'}</li>{/each}</ul>{/if}
       {#if props.canManage}

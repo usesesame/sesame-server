@@ -15,7 +15,7 @@ import App from '../src/App.svelte'
 afterEach(() => { cleanup(); api.request.mockReset(); api.mutate.mockReset() })
 
 test('reloads releases after a stale command', async () => {
-  const release = { id: 'release-test', channel: 'beta', platform: 'windows', architecture: 'x86_64', version: '0.2.3', url: 'https://downloads.example.invalid/Sesame.exe', sha256: 'a'.repeat(64), signature: 's'.repeat(64), signingKeyId: 'test-key', supportedWindows: 'Windows 10', releaseNotesUrl: 'https://example.invalid/releases/0.2.3', rollbackNotice: '', status: 'draft', rolloutPercent: 100, updateEnabled: true, killSwitch: false, manifestRevision: 1, publicationBlockers: [], audit: [] }
+  const release = { id: 'release-test', channel: 'beta', platform: 'windows', architecture: 'x86_64', version: '0.2.3', url: 'https://downloads.example.invalid/Sesame.exe', sha256: 'a'.repeat(64), signature: 's'.repeat(64), signingKeyId: 'test-key', supportedWindows: 'Windows 10', releaseNotesUrl: 'https://example.invalid/releases/0.2.3', rollbackNotice: '', status: 'draft', rolloutPercent: 100, updateEnabled: true, killSwitch: false, manifestRevision: 1, releaseSetDigest: 'b'.repeat(64), releaseSetVerifiedAt: '2026-08-31T00:00:00Z', artifacts: [], publicationBlockers: [], audit: [] }
   api.request.mockImplementation(async (path: string) => {
     if (path === '/v1/admin/auth/me') return { admin: { id: 'ops', email: 'ops@example.invalid', role: 'ops', mfaVerified: true, suspended: false, createdAt: '', permissions: ['releases:write'] } }
     if (path === '/v1/admin/overview') return { overview: {} }

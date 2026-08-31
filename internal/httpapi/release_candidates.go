@@ -5,11 +5,13 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -76,18 +78,13 @@ func releaseCandidateValidationError(candidate adminstore.ReleaseCandidate) stri
 		parsed, err := url.Parse(raw)
 		return err == nil && parsed.Scheme == "https" && parsed.Host != "" && parsed.User == nil && parsed.Fragment == ""
 	}
-	values := []string{candidate.Channel, candidate.Platform, candidate.Architecture, candidate.ReleaseNotesURL, candidate.Artifact.ObjectKey, candidate.Artifact.SHA256, candidate.Artifact.UpdaterSignature, candidate.Artifact.UpdaterSigningKeyID, candidate.Artifact.DistributionClass, candidate.Artifact.SigstoreIssuer, candidate.Artifact.SigstoreIdentity, candidate.Artifact.SigstoreBundleSHA256, candidate.CandidateSigningKeyID, candidate.CandidateSignature}
+	values := []string{candidate.Channel, candidate.Platform, candidate.Architecture, candidate.ReleaseNotesURL, candidate.SetDigest, candidate.CandidateSigningKeyID, candidate.CandidateSignature}
 	for _, value := range values {
 		if value == "" || len(value) > 16*1024 || strings.ContainsAny(value, "\r\n") {
 			return "required-text"
 		}
 	}
-	for _, value := range []string{candidate.Artifact.AuthenticodeSubject, candidate.Artifact.AuthenticodeThumbprint} {
-		if len(value) > 16*1024 || strings.ContainsAny(value, "\r\n") {
-			return "authenticode-text"
-		}
-	}
-	if candidate.SchemaVersion != 2 {
+	if candidate.SchemaVersion != 3 {
 		return "schema-version"
 	}
 	if !releases.ValidVersion(candidate.Version) {
@@ -108,26 +105,53 @@ func releaseCandidateValidationError(candidate adminstore.ReleaseCandidate) stri
 	if candidate.Platform == "linux" && candidate.SupportedWindows != "" {
 		return "supported-windows"
 	}
-	if !validHTTPS(candidate.ReleaseNotesURL) || !validHTTPS(candidate.Artifact.URL) {
+	if !validHTTPS(candidate.ReleaseNotesURL) || !sha256Pattern.MatchString(candidate.SetDigest) {
 		return "https-url"
 	}
-	if !validArtifactObjectKey(candidate.Artifact.ObjectKey) {
-		return "artifact-object-key"
+	expectedFormats := map[string]bool{"nsis": true}
+	if candidate.Platform == "linux" {
+		expectedFormats = map[string]bool{"appimage": true, "deb": true, "rpm": true}
 	}
-	if !sha256Pattern.MatchString(candidate.Artifact.SHA256) {
-		return "artifact-sha256"
+	if len(candidate.Artifacts) != len(expectedFormats) {
+		return "artifact-set"
 	}
-	if candidate.Artifact.Bytes <= 0 || candidate.Artifact.Bytes > 8*1024*1024*1024 {
-		return "artifact-size"
-	}
-	if !validSigstoreCandidateEvidence(candidate) {
-		return "sigstore-evidence"
-	}
-	if candidate.Artifact.AuthenticodeVerified && (len(candidate.Artifact.AuthenticodeEvidence) == 0 || candidate.Artifact.AuthenticodeSubject == "" || candidate.Artifact.AuthenticodeThumbprint == "") {
-		return "authenticode-evidence"
-	}
-	if !releases.ArtifactEligible(candidate.Artifact.DistributionClass, candidate.Artifact.SigstoreVerified, candidate.Artifact.AuthenticodeVerified) {
-		return "distribution-eligibility"
+	seen := make(map[string]bool, len(candidate.Artifacts))
+	for _, artifact := range candidate.Artifacts {
+		key := artifact.Format + ":" + artifact.Architecture
+		if seen[key] || !expectedFormats[artifact.Format] || artifact.Architecture != candidate.Architecture {
+			return "artifact-set"
+		}
+		seen[key] = true
+		artifactValues := []string{artifact.Format, artifact.Architecture, artifact.URL, artifact.ObjectKey, artifact.SHA256, artifact.DistributionClass, artifact.SigstoreIssuer, artifact.SigstoreIdentity, artifact.SigstoreBundleSHA256}
+		for _, value := range artifactValues {
+			if value == "" || len(value) > 16*1024 || strings.ContainsAny(value, "\r\n") {
+				return "artifact-text"
+			}
+		}
+		for _, value := range []string{artifact.UpdaterSignature, artifact.UpdaterSigningKeyID, artifact.AuthenticodeSubject, artifact.AuthenticodeThumbprint} {
+			if len(value) > 16*1024 || strings.ContainsAny(value, "\r\n") {
+				return "artifact-evidence-text"
+			}
+		}
+		if !validHTTPS(artifact.URL) || !validArtifactObjectKey(artifact.ObjectKey) {
+			return "artifact-location"
+		}
+		if !sha256Pattern.MatchString(artifact.SHA256) || artifact.Bytes <= 0 || artifact.Bytes > 8*1024*1024*1024 {
+			return "artifact-integrity"
+		}
+		expectedUpdaterCapability := candidate.Platform == "windows" && artifact.Format == "nsis"
+		if artifact.UpdaterCapable != expectedUpdaterCapability || (artifact.UpdaterCapable && (len(artifact.UpdaterSignature) < 64 || artifact.UpdaterSigningKeyID == "")) || (!artifact.UpdaterCapable && (artifact.UpdaterSignature != "" || artifact.UpdaterSigningKeyID != "")) {
+			return "updater-capability"
+		}
+		if !validSigstoreCandidateEvidence(candidate, artifact) {
+			return "sigstore-evidence"
+		}
+		if artifact.AuthenticodeVerified && (len(artifact.AuthenticodeEvidence) == 0 || artifact.AuthenticodeSubject == "" || artifact.AuthenticodeThumbprint == "") {
+			return "authenticode-evidence"
+		}
+		if !releases.ArtifactEligible(artifact.DistributionClass, artifact.SigstoreVerified, artifact.AuthenticodeVerified) {
+			return "distribution-eligibility"
+		}
 	}
 	_, err := base64.RawURLEncoding.DecodeString(candidate.CandidateSignature)
 	if err != nil {
@@ -136,8 +160,7 @@ func releaseCandidateValidationError(candidate adminstore.ReleaseCandidate) stri
 	return ""
 }
 
-func validSigstoreCandidateEvidence(candidate adminstore.ReleaseCandidate) bool {
-	artifact := candidate.Artifact
+func validSigstoreCandidateEvidence(candidate adminstore.ReleaseCandidate, artifact adminstore.ReleaseArtifact) bool {
 	expectedIdentity := "https://github.com/usesesame/sesame-desktop/.github/workflows/release-early-access.yml@refs/tags/v" + candidate.Version
 	if !artifact.SigstoreVerified || artifact.SigstoreIssuer != "https://token.actions.githubusercontent.com" || artifact.SigstoreIdentity != expectedIdentity || !sha256Pattern.MatchString(artifact.SigstoreBundleSHA256) || len(artifact.SigstoreEvidence) == 0 {
 		return false
@@ -172,29 +195,62 @@ func (a *api) verifyReleaseCandidate(candidate adminstore.ReleaseCandidate) bool
 
 // Binds every immutable artifact claim, including mandatory Sigstore evidence, to the pipeline receipt.
 func releaseCandidateSigningPayload(candidate adminstore.ReleaseCandidate) (string, bool) {
-	sigstoreEvidence, err := json.Marshal(candidate.Artifact.SigstoreEvidence)
-	if err != nil {
+	digest, ok := releaseSetDigest(candidate)
+	if !ok || digest != candidate.SetDigest {
 		return "", false
 	}
-	sigstoreDigest := sha256.Sum256(sigstoreEvidence)
-	evidenceDigest := ""
-	if len(candidate.Artifact.AuthenticodeEvidence) > 0 {
-		evidence, err := json.Marshal(candidate.Artifact.AuthenticodeEvidence)
+	var updater adminstore.ReleaseArtifact
+	for _, artifact := range candidate.Artifacts {
+		if artifact.UpdaterCapable {
+			updater = artifact
+			break
+		}
+	}
+	updaterBytes := ""
+	if updater.UpdaterCapable {
+		updaterBytes = strconv.FormatInt(updater.Bytes, 10)
+	}
+	return strings.Join([]string{
+		"sesame-release-set-candidate-v1", candidate.Version, candidate.Channel, candidate.Platform,
+		candidate.Architecture, candidate.SupportedWindows, candidate.ReleaseNotesURL, candidate.SetDigest,
+		"updater", updater.Format, updater.Architecture, updater.URL, updater.ObjectKey, updater.SHA256,
+		updaterBytes, updater.UpdaterSignature, updater.UpdaterSigningKeyID,
+	}, "\n"), true
+}
+
+func releaseSetDigest(candidate adminstore.ReleaseCandidate) (string, bool) {
+	artifacts := append([]adminstore.ReleaseArtifact(nil), candidate.Artifacts...)
+	sort.Slice(artifacts, func(i, j int) bool {
+		return artifacts[i].Format+":"+artifacts[i].Architecture < artifacts[j].Format+":"+artifacts[j].Architecture
+	})
+	lines := []string{"sesame-release-set-digest-v1", candidate.Version, candidate.Channel, candidate.Platform, candidate.Architecture, candidate.SupportedWindows, candidate.ReleaseNotesURL}
+	for _, artifact := range artifacts {
+		sigstoreEvidence, err := json.Marshal(artifact.SigstoreEvidence)
 		if err != nil {
 			return "", false
 		}
-		digest := sha256.Sum256(evidence)
-		evidenceDigest = base64.RawURLEncoding.EncodeToString(digest[:])
+		sigstoreDigest := sha256.Sum256(sigstoreEvidence)
+		authenticodeDigest := ""
+		if len(artifact.AuthenticodeEvidence) > 0 {
+			evidence, err := json.Marshal(artifact.AuthenticodeEvidence)
+			if err != nil {
+				return "", false
+			}
+			digest := sha256.Sum256(evidence)
+			authenticodeDigest = base64.RawURLEncoding.EncodeToString(digest[:])
+		}
+		lines = append(lines,
+			"artifact", artifact.Format, artifact.Architecture, artifact.URL, artifact.ObjectKey,
+			artifact.SHA256, strconv.FormatInt(artifact.Bytes, 10), strconv.FormatBool(artifact.UpdaterCapable),
+			artifact.UpdaterSignature, artifact.UpdaterSigningKeyID, artifact.DistributionClass,
+			strconv.FormatBool(artifact.SigstoreVerified), artifact.SigstoreIssuer, artifact.SigstoreIdentity,
+			artifact.SigstoreBundleSHA256, base64.RawURLEncoding.EncodeToString(sigstoreDigest[:]),
+			strconv.FormatBool(artifact.AuthenticodeVerified), artifact.AuthenticodeSubject,
+			artifact.AuthenticodeThumbprint, authenticodeDigest,
+		)
 	}
-	return strings.Join([]string{
-		"sesame-release-candidate-v3", candidate.Version, candidate.Channel, candidate.Platform, candidate.Architecture,
-		candidate.SupportedWindows, candidate.ReleaseNotesURL, candidate.Artifact.URL, candidate.Artifact.ObjectKey, candidate.Artifact.SHA256,
-		strconv.FormatInt(candidate.Artifact.Bytes, 10), candidate.Artifact.UpdaterSignature, candidate.Artifact.UpdaterSigningKeyID,
-		candidate.Artifact.DistributionClass, strconv.FormatBool(candidate.Artifact.SigstoreVerified), candidate.Artifact.SigstoreIssuer,
-		candidate.Artifact.SigstoreIdentity, candidate.Artifact.SigstoreBundleSHA256, base64.RawURLEncoding.EncodeToString(sigstoreDigest[:]),
-		strconv.FormatBool(candidate.Artifact.AuthenticodeVerified), candidate.Artifact.AuthenticodeSubject,
-		candidate.Artifact.AuthenticodeThumbprint, evidenceDigest,
-	}, "\n"), true
+	digest := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(digest[:]), true
 }
 
 func validArtifactObjectKey(value string) bool {

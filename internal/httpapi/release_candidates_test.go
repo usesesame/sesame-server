@@ -70,6 +70,29 @@ func TestReleaseCandidateIngest(t *testing.T) {
 			t.Fatalf("conflict response = %d %s", response.Code, response.Body.String())
 		}
 	})
+
+	t.Run("rejects incomplete and altered release sets", func(t *testing.T) {
+		missing := signedTestCandidate(t, privateKey)
+		missing.Artifacts = nil
+		response := requestReleaseCandidate(t, handler, &missing, token)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("missing package status = %d, want %d", response.Code, http.StatusBadRequest)
+		}
+
+		duplicate := signedTestCandidate(t, privateKey)
+		duplicate.Artifacts = append(duplicate.Artifacts, duplicate.Artifacts[0])
+		response = requestReleaseCandidate(t, handler, &duplicate, token)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("duplicate package status = %d, want %d", response.Code, http.StatusBadRequest)
+		}
+
+		altered := signedTestCandidate(t, privateKey)
+		altered.Artifacts[0].Bytes++
+		response = requestReleaseCandidate(t, handler, &altered, token)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("altered package status = %d, want %d", response.Code, http.StatusBadRequest)
+		}
+	})
 }
 
 func requestReleaseCandidate(t *testing.T, handler http.Handler, candidate *adminstore.ReleaseCandidate, token ...[]byte) *httptest.ResponseRecorder {
@@ -98,7 +121,7 @@ func signedTestCandidate(t *testing.T, privateKey ed25519.PrivateKey) adminstore
 	bundleDigest := strings.Repeat("b", 64)
 	identity := "https://github.com/usesesame/sesame-desktop/.github/workflows/release-early-access.yml@refs/tags/v0.2.3"
 	candidate := adminstore.ReleaseCandidate{
-		SchemaVersion:         2,
+		SchemaVersion:         3,
 		Version:               "0.2.3",
 		Channel:               "beta",
 		Platform:              "windows",
@@ -106,11 +129,14 @@ func signedTestCandidate(t *testing.T, privateKey ed25519.PrivateKey) adminstore
 		SupportedWindows:      "Windows 10",
 		ReleaseNotesURL:       "https://example.invalid/releases/0.2.3",
 		CandidateSigningKeyID: "test-key",
-		Artifact: adminstore.ReleaseArtifact{
+		Artifacts: []adminstore.ReleaseArtifact{{
+			Format:               "nsis",
+			Architecture:         "x86_64",
 			URL:                  "https://downloads.example.invalid/Sesame.exe",
 			ObjectKey:            "releases/0.2.3/Sesame.exe",
 			SHA256:               digest,
 			Bytes:                1,
+			UpdaterCapable:       true,
 			UpdaterSignature:     strings.Repeat("s", 64),
 			UpdaterSigningKeyID:  "test-updater-key",
 			DistributionClass:    "early_access",
@@ -130,8 +156,16 @@ func signedTestCandidate(t *testing.T, privateKey ed25519.PrivateKey) adminstore
 				"artifactSha256":          digest,
 				"artifactBundleSha256":    bundleDigest,
 			},
-		},
+		}},
 	}
+	setDigest, ok := releaseSetDigest(candidate)
+	if !ok {
+		t.Fatal("build release set digest")
+	}
+	if setDigest != "ace8b84e98af42c87ceab7694ac1a3b4e77679995809cd299e5110a93f3dd154" {
+		t.Fatalf("release set digest = %s, does not match the desktop contract", setDigest)
+	}
+	candidate.SetDigest = setDigest
 	payload, ok := releaseCandidateSigningPayload(candidate)
 	if !ok {
 		t.Fatal("build signing payload")

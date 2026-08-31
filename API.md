@@ -181,16 +181,14 @@ may download when it has beta access, a live active licence, or an unexpired
 grace period. Provider receipt references are stored internally; Sesame never
 accepts card data.
 
-`Release` is
-`{id,channel,platform,version,sha256,updaterVerified,distributionClass,sigstoreVerified,sigstoreIdentity?,authenticodeVerified,signature,signingKeyId,supportedWindows,releaseNotesUrl,rollbackNotice?,publishedAt}`.
-Only `published` rows with hashes, updater signatures, and verified Sigstore
-evidence from the exact protected release workflow are returned. An
-`early_access` row must remain Authenticode-unsigned; `production` also requires
-verified Authenticode evidence. Release records are inserted by the
-signing/release pipeline, not by a public API. A withdrawn build or one without
-a verified updater signature must never be marked `published`. A row without
-Sigstore evidence may exist only as a lab record and is never returned as a
-download or updater release.
+`Release` contains one immutable artifact set for a channel, platform,
+architecture, and version. Each artifact records its package format,
+architecture, SHA-256 digest, byte count, download location, Sigstore evidence,
+and updater capability. Windows sets contain NSIS. Linux sets contain AppImage,
+DEB, and RPM records. Linux records do not claim updater capability. Only
+`published` sets whose complete artifact set has eligible evidence can be
+returned. An `early_access` artifact remains Authenticode-unsigned;
+`production` also requires verified Authenticode evidence.
 
 Each canonical release manifest also records its architecture, monotonic
 revision, rollout percentage, update-enabled state, and kill switch. The
@@ -204,18 +202,19 @@ commands return `409`; artifact fields are never accepted by these routes.
 
 Release candidates are accepted only through `POST /v1/release-candidates`.
 The release pipeline authenticates with its dedicated bearer credential, never
-an admin browser session or CSRF token, and submits an Ed25519-signed descriptor containing the exact
-artifact hash, byte length, Tauri updater signature, signer key ID, supported
-Windows versions, release-notes URL, distribution class, exact Sigstore issuer
+an admin browser session or CSRF token, and submits a schema version 3,
+Ed25519-signed release set. Its digest binds every package format,
+architecture, artifact hash, byte length, download URL, updater capability,
+updater signature when applicable, distribution class, exact Sigstore issuer
 and workflow identity, bundle hash, normalized Sigstore evidence digest, and
-optional Authenticode evidence. The API verifies that receipt against its
-configured release-candidate public key before writing append-only artifact
-evidence. Sigstore and Authenticode are separate evidence and neither
-substitutes for the updater signature.
+optional Authenticode evidence. The API recomputes the set digest and verifies
+the receipt before writing all artifact records in one transaction. Sigstore
+and Authenticode remain separate evidence. Neither substitutes for an updater
+signature on an updater-capable package.
 
 The exact candidate signing payload, signing-key ID, and signature are retained
-with the immutable artifact. Older artifact rows without that receipt are not
-eligible for desktop update delivery.
+with every immutable artifact in the set. Older artifact rows without that
+receipt are not eligible for desktop update delivery.
 
 Replaying the same signed candidate returns the existing release and does not
 add another audit row. A request for the same channel, platform, architecture,

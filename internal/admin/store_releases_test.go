@@ -46,7 +46,7 @@ func TestAcceptReleaseCandidateRejectsConflict(t *testing.T) {
 func TestAcceptReleaseCandidateRollsBackPartialInsert(t *testing.T) {
 	store, db := releaseTestStore(t)
 	candidate := releaseTestCandidate("0.2.3", "a")
-	candidate.Artifact.Bytes = 0
+	candidate.Artifacts[0].Bytes = 0
 	if _, err := store.AcceptReleaseCandidate(context.Background(), Account{Email: "release-pipeline"}, candidate, "test-ip"); err == nil {
 		t.Fatal("accept invalid candidate succeeded")
 	}
@@ -135,6 +135,21 @@ func TestReleaseCommandsUseCurrentRevision(t *testing.T) {
 	}
 }
 
+func TestVerifiedReleaseSetIsImmutable(t *testing.T) {
+	store, db := releaseTestStore(t)
+	candidate := releaseTestCandidate("0.2.3", "a")
+	release, err := store.AcceptReleaseCandidate(context.Background(), Account{Email: "release-pipeline"}, candidate, "test-ip")
+	if err != nil {
+		t.Fatalf("accept candidate: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `UPDATE sesame_release_artifacts SET artifact_bytes = artifact_bytes + 1 WHERE release_id = $1`, release.ID); err == nil || !strings.Contains(err.Error(), "release artifact evidence is immutable") {
+		t.Fatalf("artifact mutation error = %v, want immutable evidence rejection", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `UPDATE sesame_releases SET release_set_digest = $2 WHERE id = $1`, release.ID, strings.Repeat("b", 64)); err == nil || !strings.Contains(err.Error(), "verified release set is immutable") {
+		t.Fatalf("release set mutation error = %v, want immutable set rejection", err)
+	}
+}
+
 func releaseTestStore(t *testing.T) (*Store, *sql.DB) {
 	t.Helper()
 	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
@@ -160,20 +175,25 @@ func releaseTestStore(t *testing.T) (*Store, *sql.DB) {
 func releaseTestCandidate(version, digestCharacter string) ReleaseCandidate {
 	digest := strings.Repeat(digestCharacter, 64)
 	return ReleaseCandidate{
+		SchemaVersion:         3,
 		Version:               version,
 		Channel:               "beta",
 		Platform:              "windows",
 		Architecture:          "x86_64",
 		SupportedWindows:      "Windows 10",
 		ReleaseNotesURL:       "https://example.invalid/releases/" + version,
+		SetDigest:             digest,
 		CandidateSigningKeyID: "test-key",
 		CandidateSignature:    "test-signature",
 		SigningPayload:        "signed-payload-" + digest,
-		Artifact: ReleaseArtifact{
+		Artifacts: []ReleaseArtifact{{
+			Format:               "nsis",
+			Architecture:         "x86_64",
 			URL:                  "https://downloads.example.invalid/" + version + ".exe",
 			ObjectKey:            "releases/" + version + "/Sesame.exe",
 			SHA256:               digest,
 			Bytes:                1,
+			UpdaterCapable:       true,
 			UpdaterSignature:     strings.Repeat("s", 64),
 			UpdaterSigningKeyID:  "test-updater-key",
 			DistributionClass:    "early_access",
@@ -182,7 +202,7 @@ func releaseTestCandidate(version, digestCharacter string) ReleaseCandidate {
 			SigstoreIssuer:       "https://token.actions.githubusercontent.com",
 			SigstoreIdentity:     "test-identity",
 			SigstoreBundleSHA256: strings.Repeat("c", 64),
-		},
+		}},
 	}
 }
 
