@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -26,6 +27,7 @@ func TestReleaseCommandRoutes(t *testing.T) {
 		t.Fatalf("open account store: %v", err)
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
+	lockDatabaseTests(t, accountStore.DB())
 	if _, err := accountStore.DB().ExecContext(ctx, `TRUNCATE sesame_releases, sesame_admin_audit_log, sesame_admin_sessions, sesame_admin_accounts RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("clear release tables: %v", err)
 	}
@@ -58,6 +60,23 @@ func TestReleaseCommandRoutes(t *testing.T) {
 		if response.Code != 403 {
 			t.Fatalf("support role status = %d: %s", response.Code, response.Body.String())
 		}
+	})
+}
+
+func lockDatabaseTests(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const lockID int64 = 762374923
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("reserve test database connection: %v", err)
+	}
+	if _, err := conn.ExecContext(context.Background(), `SELECT pg_advisory_lock($1)`, lockID); err != nil {
+		_ = conn.Close()
+		t.Fatalf("lock test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockID)
+		_ = conn.Close()
 	})
 }
 

@@ -161,6 +161,7 @@ func releaseTestStore(t *testing.T) (*Store, *sql.DB) {
 		t.Fatalf("open account store: %v", err)
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
+	lockReleaseTests(t, accountStore.DB())
 	if _, err := accountStore.DB().ExecContext(context.Background(), `TRUNCATE sesame_releases, sesame_admin_audit_log RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("clear release tables: %v", err)
 	}
@@ -170,6 +171,23 @@ func releaseTestStore(t *testing.T) (*Store, *sql.DB) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store, accountStore.DB()
+}
+
+func lockReleaseTests(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const lockID int64 = 762374923
+	conn, err := db.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("reserve test database connection: %v", err)
+	}
+	if _, err := conn.ExecContext(context.Background(), `SELECT pg_advisory_lock($1)`, lockID); err != nil {
+		_ = conn.Close()
+		t.Fatalf("lock test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockID)
+		_ = conn.Close()
+	})
 }
 
 func releaseTestCandidate(version, digestCharacter string) ReleaseCandidate {

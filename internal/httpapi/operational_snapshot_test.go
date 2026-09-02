@@ -84,6 +84,7 @@ func TestOperationalSnapshotRoute(t *testing.T) {
 		t.Fatalf("open account store: %v", err)
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
+	lockDatabaseTests(t, accountStore.DB())
 	if _, err := accountStore.DB().ExecContext(ctx, `TRUNCATE sesame_admin_sessions, sesame_admin_accounts RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("clear admin tables: %v", err)
 	}
