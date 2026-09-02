@@ -10,7 +10,6 @@ const environment = {
   ...process.env,
   DATABASE_URL: process.env.DATABASE_URL || localDatabaseUrl,
   SESAME_API_ADDR: process.env.SESAME_API_ADDR || '127.0.0.1:8787',
-  SESAME_API_VERSION: process.env.SESAME_API_VERSION || '0.1.0-dev',
   SESAME_WEB_ORIGIN: process.env.SESAME_WEB_ORIGIN || 'http://localhost:4173',
   SESAME_SESSION_SECURE: process.env.SESAME_SESSION_SECURE || 'false',
   SESAME_ADMIN_ORIGIN: process.env.SESAME_ADMIN_ORIGIN || 'http://localhost:4174',

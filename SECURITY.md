@@ -77,4 +77,3 @@ others, and gives us reasonable time to ship a fix before public disclosure.
 - Sesame has not had an independent security audit.
 - The self-hosted deployment runs over loopback HTTP by default. A deployment
   behind TLS must set the two session-secure settings itself.
-- Container base images are pinned by tag, not digest.

@@ -22,6 +22,7 @@ import (
 
 	"usesesame.app/backend/internal/accounts"
 	adminstore "usesesame.app/backend/internal/admin"
+	"usesesame.app/backend/internal/buildinfo"
 	"usesesame.app/backend/internal/httpapi"
 	"usesesame.app/backend/internal/notifications"
 )
@@ -130,8 +131,8 @@ func main() {
 	operationalOutbox, _ := outbox.(httpapi.OperationalOutbox)
 	maintenance := httpapi.NewMaintenanceState()
 	config := httpapi.Config{
-		Version:                   env("SESAME_API_VERSION", "0.1.0-dev"),
-		Commit:                    env("SESAME_API_COMMIT", "unknown"),
+		Version:                   buildinfo.Version,
+		Commit:                    buildinfo.Commit,
 		AllowedOrigin:             webOrigin,
 		PublicSiteOrigin:          strings.TrimSuffix(strings.TrimSpace(os.Getenv("SESAME_PUBLIC_SITE_ORIGIN")), "/"),
 		SessionSecure:             sessionSecure,

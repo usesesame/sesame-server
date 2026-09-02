@@ -49,9 +49,9 @@ the website clear only the stale signed-in state.
 
 ## Health
 
-- `GET /livez` → `200 {status,service,version}`. A lightweight liveness probe
+- `GET /livez` → `200 {status,service,version,commit}`. A lightweight liveness probe
   that only confirms the process is running.
-- `GET /readyz` → `200 {status,service,version,accounts}` when the database is
+- `GET /readyz` → `200 {status,service,version,commit,accounts}` when the database is
   reachable, otherwise `503`. Load balancers and deployment systems use it.
 - `GET /healthz` is a deprecated alias for `/readyz`.
 

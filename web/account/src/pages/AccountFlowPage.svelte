@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { SvelteURL } from 'svelte/reactivity'
   import {
     confirmEmailChange,
     confirmEmailVerification,
@@ -22,7 +23,7 @@
   let token = ''
 
   onMount(() => {
-    const url = new URL(window.location.href)
+    const url = new SvelteURL(window.location.href)
     token = new URLSearchParams(url.hash.slice(1)).get('token') || ''
     const hadTokenQuery = url.searchParams.has('token')
     url.searchParams.delete('token')

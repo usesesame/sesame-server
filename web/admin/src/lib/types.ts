@@ -10,7 +10,17 @@ export type ReleaseArtifact = { id: string; format: 'nsis' | 'appimage' | 'deb' 
 export type Release = { id: string; channel: string; platform: string; architecture: string; version: string; url: string; sha256: string; signature: string; signingKeyId: string; supportedWindows: string; releaseNotesUrl: string; rollbackNotice: string; status: 'draft' | 'published' | 'withdrawn'; rolloutPercent: number; updateEnabled: boolean; killSwitch: boolean; manifestRevision: number; releaseSetDigest: string; releaseSetVerifiedAt?: string; artifacts: ReleaseArtifact[]; publicationBlockers: string[]; audit: AuditEntry[]; publishedAt?: string; artifact?: ReleaseArtifact }
 export type AuditEntry = { id: number; adminEmail: string; action: string; targetType: string; targetId?: string; detail: Record<string, unknown>; createdAt: string }
 export type Overview = { users: number; newUsersThisWeek: number; betaUsers: number; unverifiedUsers: number; suspendedUsers: number; activeAdminSessions: number; openTickets: number; unassignedTickets: number; urgentTickets: number }
-export type RateMetric = { operation: string; buckets: number; attempts: number; updatedAt: string }
+export type OperationalStatus = 'ready' | 'degraded' | 'unavailable' | 'not_configured' | 'not_run'
+export type OperationalSnapshot = {
+  api: { status: OperationalStatus }
+  version: { version: string; commit: string }
+  schema: { status: OperationalStatus; version: string }
+  database: { status: OperationalStatus; timedOut: boolean }
+  releasePipeline: { status: OperationalStatus }
+  artifactDelivery: { status: OperationalStatus }
+  emailOutbox: { status: OperationalStatus; pending: number; failed: number }
+  maintenance: { status: OperationalStatus; lastRunAt?: string }
+}
 
 export type TicketStatus = 'open' | 'in_progress' | 'waiting' | 'closed'
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'

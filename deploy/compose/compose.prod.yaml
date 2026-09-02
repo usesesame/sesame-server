@@ -1,7 +1,7 @@
 # Production stack for an operated Sesame deployment behind a TLS reverse
 # proxy. Run it with an explicit env file:
 #
-#   docker compose -f deploy/compose/compose.prod.yaml --env-file deploy/compose/.env.production up -d --build
+#   docker compose -f deploy/compose/compose.prod.yaml --env-file deploy/compose/.env.production up -d
 #
 # This is a separate file rather than an override of compose.yaml. The
 # development stack turns cookie security off, sets SESAME_ENV=development, and
@@ -16,8 +16,7 @@ name: sesame-prod
 
 services:
   migrate:
-    build:
-      context: ${SESAME_SERVER_CONTEXT}
+    image: ${SESAME_API_IMAGE:?set to an immutable API digest}
     entrypoint: ["/sesame-migrate"]
     environment:
       DATABASE_URL: postgres://sesame:${SESAME_DATABASE_PASSWORD:?set in the env file}@db:5432/sesame?sslmode=disable
@@ -27,11 +26,9 @@ services:
     restart: "no"
 
   api:
-    build:
-      context: ${SESAME_SERVER_CONTEXT}
+    image: ${SESAME_API_IMAGE:?set to an immutable API digest}
     environment:
       SESAME_API_ADDR: 0.0.0.0:8787
-      SESAME_API_VERSION: ${SESAME_API_VERSION:?set to the deployed build version}
       SESAME_ENV: production
       SESAME_WEB_ORIGIN: ${SESAME_ACCOUNT_ORIGIN:?}
       SESAME_ADMIN_ORIGIN: ${SESAME_ADMIN_ORIGIN:?}
@@ -70,6 +67,11 @@ services:
       - "mail.usesesame.app:host-gateway"
     ports:
       - "127.0.0.1:8787:8787"
+    healthcheck:
+      test: ["CMD", "/sesame-healthcheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     depends_on:
       db:
         condition: service_healthy
@@ -79,29 +81,31 @@ services:
     restart: unless-stopped
 
   account:
-    build:
-      context: ${SESAME_ACCOUNT_CONTEXT}
-      args:
-        VITE_SESAME_API_URL: ${SESAME_API_ORIGIN:?}
-        VITE_SESAME_SITE_ORIGIN: ${SESAME_PUBLIC_SITE_ORIGIN}
-        VITE_SESAME_CAPABILITY_PUBLIC_KEY: ${SESAME_CAPABILITY_PUBLIC_KEY:?}
+    image: ${SESAME_ACCOUNT_IMAGE:?set to an immutable account image digest}
     ports:
       - "127.0.0.1:4175:8080"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/release.json"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     restart: unless-stopped
 
   admin:
-    build:
-      context: ${SESAME_ADMIN_CONTEXT}
-      args:
-        VITE_SESAME_API_URL: ${SESAME_API_ORIGIN}
+    image: ${SESAME_ADMIN_IMAGE:?set to an immutable admin image digest}
     ports:
       - "127.0.0.1:4174:8080"
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/release.json"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
     restart: unless-stopped
 
   db:

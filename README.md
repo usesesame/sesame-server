@@ -29,9 +29,9 @@ npm run compose:up
 ```
 
 `npm run setup` writes local secrets to the gitignored
-`deploy/compose/.env`. It also resolves the build contexts for the API and both
-portals. It keeps existing values on later runs. Rotating the admin encryption
-key makes existing MFA secrets unreadable.
+`deploy/compose/.env`. It also records the repository build context. It keeps
+existing values on later runs. Rotating the admin encryption key makes
+existing MFA secrets unreadable.
 
 `npm run compose:up` starts PostgreSQL, applies migrations, and runs the API,
 the account portal, the administration portal, and a local mail catcher:
@@ -66,8 +66,8 @@ each origin its real HTTPS address.
 
 Use the self-hosting flow above for local development too. `npm run setup`
 must run before Compose because it creates deployment-specific secrets and
-build contexts in `deploy/compose/.env`. That file is for local development
-only. The complete API configuration template is [.env.example](.env.example),
+the repository build context in `deploy/compose/.env`. That file is for local
+development only. The complete API configuration template is [.env.example](.env.example),
 and the production Compose values are documented in
 [DEPLOYMENT.md](DEPLOYMENT.md).
 

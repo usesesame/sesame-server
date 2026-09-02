@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { SvelteURLSearchParams } from 'svelte/reactivity'
   import { APIError, apiURL, mutate, request } from './lib/api'
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
+  import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
   import { TICKET_CATEGORY_LABELS } from './lib/types'
-  import type { AdminAccount, AuditEntry, Flag, Overview, Plan, RateMetric, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
+  import type { AdminAccount, AuditEntry, Flag, OperationalSnapshot, Overview, Plan, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
   const pageNames: Record<Page, string> = { overview: 'Overview', support: 'Support', users: 'Users', flags: 'Feature flags', releases: 'Releases', plans: 'Product plans', admins: 'Administrators', audit: 'Audit log', system: 'System' }
@@ -34,8 +36,8 @@
   let auditAdmin = ''
   let auditFrom = ''
   let auditTo = ''
-  let metrics: RateMetric[] = []
-  let system: Record<string, unknown> | null = null
+  let system: OperationalSnapshot | null = null
+  let systemFailure: '' | 'unavailable' | 'unauthorized' = ''
   let inviteEmail = ''
   let inviteRole: Role = 'support'
   let inviteURL = ''
@@ -65,7 +67,7 @@
   $: canViewAdmins = me?.role === 'super' || me?.role === 'readonly'
   $: canEditAdmins = me?.role === 'super'
   $: canAuditAll = me?.role === 'super' || me?.role === 'readonly'
-  $: canSystem = me?.role === 'super' || me?.role === 'ops' || me?.role === 'readonly'
+  $: canSystem = me?.permissions.includes('system:read') ?? false
   $: canEditUsers = me?.role === 'super' || me?.role === 'support'
   $: canEditFlags = me?.role === 'super' || me?.role === 'ops'
   $: canManageReleases = me?.permissions.includes('releases:write') ?? false
@@ -74,7 +76,7 @@
   $: canViewSupport = canSupport || me?.role === 'readonly'
 
   onMount(async () => {
-    setupToken = new URLSearchParams(location.search).get('token') || ''
+    setupToken = new SvelteURLSearchParams(location.search).get('token') || ''
     if (setupToken) {
       try {
         const result = await mutate<{ email: string; secret: string; uri: string }>('/v1/admin/auth/setup/begin', 'POST', { token: setupToken })
@@ -123,8 +125,13 @@
       if (next === 'admins') admins = (await request<{ admins: AdminAccount[] }>('/v1/admin/admins')).admins
       if (next === 'audit') await loadAudit()
       if (next === 'system') {
-        system = await request('/v1/admin/system/config')
-        metrics = (await request<{ metrics: RateMetric[] }>('/v1/admin/system/rate-limits')).metrics
+        system = null
+        systemFailure = ''
+        try {
+          system = await request<OperationalSnapshot>('/v1/admin/system/health')
+        } catch (reason) {
+          systemFailure = reason instanceof APIError && reason.status === 403 ? 'unauthorized' : 'unavailable'
+        }
       }
     } catch (reason) { showError(reason) }
   }
@@ -135,7 +142,7 @@
   }
 
   function ticketQueryParams() {
-    const params = new URLSearchParams({ size: String(PAGE_SIZE), page: String(ticketsPage) })
+    const params = new SvelteURLSearchParams({ size: String(PAGE_SIZE), page: String(ticketsPage) })
     if (ticketStatusFilter) params.set('status', ticketStatusFilter)
     if (ticketPriorityFilter) params.set('priority', ticketPriorityFilter)
     if (ticketCategoryFilter) params.set('category', ticketCategoryFilter)
@@ -288,7 +295,7 @@
   }
 
   function auditQuery() {
-    const query = new URLSearchParams({ size: '100' })
+    const query = new SvelteURLSearchParams({ size: '100' })
     if (auditAction) query.set('action', auditAction)
     if (auditAdmin && canAuditAll) query.set('admin', auditAdmin)
     if (auditFrom) query.set('from', new Date(auditFrom).toISOString())
@@ -495,7 +502,7 @@
       {:else if page === 'audit'}
         <section class="panel audit-filters"><div><label>Action<input placeholder="user.suspend" bind:value={auditAction} /></label>{#if canAuditAll}<label>Admin ID<input placeholder="Optional" bind:value={auditAdmin} /></label>{/if}<label>From<input type="datetime-local" bind:value={auditFrom} /></label><label>To<input type="datetime-local" bind:value={auditTo} /></label></div><div class="toolbar"><button onclick={loadAudit}>Apply filters</button>{#if canAuditAll}<button onclick={exportAudit}>Export CSV</button>{/if}<span>{audit.length} results on this page</span></div></section><section class="table-panel"><table><thead><tr><th>Time</th><th>Administrator</th><th>Action</th><th>Target</th></tr></thead><tbody>{#each audit as entry (entry.id)}<tr><td>{date(entry.createdAt)}</td><td>{entry.adminEmail || 'Deleted admin'}</td><td><code>{entry.action}</code></td><td>{entry.targetType} {entry.targetId || ''}</td></tr>{/each}</tbody></table></section>
       {:else if page === 'system'}
-        <section class="panel"><h2>Configuration</h2><pre>{JSON.stringify(system, null, 2)}</pre></section><section class="panel"><h2>Rate-limit activity</h2>{#each metrics as metric (metric.operation)}<div class="setting-row"><div><strong>{metric.operation}</strong><small>Last activity {date(metric.updatedAt)}</small></div><span>{metric.attempts} attempts in {metric.buckets} buckets</span></div>{/each}{#if metrics.length === 0}<p class="empty">No recent rate-limit activity.</p>{/if}</section>
+        <SystemWorkspace snapshot={system} failure={systemFailure} />
       {/if}
     </main>
   </div>
