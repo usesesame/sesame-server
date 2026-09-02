@@ -12,19 +12,19 @@ import (
 const securityUpdated = "2026-07-13"
 
 func (a *api) livez(response http.ResponseWriter, request *http.Request) {
-	writeJSON(response, http.StatusOK, map[string]any{"status": "ok", "service": "sesame-api", "version": a.config.Version})
+	writeJSON(response, http.StatusOK, map[string]any{"status": "ok", "service": "sesame-api", "version": a.config.Version, "commit": a.config.Commit})
 }
 
 func (a *api) readyz(response http.ResponseWriter, request *http.Request) {
 	accountStore := "unconfigured"
 	if a.config.Accounts != nil {
 		if err := a.config.Accounts.Ping(request.Context()); err != nil {
-			writeJSON(response, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "service": "sesame-api", "version": a.config.Version, "accounts": "unavailable"})
+			writeJSON(response, http.StatusServiceUnavailable, map[string]any{"status": "not_ready", "service": "sesame-api", "version": a.config.Version, "commit": a.config.Commit, "accounts": "unavailable"})
 			return
 		}
 		accountStore = "ready"
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"status": "ok", "service": "sesame-api", "version": a.config.Version, "accounts": accountStore})
+	writeJSON(response, http.StatusOK, map[string]any{"status": "ok", "service": "sesame-api", "version": a.config.Version, "commit": a.config.Commit, "accounts": accountStore})
 }
 
 func (a *api) productStatus(response http.ResponseWriter, request *http.Request) {

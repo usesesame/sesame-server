@@ -1,0 +1,198 @@
+name: Server release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: server-release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+        env:
+          POSTGRES_DB: sesame_test
+          POSTGRES_USER: sesame
+          POSTGRES_PASSWORD: sesame-test-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sesame -d sesame_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SESAME_TEST_DATABASE_URL: postgres://sesame:sesame-test-only@127.0.0.1:5432/sesame_test?sslmode=disable
+      API_REPOSITORY: ghcr.io/${{ github.repository }}-api
+      ACCOUNT_REPOSITORY: ghcr.io/${{ github.repository }}-account
+      ADMIN_REPOSITORY: ghcr.io/${{ github.repository }}-admin
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - id: contract
+        run: node scripts/release-contract.mjs github "$GITHUB_REF_NAME" "$GITHUB_SHA"
+
+      - run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - run: |
+          echo "SESAME_RELEASE_VERSION=${{ steps.contract.outputs.version }}" >> "$GITHUB_ENV"
+          echo "SESAME_RELEASE_COMMIT=${{ steps.contract.outputs.commit }}" >> "$GITHUB_ENV"
+          echo "SESAME_API_IMAGE=${API_REPOSITORY}:${{ steps.contract.outputs.version }}" >> "$GITHUB_ENV"
+          echo "SESAME_ACCOUNT_IMAGE=${ACCOUNT_REPOSITORY}:${{ steps.contract.outputs.version }}" >> "$GITHUB_ENV"
+          echo "SESAME_ADMIN_IMAGE=${ADMIN_REPOSITORY}:${{ steps.contract.outputs.version }}" >> "$GITHUB_ENV"
+
+      - run: npm ci
+      - run: npm run ci
+      - run: npm run test:race
+      - run: npm run vuln:check
+
+      - run: npm ci
+        working-directory: web/account
+      - run: npm run release:check
+        working-directory: web/account
+        env:
+          VITE_SESAME_API_URL: https://api.test.invalid
+          VITE_SESAME_SITE_ORIGIN: https://website.test.invalid
+
+      - run: npm ci
+        working-directory: web/admin
+      - run: npm run release:check
+        working-directory: web/admin
+        env:
+          VITE_SESAME_API_URL: https://api.test.invalid
+      - run: npm test
+        working-directory: web/admin
+        env:
+          VITE_SESAME_API_URL: https://api.test.invalid
+
+      - run: npm run compose:config
+
+      - run: npm run release:images:build
+        env:
+          SESAME_RELEASE_SOURCE_URL: https://github.com/${{ github.repository }}
+          SESAME_RELEASE_API_ORIGIN: ${{ vars.SESAME_API_ORIGIN }}
+          SESAME_RELEASE_SITE_ORIGIN: ${{ vars.SESAME_PUBLIC_SITE_ORIGIN }}
+          SESAME_RELEASE_CAPABILITY_PUBLIC_KEY: ${{ vars.SESAME_CAPABILITY_PUBLIC_KEY }}
+
+      - run: npm run compose:smoke
+
+      - uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84
+        with:
+          image: ${{ env.API_REPOSITORY }}:${{ steps.contract.outputs.version }}
+          format: spdx-json
+          output-file: api.spdx.json
+          upload-artifact: false
+
+      - uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84
+        with:
+          image: ${{ env.ACCOUNT_REPOSITORY }}:${{ steps.contract.outputs.version }}
+          format: spdx-json
+          output-file: account.spdx.json
+          upload-artifact: false
+
+      - uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84
+        with:
+          image: ${{ env.ADMIN_REPOSITORY }}:${{ steps.contract.outputs.version }}
+          format: spdx-json
+          output-file: admin.spdx.json
+          upload-artifact: false
+
+      - uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: push
+        run: |
+          docker push "$SESAME_API_IMAGE"
+          docker push "$SESAME_ACCOUNT_IMAGE"
+          docker push "$SESAME_ADMIN_IMAGE"
+          api_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "$SESAME_API_IMAGE")
+          account_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "$SESAME_ACCOUNT_IMAGE")
+          admin_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "$SESAME_ADMIN_IMAGE")
+          echo "api_ref=$api_ref" >> "$GITHUB_OUTPUT"
+          echo "account_ref=$account_ref" >> "$GITHUB_OUTPUT"
+          echo "admin_ref=$admin_ref" >> "$GITHUB_OUTPUT"
+          echo "api_digest=${api_ref##*@}" >> "$GITHUB_OUTPUT"
+          echo "account_digest=${account_ref##*@}" >> "$GITHUB_OUTPUT"
+          echo "admin_digest=${admin_ref##*@}" >> "$GITHUB_OUTPUT"
+
+      - run: node scripts/release-contract.mjs manifest "$SESAME_RELEASE_VERSION" "$SESAME_RELEASE_COMMIT" "${{ steps.push.outputs.api_ref }}" "${{ steps.push.outputs.account_ref }}" "${{ steps.push.outputs.admin_ref }}" server-release.json
+
+      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-name: ${{ env.API_REPOSITORY }}
+          subject-digest: ${{ steps.push.outputs.api_digest }}
+          push-to-registry: true
+
+      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-name: ${{ env.API_REPOSITORY }}
+          subject-digest: ${{ steps.push.outputs.api_digest }}
+          sbom-path: api.spdx.json
+          push-to-registry: true
+
+      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-name: ${{ env.ACCOUNT_REPOSITORY }}
+          subject-digest: ${{ steps.push.outputs.account_digest }}
+          push-to-registry: true
+
+      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-name: ${{ env.ACCOUNT_REPOSITORY }}
+          subject-digest: ${{ steps.push.outputs.account_digest }}
+          sbom-path: account.spdx.json
+          push-to-registry: true
+
+      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-name: ${{ env.ADMIN_REPOSITORY }}
+          subject-digest: ${{ steps.push.outputs.admin_digest }}
+          push-to-registry: true
+
+      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+        with:
+          subject-name: ${{ env.ADMIN_REPOSITORY }}
+          subject-digest: ${{ steps.push.outputs.admin_digest }}
+          sbom-path: admin.spdx.json
+          push-to-registry: true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: server-release-${{ steps.contract.outputs.version }}
+          path: |
+            server-release.json
+            api.spdx.json
+            account.spdx.json
+            admin.spdx.json
+          if-no-files-found: error

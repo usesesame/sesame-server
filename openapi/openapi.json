@@ -1957,10 +1957,10 @@
         "x-sesame-registration-pattern": "/v1/admin/releases"
       }
     },
-    "/v1/admin/releases/{platform}": {
-      "put": {
-        "operationId": "putV1AdminReleasesPlatform",
-        "summary": "PUT admin release",
+    "/v1/admin/releases/{releaseID}/emergency-stop": {
+      "post": {
+        "operationId": "postV1AdminReleasesReleaseIDEmergencyStop",
+        "summary": "POST admin release emergency stop",
         "tags": [
           "admin"
         ],
@@ -1973,10 +1973,10 @@
         ],
         "parameters": [
           {
-            "name": "platform",
+            "name": "releaseID",
             "in": "path",
             "required": true,
-            "description": "Opaque platform.",
+            "description": "Opaque release id.",
             "schema": {
               "type": "string",
               "minLength": 1
@@ -2000,8 +2000,149 @@
         },
         "x-sesame-auth": "admin-session-csrf",
         "x-sesame-availability": "configured-admin-only",
-        "x-sesame-handler": "adminRelease",
-        "x-sesame-registration-pattern": "/v1/admin/releases/{platform}"
+        "x-sesame-handler": "adminReleaseEmergencyStop",
+        "x-sesame-registration-pattern": "/v1/admin/releases/{releaseID}/emergency-stop"
+      }
+    },
+    "/v1/admin/releases/{releaseID}/publish": {
+      "post": {
+        "operationId": "postV1AdminReleasesReleaseIDPublish",
+        "summary": "POST admin release publish",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "releaseID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque release id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminReleasePublish",
+        "x-sesame-registration-pattern": "/v1/admin/releases/{releaseID}/publish"
+      }
+    },
+    "/v1/admin/releases/{releaseID}/rollout": {
+      "post": {
+        "operationId": "postV1AdminReleasesReleaseIDRollout",
+        "summary": "POST admin release rollout",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "releaseID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque release id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminReleaseRollout",
+        "x-sesame-registration-pattern": "/v1/admin/releases/{releaseID}/rollout"
+      }
+    },
+    "/v1/admin/releases/{releaseID}/withdraw": {
+      "post": {
+        "operationId": "postV1AdminReleasesReleaseIDWithdraw",
+        "summary": "POST admin release withdraw",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "releaseID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque release id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminReleaseWithdraw",
+        "x-sesame-registration-pattern": "/v1/admin/releases/{releaseID}/withdraw"
       }
     },
     "/v1/admin/support": {
@@ -4437,5 +4578,5 @@
     "internal/httpapi/admin_auth.go",
     "internal/httpapi/sync_routes.go"
   ],
-  "x-sesame-operation-count": 115
+  "x-sesame-operation-count": 118
 }

@@ -14,9 +14,9 @@ npm run release:check
 ```
 
 `npm run ci` runs design-token, lint, and type checks. `npm run release:check`
-also creates the production bundle. There are no browser specs yet, so
-`npm run test` prints a skip notice. The deployed portal needs an HTTPS API
-origin and must use a separate origin.
+also creates the production bundle. `npm run test` runs the portal interaction
+tests. The deployed portal needs an HTTPS API origin and must use a separate
+origin.
 
 See [README-ADMIN.md](README-ADMIN.md) for the current domain and security
 boundaries. The generated route inventory is

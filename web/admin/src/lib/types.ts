@@ -1,15 +1,26 @@
 export type Role = 'super' | 'support' | 'ops' | 'billing' | 'readonly'
-export type AdminAccount = { id: string; email: string; role: Role; mfaVerified: boolean; suspended: boolean; createdAt: string; lastLoginAt?: string }
+export type Permission = 'users:read' | 'users:manage' | 'users:delete' | 'flags:manage' | 'releases:write' | 'plans:write' | 'admins:manage' | 'audit:all' | 'system:read' | 'support:manage' | 'support:read'
+export type AdminAccount = { id: string; email: string; role: Role; mfaVerified: boolean; suspended: boolean; createdAt: string; lastLoginAt?: string; permissions: Permission[] }
 export type User = { id: string; email: string; emailVerified: boolean; betaAccess: boolean; suspendedAt?: string; suspendedReason?: string; createdAt: string; sessionCount: number; deviceCount: number; sessions?: Session[]; devices?: Device[] }
 export type Session = { id: string; label: string; createdAt: string; lastSeenAt: string; expiresAt: string }
 export type Device = { id: string; name: string; connectedAt: string; expiresAt: string }
 export type Flag = { key: string; value: string; updatedAt: string }
 export type Plan = { id: string; name: string; price: string; annualPrice?: string; billing: 'none' | 'one_time' | 'monthly' | 'yearly'; description: string; available: boolean; includes: string[] }
-export type ReleaseArtifact = { id: string; url: string; sha256: string; bytes: number; updaterSignature: string; updaterSigningKeyId: string; distributionClass: 'lab' | 'early_access' | 'production'; sigstoreVerified: boolean; sigstoreIssuer?: string; sigstoreIdentity?: string; sigstoreBundleSha256?: string; authenticodeVerified: boolean; authenticodeSubject?: string; authenticodeThumbprint?: string; verifiedAt: string }
-export type Release = { id: string; channel: string; platform: string; architecture: string; version: string; url: string; sha256: string; signature: string; signingKeyId: string; supportedWindows: string; releaseNotesUrl: string; rollbackNotice: string; status: 'draft' | 'published' | 'withdrawn'; rolloutPercent: number; updateEnabled: boolean; killSwitch: boolean; manifestRevision: number; publishedAt?: string; artifact?: ReleaseArtifact }
+export type ReleaseArtifact = { id: string; format: 'nsis' | 'appimage' | 'deb' | 'rpm'; architecture: 'x86_64' | 'aarch64'; url: string; sha256: string; bytes: number; updaterCapable: boolean; updaterSignature: string; updaterSigningKeyId: string; distributionClass: 'lab' | 'early_access' | 'production'; sigstoreVerified: boolean; sigstoreIssuer?: string; sigstoreIdentity?: string; sigstoreBundleSha256?: string; authenticodeVerified: boolean; authenticodeSubject?: string; authenticodeThumbprint?: string; verifiedAt: string }
+export type Release = { id: string; channel: string; platform: string; architecture: string; version: string; url: string; sha256: string; signature: string; signingKeyId: string; supportedWindows: string; releaseNotesUrl: string; rollbackNotice: string; status: 'draft' | 'published' | 'withdrawn'; rolloutPercent: number; updateEnabled: boolean; killSwitch: boolean; manifestRevision: number; releaseSetDigest: string; releaseSetVerifiedAt?: string; artifacts: ReleaseArtifact[]; publicationBlockers: string[]; audit: AuditEntry[]; publishedAt?: string; artifact?: ReleaseArtifact }
 export type AuditEntry = { id: number; adminEmail: string; action: string; targetType: string; targetId?: string; detail: Record<string, unknown>; createdAt: string }
 export type Overview = { users: number; newUsersThisWeek: number; betaUsers: number; unverifiedUsers: number; suspendedUsers: number; activeAdminSessions: number; openTickets: number; unassignedTickets: number; urgentTickets: number }
-export type RateMetric = { operation: string; buckets: number; attempts: number; updatedAt: string }
+export type OperationalStatus = 'ready' | 'degraded' | 'unavailable' | 'not_configured' | 'not_run'
+export type OperationalSnapshot = {
+  api: { status: OperationalStatus }
+  version: { version: string; commit: string }
+  schema: { status: OperationalStatus; version: string }
+  database: { status: OperationalStatus; timedOut: boolean }
+  releasePipeline: { status: OperationalStatus }
+  artifactDelivery: { status: OperationalStatus }
+  emailOutbox: { status: OperationalStatus; pending: number; failed: number }
+  maintenance: { status: OperationalStatus; lastRunAt?: string }
+}
 
 export type TicketStatus = 'open' | 'in_progress' | 'waiting' | 'closed'
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'

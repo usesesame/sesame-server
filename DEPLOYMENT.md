@@ -30,7 +30,7 @@ loopback.
   these resolve.
 - An SMTP account that supports STARTTLS. Without working mail there is no
   email verification, no password recovery, and no email change.
-- Node.js 24.13 to build the website.
+- Node.js 24.20 to build the website.
 
 ## 1. Configure
 
@@ -49,9 +49,13 @@ cp deploy/compose/.env.production.example deploy/compose/.env.production
 chmod 600 deploy/compose/.env.production
 ```
 
-Fill it in, copying the four generated secrets and `SESAME_CAPABILITY_PUBLIC_KEY`
-across from `deploy/compose/.env`. Read the comments in the example: several
-values are not free choices.
+Fill it in, copying the four generated secrets from `deploy/compose/.env`.
+Read the comments in the example: several values are not free choices.
+
+Download `server-release.json` from the protected server release workflow for
+the version being deployed. Copy its API, account, and admin digest references
+to the matching image fields. Production Compose has no build contexts and
+does not rebuild source on the host.
 
 - `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret. If
   it changes, those secrets become unreadable and sign-in fails with the same
@@ -68,7 +72,9 @@ values are not free choices.
 
 ```bash
 docker compose -f deploy/compose/compose.prod.yaml \
-  --env-file deploy/compose/.env.production up -d --build
+  --env-file deploy/compose/.env.production pull
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production up -d
 ```
 
 This is a separate file from `compose.yaml`, which is development only:
@@ -85,8 +91,28 @@ Check it:
 ```bash
 docker compose -f deploy/compose/compose.prod.yaml \
   --env-file deploy/compose/.env.production ps
-curl -fsS http://127.0.0.1:8787/v1/product/status
+curl -fsS http://127.0.0.1:8787/livez
 ```
+
+The liveness response reports the version and full source commit baked into
+the released API image. The account and administration images expose the same
+identity in `/release.json`.
+
+## Server releases
+
+A semantic version tag starts `.github/workflows/release.yml` in the protected
+`server-release` environment. The workflow runs the server, portal, migration,
+Compose, and container smoke gates before it pushes any image. It publishes
+three version tags to GHCR, records their digest references in
+`server-release.json`, and attaches a dependency SBOM and signed provenance to
+each digest. Production uses the digest references, not the version tags.
+
+The environment must require release approval and define
+`SESAME_API_ORIGIN`, `SESAME_PUBLIC_SITE_ORIGIN`, and
+`SESAME_CAPABILITY_PUBLIC_KEY`. The key is the public half of the production
+capability signing key. GitHub supplies registry and attestation credentials
+only to the workflow. Host and deployment credentials do not enter the release
+job.
 
 ## 3. Build and place the website
 

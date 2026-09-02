@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { apiURL, mutate, request } from './lib/api'
+  import { SvelteURLSearchParams } from 'svelte/reactivity'
+  import { APIError, apiURL, mutate, request } from './lib/api'
+  import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
+  import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
   import { TICKET_CATEGORY_LABELS } from './lib/types'
-  import type { AdminAccount, AuditEntry, Flag, Overview, Plan, RateMetric, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
+  import type { AdminAccount, AuditEntry, Flag, OperationalSnapshot, Overview, Plan, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
   const pageNames: Record<Page, string> = { overview: 'Overview', support: 'Support', users: 'Users', flags: 'Feature flags', releases: 'Releases', plans: 'Product plans', admins: 'Administrators', audit: 'Audit log', system: 'System' }
@@ -33,8 +36,8 @@
   let auditAdmin = ''
   let auditFrom = ''
   let auditTo = ''
-  let metrics: RateMetric[] = []
-  let system: Record<string, unknown> | null = null
+  let system: OperationalSnapshot | null = null
+  let systemFailure: '' | 'unavailable' | 'unauthorized' = ''
   let inviteEmail = ''
   let inviteRole: Role = 'support'
   let inviteURL = ''
@@ -64,15 +67,16 @@
   $: canViewAdmins = me?.role === 'super' || me?.role === 'readonly'
   $: canEditAdmins = me?.role === 'super'
   $: canAuditAll = me?.role === 'super' || me?.role === 'readonly'
-  $: canSystem = me?.role === 'super' || me?.role === 'ops' || me?.role === 'readonly'
+  $: canSystem = me?.permissions.includes('system:read') ?? false
   $: canEditUsers = me?.role === 'super' || me?.role === 'support'
   $: canEditFlags = me?.role === 'super' || me?.role === 'ops'
+  $: canManageReleases = me?.permissions.includes('releases:write') ?? false
   $: canEditPlans = me?.role === 'super' || me?.role === 'billing'
   $: canSupport = me?.role === 'super' || me?.role === 'support'
   $: canViewSupport = canSupport || me?.role === 'readonly'
 
   onMount(async () => {
-    setupToken = new URLSearchParams(location.search).get('token') || ''
+    setupToken = new SvelteURLSearchParams(location.search).get('token') || ''
     if (setupToken) {
       try {
         const result = await mutate<{ email: string; secret: string; uri: string }>('/v1/admin/auth/setup/begin', 'POST', { token: setupToken })
@@ -121,8 +125,13 @@
       if (next === 'admins') admins = (await request<{ admins: AdminAccount[] }>('/v1/admin/admins')).admins
       if (next === 'audit') await loadAudit()
       if (next === 'system') {
-        system = await request('/v1/admin/system/config')
-        metrics = (await request<{ metrics: RateMetric[] }>('/v1/admin/system/rate-limits')).metrics
+        system = null
+        systemFailure = ''
+        try {
+          system = await request<OperationalSnapshot>('/v1/admin/system/health')
+        } catch (reason) {
+          systemFailure = reason instanceof APIError && reason.status === 403 ? 'unauthorized' : 'unavailable'
+        }
       }
     } catch (reason) { showError(reason) }
   }
@@ -133,7 +142,7 @@
   }
 
   function ticketQueryParams() {
-    const params = new URLSearchParams({ size: String(PAGE_SIZE), page: String(ticketsPage) })
+    const params = new SvelteURLSearchParams({ size: String(PAGE_SIZE), page: String(ticketsPage) })
     if (ticketStatusFilter) params.set('status', ticketStatusFilter)
     if (ticketPriorityFilter) params.set('priority', ticketPriorityFilter)
     if (ticketCategoryFilter) params.set('category', ticketCategoryFilter)
@@ -258,29 +267,11 @@
     try { await mutate(`/v1/admin/plans/${plan.id}`, 'PATCH', plan); showNotice(`${plan.name} saved.`) } catch (reason) { showError(reason) }
   }
 
-  function httpsURL(value: string | undefined): boolean {
-    try {
-      const parsed = new URL(value ?? '')
-      return parsed.protocol === 'https:' && parsed.host !== ''
-    } catch {
-      return false
-    }
-  }
-
-  function publishBlockers(release: Release): string[] {
-    if (release.status !== 'published') return []
-    const missing: string[] = []
-    if (!httpsURL(release.url)) missing.push('a download URL served over HTTPS')
-    if (!/^[0-9a-f]{64}$/.test(release.sha256 ?? '')) missing.push('a 64-character SHA-256')
-    if ((release.signature ?? '').length < 64) missing.push('an updater signature')
-    if ((release.signingKeyId ?? '').length === 0) missing.push('an updater signing key id')
-    if (release.platform === 'windows' && (release.supportedWindows ?? '').length === 0) missing.push('the supported Windows versions')
-    if (!httpsURL(release.releaseNotesUrl)) missing.push('a release notes URL served over HTTPS')
-    return missing
-  }
-
-  async function saveRelease(release: Release) {
-    try { await mutate(`/v1/admin/releases/${release.platform}`, 'PUT', release); await openPage('releases'); showNotice('Release metadata saved.') } catch (reason) { showError(reason) }
+  async function releaseCommand(release: Release, command: 'publish' | 'rollout' | 'emergency-stop' | 'withdraw') {
+    const body = command === 'rollout'
+      ? { expectedManifestRevision: release.manifestRevision, rolloutPercent: release.rolloutPercent }
+      : { expectedManifestRevision: release.manifestRevision }
+    try { await mutate(`/v1/admin/releases/${release.id}/${command}`, 'POST', body); await openPage('releases'); showNotice('Release updated.') } catch (reason) { if (reason instanceof APIError && reason.code === 'release_manifest_conflict') { await openPage('releases'); showNotice('Release state reloaded. Try the command again.') } else showError(reason) }
   }
 
   async function publishToOwnerDevices() {
@@ -304,7 +295,7 @@
   }
 
   function auditQuery() {
-    const query = new URLSearchParams({ size: '100' })
+    const query = new SvelteURLSearchParams({ size: '100' })
     if (auditAction) query.set('action', auditAction)
     if (auditAdmin && canAuditAll) query.set('admin', auditAdmin)
     if (auditFrom) query.set('from', new Date(auditFrom).toISOString())
@@ -367,7 +358,7 @@
         {#if canViewSupport}<button class:active={page === 'support'} onclick={() => openPage('support')}>Support</button>{/if}
         {#if canUsers}<button class:active={page === 'users'} onclick={() => openPage('users')}>Users</button>{/if}
         {#if canFlags}<button class:active={page === 'flags'} onclick={() => openPage('flags')}>Feature flags</button>{/if}
-        {#if canFlags}<button class:active={page === 'releases'} onclick={() => openPage('releases')}>Releases</button>{/if}
+        {#if canManageReleases || me?.role === 'readonly'}<button class:active={page === 'releases'} onclick={() => openPage('releases')}>Releases</button>{/if}
         {#if canPlans}<button class:active={page === 'plans'} onclick={() => openPage('plans')}>Product plans</button>{/if}
         {#if canViewAdmins}<button class:active={page === 'admins'} onclick={() => openPage('admins')}>Administrators</button>{/if}
         <button class:active={page === 'audit'} onclick={() => openPage('audit')}>Audit log</button>
@@ -504,14 +495,14 @@
       {:else if page === 'plans'}
         <div class="form-grid">{#each plans as plan (plan.id)}<section class="panel form-card"><h2>{plan.name}</h2><label>Name<input bind:value={plan.name} disabled={!canEditPlans} /></label><div class="two"><label>Price<input bind:value={plan.price} disabled={!canEditPlans} /></label><label>Annual price<input bind:value={plan.annualPrice} placeholder="Optional" disabled={!canEditPlans} /></label></div><label>Billing<select bind:value={plan.billing} disabled={!canEditPlans}><option value="none">None</option><option value="one_time">One time</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label><label>Description<textarea bind:value={plan.description} disabled={!canEditPlans}></textarea></label><label class="check"><input type="checkbox" bind:checked={plan.available} disabled={!canEditPlans} /> Available</label>{#if canEditPlans}<button class="primary" onclick={() => savePlan(plan)}>Save plan</button>{/if}</section>{/each}</div>
       {:else if page === 'releases'}
-        <section class="panel"><div class="section-head"><div><h2>Desktop release manifests</h2><p>Artifacts are accepted only from a cryptographically verified release candidate. Tauri updater verification and exact-workflow Sigstore evidence are mandatory. Authenticode remains mandatory for Windows production, but not for clearly labelled early access.</p></div></div>{#each releases as release (release.id)}<div class="release-edit"><div class="two"><label>Version<input value={release.version} readonly /></label><label>Status<select bind:value={release.status} disabled={!canEditFlags}><option value="draft">Draft</option><option value="published">Published</option><option value="withdrawn">Withdrawn</option></select></label></div><div class="two"><label>Platform<input value={release.platform} readonly /></label><label>Channel<input value={release.channel} readonly /></label></div><div class="two"><label>Architecture<input value={release.architecture} readonly /></label><label>Release notes URL<input bind:value={release.releaseNotesUrl} disabled={!canEditFlags} /></label></div>{#if release.artifact}<div class="release-evidence"><strong>Verified updater artifact</strong><dl><div><dt>SHA-256</dt><dd><code>{release.artifact.sha256}</code></dd></div><div><dt>Updater signing key</dt><dd>{release.artifact.updaterSigningKeyId}</dd></div><div><dt>Distribution</dt><dd>{release.artifact.distributionClass}</dd></div><div><dt>Sigstore publisher</dt><dd>{release.artifact.sigstoreVerified ? 'Exact workflow identity verified' : 'Not verified'}</dd></div>{#if release.platform === 'windows'}<div><dt>Windows publisher</dt><dd>{release.artifact.authenticodeVerified ? `Authenticode verified${release.artifact.authenticodeSubject ? `: ${release.artifact.authenticodeSubject}` : ''}` : 'Unsigned Windows early-access build'}</dd></div>{/if}<div><dt>Verified</dt><dd>{date(release.artifact.verifiedAt)}</dd></div></dl></div>{:else}<p class="empty">Legacy release without immutable artifact evidence. It cannot be published again.</p>{/if}{#if release.platform === 'windows'}<label>Supported Windows<input bind:value={release.supportedWindows} disabled={!canEditFlags} /></label>{/if}<label>Download URL<input bind:value={release.url} placeholder="https://github.com/usesesame/sesame-desktop/releases/download/v{release.version}/..." disabled={!canEditFlags} /><small>Where the installer is actually downloaded from. A published release cannot be saved without it.</small></label><label>Rollback notice<textarea bind:value={release.rollbackNotice} disabled={!canEditFlags}></textarea></label><div class="two"><label>Rollout percentage<input type="number" min="0" max="100" bind:value={release.rolloutPercent} disabled={!canEditFlags} /></label><div class="check-group"><label class="check"><input type="checkbox" bind:checked={release.updateEnabled} disabled={!canEditFlags} /> Update enabled</label><label class="check"><input type="checkbox" bind:checked={release.killSwitch} disabled={!canEditFlags} /> Kill switch</label></div></div>{#if canEditFlags}{@const blockers = publishBlockers(release)}{#if blockers.length > 0}<p class="release-blockers">Publishing needs {blockers.join(', ')}.</p>{/if}<button class="primary" onclick={() => saveRelease(release)} disabled={!release.artifact || blockers.length > 0}>Save release controls</button>{/if}</div>{/each}{#if releases.length === 0}<p class="empty">No verified release candidates have been accepted yet.</p>{/if}</section>
+        <ReleaseWorkspace {releases} canManage={canManageReleases} onCommand={releaseCommand} />
       {:else if page === 'admins'}
         {#if canEditAdmins}<section class="panel"><h2>Invite an administrator</h2><div class="toolbar"><input type="email" placeholder="name@example.com" bind:value={inviteEmail} /><select bind:value={inviteRole}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select><button class="primary" onclick={inviteAdmin} disabled={!inviteEmail}>Create setup link</button></div>{#if inviteURL}<label>One-time setup link<input value={inviteURL} readonly onfocus={(event) => event.currentTarget.select()} /></label>{/if}</section>{/if}
         <section class="panel"><h2>Administrators</h2>{#each admins as admin (admin.id)}<div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select value={admin.role} onchange={(event) => updateAdmin(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => deleteAdmin(admin)} disabled={admin.id === me.id}>Delete</button>{/if}</div>{/each}</section>
       {:else if page === 'audit'}
         <section class="panel audit-filters"><div><label>Action<input placeholder="user.suspend" bind:value={auditAction} /></label>{#if canAuditAll}<label>Admin ID<input placeholder="Optional" bind:value={auditAdmin} /></label>{/if}<label>From<input type="datetime-local" bind:value={auditFrom} /></label><label>To<input type="datetime-local" bind:value={auditTo} /></label></div><div class="toolbar"><button onclick={loadAudit}>Apply filters</button>{#if canAuditAll}<button onclick={exportAudit}>Export CSV</button>{/if}<span>{audit.length} results on this page</span></div></section><section class="table-panel"><table><thead><tr><th>Time</th><th>Administrator</th><th>Action</th><th>Target</th></tr></thead><tbody>{#each audit as entry (entry.id)}<tr><td>{date(entry.createdAt)}</td><td>{entry.adminEmail || 'Deleted admin'}</td><td><code>{entry.action}</code></td><td>{entry.targetType} {entry.targetId || ''}</td></tr>{/each}</tbody></table></section>
       {:else if page === 'system'}
-        <section class="panel"><h2>Configuration</h2><pre>{JSON.stringify(system, null, 2)}</pre></section><section class="panel"><h2>Rate-limit activity</h2>{#each metrics as metric (metric.operation)}<div class="setting-row"><div><strong>{metric.operation}</strong><small>Last activity {date(metric.updatedAt)}</small></div><span>{metric.attempts} attempts in {metric.buckets} buckets</span></div>{/each}{#if metrics.length === 0}<p class="empty">No recent rate-limit activity.</p>{/if}</section>
+        <SystemWorkspace snapshot={system} failure={systemFailure} />
       {/if}
     </main>
   </div>

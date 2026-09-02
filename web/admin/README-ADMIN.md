@@ -19,8 +19,8 @@ npm run release:check
 ```
 
 `npm run ci` runs design-token, lint, and type checks. `npm run release:check`
-also builds the production bundle and security headers. There are no browser
-specs yet, so `npm run test` prints a skip notice.
+also builds the production bundle and security headers. `npm run test` runs
+the portal interaction tests.
 
 Start the complete server stack from the repository root:
 

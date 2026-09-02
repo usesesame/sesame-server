@@ -198,3 +198,23 @@ tr.active { background: var(--tint); }
 
 .release-blockers { margin: 0 0 12px; padding: 10px 13px; border-radius: 8px; background: var(--warn-bg, #2d2718); color: var(--warn-text, #d6b45f); font-size: 13px; line-height: 1.5; }
 .release-edit label small { display: block; margin-top: 5px; color: var(--text-faint); font-size: 11.5px; line-height: 1.45; }
+.system-summary { margin-bottom: 18px; border-left: 3px solid var(--accent); padding: 8px 12px; color: var(--text-heading); font-weight: 700; }
+.system-summary[data-health="attention"] { border-color: var(--danger); color: var(--danger); }
+.system-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.system-grid .system-panel { margin-top: 0; }
+.system-panel dl { margin: 14px 0 0; }
+.system-panel > .system-status { margin-top: 13px; }
+.system-panel > p { margin: 10px 0 0; }
+.system-status { display: inline-flex; border-radius: var(--radius-pill); padding: 3px 9px; background: var(--surface-inset); color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: capitalize; }
+.system-status[data-health="ready"], .system-row[data-health="ready"] .system-status { background: var(--tint); color: var(--accent-link); }
+.system-status[data-health="degraded"], .system-row[data-health="degraded"] .system-status { background: var(--gold-soft-bg); color: var(--gold-text); }
+.system-status[data-health="unavailable"], .system-row[data-health="unavailable"] .system-status { background: var(--danger-tint); color: var(--danger); }
+.system-action { color: var(--danger); }
+.system-row { display: grid; grid-template-columns: minmax(180px, 1fr) auto; align-items: center; gap: 8px 20px; padding: 14px 0; border-top: 1px solid var(--border); }
+.system-row strong, .system-row small { display: block; }
+.system-row strong { color: var(--text-heading); font-size: 13px; }
+.system-row small { margin-top: 3px; color: var(--text-muted); font-size: 11px; }
+.system-row p { grid-column: 1 / -1; margin: 0; color: var(--danger); font-size: 12px; }
+.system-message { max-width: 680px; }
+
+@media (max-width: 760px) { .system-grid { grid-template-columns: 1fr; } }

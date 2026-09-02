@@ -63,14 +63,25 @@ func Allowed(role Role, permission Permission) bool {
 	}
 }
 
+func EffectivePermissions(role Role) []Permission {
+	permissions := make([]Permission, 0, len([]Permission{PermissionUsersRead, PermissionUsersManage, PermissionUsersDelete, PermissionFlagsManage, PermissionReleaseWrite, PermissionPlansWrite, PermissionAdminsManage, PermissionAuditAll, PermissionSystemRead, PermissionSupportManage, PermissionSupportRead}))
+	for _, permission := range []Permission{PermissionUsersRead, PermissionUsersManage, PermissionUsersDelete, PermissionFlagsManage, PermissionReleaseWrite, PermissionPlansWrite, PermissionAdminsManage, PermissionAuditAll, PermissionSystemRead, PermissionSupportManage, PermissionSupportRead} {
+		if Allowed(role, permission) {
+			permissions = append(permissions, permission)
+		}
+	}
+	return permissions
+}
+
 type Account struct {
-	ID          string    `json:"id"`
-	Email       string    `json:"email"`
-	Role        Role      `json:"role"`
-	MFAVerified bool      `json:"mfaVerified"`
-	Suspended   bool      `json:"suspended"`
-	CreatedAt   time.Time `json:"createdAt"`
-	LastLoginAt time.Time `json:"lastLoginAt,omitempty"`
+	ID          string       `json:"id"`
+	Email       string       `json:"email"`
+	Role        Role         `json:"role"`
+	MFAVerified bool         `json:"mfaVerified"`
+	Suspended   bool         `json:"suspended"`
+	CreatedAt   time.Time    `json:"createdAt"`
+	LastLoginAt time.Time    `json:"lastLoginAt,omitempty"`
+	Permissions []Permission `json:"permissions"`
 }
 
 type UserSummary struct {
@@ -125,35 +136,60 @@ type Plan struct {
 }
 
 type Release struct {
-	ID                string           `json:"id"`
-	Channel           string           `json:"channel"`
-	Platform          string           `json:"platform"`
-	Architecture      string           `json:"architecture"`
-	Version           string           `json:"version"`
-	URL               string           `json:"url"`
-	ArtifactObjectKey string           `json:"-"`
-	SHA256            string           `json:"sha256"`
-	Signature         string           `json:"signature"`
-	SigningKeyID      string           `json:"signingKeyId"`
-	SupportedWindows  string           `json:"supportedWindows"`
-	ReleaseNotesURL   string           `json:"releaseNotesUrl"`
-	RollbackNotice    string           `json:"rollbackNotice"`
-	Status            string           `json:"status"`
-	RolloutPercent    int              `json:"rolloutPercent"`
-	UpdateEnabled     bool             `json:"updateEnabled"`
-	KillSwitch        bool             `json:"killSwitch"`
-	ManifestRevision  int64            `json:"manifestRevision"`
-	PublishedAt       *time.Time       `json:"publishedAt,omitempty"`
-	Artifact          *ReleaseArtifact `json:"artifact,omitempty"`
+	ID                   string            `json:"id"`
+	Channel              string            `json:"channel"`
+	Platform             string            `json:"platform"`
+	Architecture         string            `json:"architecture"`
+	Version              string            `json:"version"`
+	URL                  string            `json:"url"`
+	ArtifactObjectKey    string            `json:"-"`
+	SHA256               string            `json:"sha256"`
+	Signature            string            `json:"signature"`
+	SigningKeyID         string            `json:"signingKeyId"`
+	SupportedWindows     string            `json:"supportedWindows"`
+	ReleaseNotesURL      string            `json:"releaseNotesUrl"`
+	RollbackNotice       string            `json:"rollbackNotice"`
+	Status               string            `json:"status"`
+	RolloutPercent       int               `json:"rolloutPercent"`
+	UpdateEnabled        bool              `json:"updateEnabled"`
+	KillSwitch           bool              `json:"killSwitch"`
+	ManifestRevision     int64             `json:"manifestRevision"`
+	PublishedAt          *time.Time        `json:"publishedAt,omitempty"`
+	Artifact             *ReleaseArtifact  `json:"artifact,omitempty"`
+	Artifacts            []ReleaseArtifact `json:"artifacts"`
+	ReleaseSetDigest     string            `json:"releaseSetDigest"`
+	ReleaseSetVerifiedAt *time.Time        `json:"releaseSetVerifiedAt,omitempty"`
+	PublicationBlockers  []string          `json:"publicationBlockers"`
+	Audit                []AuditEntry      `json:"audit"`
+}
+
+type PublishReleaseInput struct {
+	ExpectedManifestRevision int64 `json:"expectedManifestRevision"`
+}
+
+type RolloutReleaseInput struct {
+	ExpectedManifestRevision int64 `json:"expectedManifestRevision"`
+	RolloutPercent           int   `json:"rolloutPercent"`
+}
+
+type EmergencyStopReleaseInput struct {
+	ExpectedManifestRevision int64 `json:"expectedManifestRevision"`
+}
+
+type WithdrawReleaseInput struct {
+	ExpectedManifestRevision int64 `json:"expectedManifestRevision"`
 }
 
 // Verification output from the signed release pipeline; read-only, not editable through release controls.
 type ReleaseArtifact struct {
 	ID                     string         `json:"id"`
+	Format                 string         `json:"format"`
+	Architecture           string         `json:"architecture"`
 	URL                    string         `json:"url"`
 	ObjectKey              string         `json:"objectKey"`
 	SHA256                 string         `json:"sha256"`
 	Bytes                  int64          `json:"bytes"`
+	UpdaterCapable         bool           `json:"updaterCapable"`
 	UpdaterSignature       string         `json:"updaterSignature"`
 	UpdaterSigningKeyID    string         `json:"updaterSigningKeyId"`
 	DistributionClass      string         `json:"distributionClass"`
@@ -173,17 +209,18 @@ type ReleaseArtifact struct {
 }
 
 type ReleaseCandidate struct {
-	SchemaVersion         int             `json:"schemaVersion"`
-	Version               string          `json:"version"`
-	Channel               string          `json:"channel"`
-	Platform              string          `json:"platform"`
-	Architecture          string          `json:"architecture"`
-	SupportedWindows      string          `json:"supportedWindows"`
-	ReleaseNotesURL       string          `json:"releaseNotesUrl"`
-	Artifact              ReleaseArtifact `json:"artifact"`
-	CandidateSigningKeyID string          `json:"candidateSigningKeyId"`
-	CandidateSignature    string          `json:"candidateSignature"`
-	SigningPayload        string          `json:"-"`
+	SchemaVersion         int               `json:"schemaVersion"`
+	Version               string            `json:"version"`
+	Channel               string            `json:"channel"`
+	Platform              string            `json:"platform"`
+	Architecture          string            `json:"architecture"`
+	SupportedWindows      string            `json:"supportedWindows"`
+	ReleaseNotesURL       string            `json:"releaseNotesUrl"`
+	SetDigest             string            `json:"setDigest"`
+	Artifacts             []ReleaseArtifact `json:"artifacts"`
+	CandidateSigningKeyID string            `json:"candidateSigningKeyId"`
+	CandidateSignature    string            `json:"candidateSignature"`
+	SigningPayload        string            `json:"-"`
 }
 
 type AuditEntry struct {

@@ -3,7 +3,7 @@
 //   npm run setup
 //
 // Generates this deployment's own signing and encryption keys, resolves the
-// build contexts for the API and the two portals, and writes them to
+// repository build context, and writes them to
 // deploy/compose/.env. Nothing here reaches a Sesame-owned key, domain, or
 // account: every secret is created locally and stays in an ignored file.
 //
@@ -19,18 +19,6 @@ import { fileURLToPath } from 'node:url'
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const composeDirectory = resolve(serverRoot, 'deploy', 'compose')
 const envPath = resolve(composeDirectory, '.env')
-
-/**
- * The portals are `web/account` and `web/admin` in the server repository. In
- * the monorepo they are still siblings of this Go module, so both layouts are
- * resolved rather than assumed.
- */
-function portalContext(name) {
-  for (const candidate of [resolve(serverRoot, 'web', name), resolve(serverRoot, '..', name)]) {
-    if (existsSync(resolve(candidate, 'package.json'))) return candidate
-  }
-  return null
-}
 
 function toComposePath(absolute) {
   return relative(composeDirectory, absolute).replaceAll('\\', '/')
@@ -88,18 +76,7 @@ const settings = new Map([
   ['SESAME_REGISTRATION_MODE', value('SESAME_REGISTRATION_MODE', () => 'invite')],
 ])
 
-const contexts = [
-  ['SESAME_SERVER_CONTEXT', serverRoot],
-  ['SESAME_ACCOUNT_CONTEXT', portalContext('account')],
-  ['SESAME_ADMIN_CONTEXT', portalContext('admin')],
-]
-const missing = contexts.filter(([, path]) => path === null).map(([name]) => name)
-if (missing.length > 0) {
-  console.error(`Could not find the portal sources for: ${missing.join(', ')}.`)
-  console.error('Expected web/account and web/admin beside this Go module.')
-  process.exit(1)
-}
-for (const [name, path] of contexts) settings.set(name, toComposePath(path))
+settings.set('SESAME_SERVER_CONTEXT', toComposePath(serverRoot))
 
 settings.set('SESAME_CAPABILITY_PUBLIC_KEY', capabilityPublicKey(capabilitySigningKey))
 

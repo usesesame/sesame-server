@@ -30,7 +30,6 @@ services:
       context: ${SESAME_SERVER_CONTEXT}
     environment:
       SESAME_API_ADDR: 0.0.0.0:8787
-      SESAME_API_VERSION: 0.1.0-selfhosted
       SESAME_ENV: development
       # The account portal is the origin that holds a session, so it is also
       # the origin the server puts in its account emails.
@@ -65,8 +64,11 @@ services:
 
   account:
     build:
-      context: ${SESAME_ACCOUNT_CONTEXT}
+      context: ${SESAME_SERVER_CONTEXT}
+      dockerfile: web/account/Dockerfile
       args:
+        SESAME_VERSION: 0.1.0-dev
+        SESAME_COMMIT: 0000000000000000000000000000000000000000
         VITE_SESAME_API_URL: ${SESAME_API_ORIGIN}
         VITE_SESAME_SITE_ORIGIN: ${SESAME_SITE_ORIGIN}
         VITE_SESAME_CAPABILITY_PUBLIC_KEY: ${SESAME_CAPABILITY_PUBLIC_KEY}
@@ -79,8 +81,11 @@ services:
 
   admin:
     build:
-      context: ${SESAME_ADMIN_CONTEXT}
+      context: ${SESAME_SERVER_CONTEXT}
+      dockerfile: web/admin/Dockerfile
       args:
+        SESAME_VERSION: 0.1.0-dev
+        SESAME_COMMIT: 0000000000000000000000000000000000000000
         VITE_SESAME_API_URL: ${SESAME_API_ORIGIN}
     ports:
       - "127.0.0.1:4174:8080"

@@ -65,6 +65,19 @@ func (o *PostgresOutbox) Ping(ctx context.Context) error {
 	return nil
 }
 
+func (o *PostgresOutbox) OperationalSummary(ctx context.Context) (httpapi.OperationalEmailOutbox, error) {
+	var pending, failed int
+	err := o.db.QueryRowContext(ctx, `SELECT LEAST(COUNT(*) FILTER (WHERE status IN ('pending', 'processing')), 100), LEAST(COUNT(*) FILTER (WHERE status = 'failed'), 100) FROM sesame_email_outbox`).Scan(&pending, &failed)
+	if err != nil {
+		return httpapi.OperationalEmailOutbox{}, err
+	}
+	status := httpapi.OperationalReady
+	if failed > 0 {
+		status = httpapi.OperationalDegraded
+	}
+	return httpapi.OperationalEmailOutbox{Status: status, Pending: pending, Failed: failed}, nil
+}
+
 func (o *PostgresOutbox) Enqueue(ctx context.Context, message httpapi.AccountEmail) (string, error) {
 	var id string
 	err := o.db.QueryRowContext(ctx, `

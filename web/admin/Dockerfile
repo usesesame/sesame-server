@@ -1,29 +1,28 @@
-# Builds the admin portal from its own lockfile and serves the static
-# output. The server's Compose deployment builds this image; the portal owns
-# it, the same way it owns its lockfile and its CI.
-#
-# The API origin is compiled in at build time on purpose: neither portal has a
-# production endpoint in its source, so a deployment supplies its own.
-
-# Tags rather than digests: pinning these belongs with the rest of the supply
-# chain work, and a digest invented here would simply fail to pull.
-FROM node:26-alpine AS build
+FROM node:24.20.0-alpine@sha256:e67514e5d0f6c46656005e1b693b2ec9d52e80b641307de684d4a015ba7a4eaf AS build
 WORKDIR /src
-COPY package.json package-lock.json ./
+COPY web/admin/package.json web/admin/package-lock.json ./
 RUN npm ci
-COPY . .
+COPY web/admin .
+COPY scripts/release-contract.mjs /tools/release-contract.mjs
+ARG SESAME_VERSION=0.1.0-dev
+ARG SESAME_COMMIT=unknown
 ARG VITE_SESAME_API_URL
-ENV VITE_SESAME_API_URL=$VITE_SESAME_API_URL \
-    VITE_SESAME_SITE_ORIGIN=$VITE_SESAME_SITE_ORIGIN \
-    VITE_SESAME_CAPABILITY_PUBLIC_KEY=$VITE_SESAME_CAPABILITY_PUBLIC_KEY
-RUN npm run build
+ENV VITE_SESAME_API_URL=$VITE_SESAME_API_URL
+RUN npm run build && node /tools/release-contract.mjs portal admin "$SESAME_VERSION" "$SESAME_COMMIT" /src/dist/release.json
 
-FROM nginx:1.31-alpine
-# Both portals are single-page applications: every path that is not a file has
-# to return index.html, or a reload of /account or /reset-password is a 404.
-# The header set is generated from dist/_headers during the build, so the
-# policy the portal ships is the policy nginx serves. The administration
-# console additionally must never be indexed or cached.
+FROM nginx:1.31@sha256:b34848eff6db786b6b1282d3a9c3fd0b5563dfb6d261df4923378b419e0d24f0
+ARG SESAME_VERSION=0.1.0-dev
+ARG SESAME_COMMIT=unknown
+ARG SESAME_SOURCE_URL=https://github.com/usesesame/sesame-server
+LABEL org.opencontainers.image.title="Sesame administration portal" \
+      org.opencontainers.image.version="${SESAME_VERSION}" \
+      org.opencontainers.image.revision="${SESAME_COMMIT}" \
+      org.opencontainers.image.source="${SESAME_SOURCE_URL}"
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --only-upgrade --no-install-recommends -y \
+      libssl3t64=3.5.7-1~deb13u2 \
+      openssl=3.5.7-1~deb13u2 \
+      openssl-provider-legacy=3.5.7-1~deb13u2 && \
+    rm -rf /var/lib/apt/lists/*
 RUN printf '%s\n' \
   'server {' \
   '  listen 8080;' \

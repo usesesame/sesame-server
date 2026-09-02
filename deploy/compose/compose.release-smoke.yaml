@@ -1,0 +1,80 @@
+name: sesame-release-smoke
+
+services:
+  migrate:
+    image: ${SESAME_API_IMAGE:?}
+    entrypoint: ["/sesame-migrate"]
+    environment:
+      DATABASE_URL: postgres://sesame:sesame-smoke-only@db:5432/sesame?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: ${SESAME_API_IMAGE:?}
+    environment:
+      SESAME_API_ADDR: 0.0.0.0:8787
+      SESAME_ENV: production
+      SESAME_WEB_ORIGIN: http://127.0.0.1:4175
+      SESAME_ADMIN_ORIGIN: http://127.0.0.1:4174
+      SESAME_PUBLIC_SITE_ORIGIN: https://website.test.invalid
+      SESAME_REGISTRATION_MODE: closed
+      SESAME_SESSION_SECURE: "false"
+      SESAME_ADMIN_SESSION_SECURE: "false"
+      SESAME_CAPABILITY_SIGNING_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      SESAME_ADMIN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      SESAME_ADMIN_IP_PEPPER: sesame-smoke-only
+      DATABASE_URL: postgres://sesame:sesame-smoke-only@db:5432/sesame?sslmode=disable
+    ports:
+      - "127.0.0.1::8787"
+    healthcheck:
+      test: ["CMD", "/sesame-healthcheck"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  account:
+    image: ${SESAME_ACCOUNT_IMAGE:?}
+    ports:
+      - "127.0.0.1::8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/release.json"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+    depends_on:
+      api:
+        condition: service_healthy
+
+  admin:
+    image: ${SESAME_ADMIN_IMAGE:?}
+    ports:
+      - "127.0.0.1::8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/release.json"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+    depends_on:
+      api:
+        condition: service_healthy
+
+  db:
+    image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    environment:
+      POSTGRES_DB: sesame
+      POSTGRES_USER: sesame
+      POSTGRES_PASSWORD: sesame-smoke-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql
