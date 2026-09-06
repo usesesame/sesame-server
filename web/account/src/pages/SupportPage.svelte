@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { Account } from '../lib/auth'
+import { siteOrigin } from '../lib/runtime-config'
   import {
     findSecretShapedText,
     getSupportTicket,
@@ -161,7 +162,7 @@
 <section class="page-hero compact-page-hero">
   <p class="eyebrow">Support</p>
   <h1>How can we help?</h1>
-  <p class="intro">Send a question, beta request, or bug report. Never include passwords or vault files.</p>
+  <p class="intro">Ask a question or report a bug. Never include passwords or vault files.</p>
 </section>
 
 <section class="section support-section safe-support">
@@ -263,12 +264,12 @@
   <div class="faq-block">
     <p class="eyebrow">Quick answers</p>
     <h2>Common questions</h2>
-    <details><summary>Can I download Sesame now?</summary><p>Not yet. Sesame is an invite-only Windows beta.</p></details>
-    <details><summary>Can support unlock my vault?</summary><p>No. Use your recovery kit or PIN. Without an unlock method, the vault cannot be recovered.</p></details>
+    <details><summary>Can I download Sesame now?</summary><p>Yes. Sesame is a free download for Windows and Linux.</p></details>
+    <details><summary>Can support unlock my vault?</summary><p>No. Use your recovery kit, PIN, or Windows Hello. Without an unlock method, the vault cannot be recovered.</p></details>
     <details><summary>What can I import?</summary><p>15 formats from Bitwarden, 1Password, major browsers, and other password managers.</p></details>
-    <details><summary>Does Sync work yet?</summary><p>No. It stays disabled until independent review and operating gates pass.</p></details>
+    <details><summary>Does Sync work yet?</summary><p>No. The <a href={`${siteOrigin}/roadmap#sync`}>roadmap</a> lists what has to pass first.</p></details>
     <details><summary>Is there a mobile app or browser extension?</summary><p>No mobile app yet. The browser helper is not in stores.</p></details>
-    <details><summary>Where is my vault stored?</summary><p>On your Windows PC. The website and API never receive it.</p></details>
-    <details><summary>Has Sesame been independently reviewed?</summary><p>Not yet. Use test data and keep an encrypted backup.</p></details>
+    <details><summary>Where is my vault stored?</summary><p>On your computer.</p></details>
+    <details><summary>Has Sesame been independently reviewed?</summary><p>Not yet. The <a href={`${siteOrigin}/security`}>security page</a> shows what that means for the current release.</p></details>
   </div>
 </section>

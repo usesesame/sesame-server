@@ -377,7 +377,7 @@
             <article><span>{metric[0]}</span><strong>{metric[1] ?? 'Not available'}</strong></article>
           {/each}
         </div>
-        <section class="panel"><h2>Operating boundary</h2><p>Administration manages account metadata, releases, plans, flags and sessions. It cannot receive vault records, passwords stored in a vault, TOTP seeds, backup codes or vault keys.</p></section>
+        <section class="panel"><h2>Operating boundary</h2><p>Administration manages account metadata, releases, plans, flags, and sessions. It cannot receive vault records, vault passwords, 2FA seeds, backup codes, or vault keys.</p></section>
       {:else if page === 'support'}
         <div class="toolbar">
           <input class="search" aria-label="Search tickets" placeholder="Search email or subject" bind:value={ticketQuery} oninput={onTicketSearch} />

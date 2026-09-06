@@ -91,6 +91,6 @@
 
   <section class="panel system-panel">
     <h2>Deployment</h2>
-    <p>Deployment is managed through protected automation. This page is read-only.</p>
+    <p>Managed through protected automation. This page is read-only.</p>
   </section>
 {/if}

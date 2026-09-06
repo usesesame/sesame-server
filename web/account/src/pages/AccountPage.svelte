@@ -412,8 +412,8 @@
 <section class="account-shell">
   <div class="account-copy account-head">
     <p class="eyebrow">Sesame account</p>
-    <h1>Account services.</h1>
-    <p class="intro">Beta access, verified private-beta downloads, licences, website sessions, and connected desktops. Your vault is not stored here.</p>
+    <h1>Your account.</h1>
+    <p class="intro">Beta access, verified private-beta downloads, licences, website sessions, and connected desktops.</p>
   </div>
 
   {#if account}
@@ -435,10 +435,10 @@
         </div>
         <div class="account-purpose-grid">
           <article><span>Beta access</span><strong>{betaGranted ? account.emailVerified ? 'Eligible' : 'Granted, verify email' : 'Not granted'}</strong><p>{betaGranted && !account.emailVerified ? 'Verify your email to activate beta services and desktop linking.' : 'Controls invited builds and feedback access.'}</p></article>
-          <article><span>Private-beta downloads</span><strong>{access?.downloadsAllowed ? 'Available' : 'No eligible build'}</strong><p>Only account-gated artifacts with a verified Tauri updater signature appear.</p></article>
+          <article><span>Private-beta downloads</span><strong>{access?.downloadsAllowed ? 'Available' : 'No eligible build'}</strong><p>Builds your beta access covers.</p></article>
           <article><span>Licences</span><strong>{access?.licences.length || 0}</strong><p>Purchases will live here when sales open.</p></article>
           <article><span>Support</span><strong>{supportUnread > 0 ? `${supportUnread} unread` : 'Up to date'}</strong><p><a href="/support">View your support requests and replies.</a></p></article>
-          <article><span>Local vault</span><strong>Not stored</strong><p>The website cannot see or unlock it.</p></article>
+          <article><span>Local vault</span><strong>Not stored here</strong></article>
         </div>
         <div class="panel-section">
           <button class="button button-soft" type="button" on:click={leave} disabled={working}>{working ? 'Signing out…' : 'Sign out'}</button>
@@ -517,7 +517,7 @@
         <label class="inline-password">Account password<input type="password" autocomplete="current-password" bind:value={devicesPassword} placeholder="Required for changes" /></label>
         {#if deviceError}<p class="auth-error" role="alert">{deviceError}</p>{/if}
         <div class="panel-section link-section">
-          <p class="account-label">Connect a Windows desktop</p>
+          <p class="account-label">Connect a desktop</p>
           {#if !desktopLinkReady}
             <p class="auth-error" role="status">{desktopLinkBlocker}</p>
             {#if !account.emailVerified}<button class="button button-soft button-sm" type="button" on:click={resendVerification} disabled={working}>{working ? 'Sending…' : 'Send verification email'}</button>{/if}
@@ -526,7 +526,7 @@
               <div class="desktop-link-code"><span>One-time code</span><code aria-label={link.code}>{desktopCodeDisplay}</code></div>
               <div class="desktop-link-expiry" aria-label={`${linkSeconds} seconds remaining`}><span>Expires in</span><strong>{linkCountdown}</strong></div>
             </div>
-            <p class="panel-hint">Enter this in Sesame Settings. It can be used once and expires automatically.</p>
+            <p class="panel-hint">Enter it in Sesame Settings before it expires.</p>
             <div class="account-actions"><button class="button" type="button" on:click={copyDesktopCode}>{copied ? 'Copied' : 'Copy code'}</button><button class="button button-soft" type="button" on:click={makeDesktopLink} disabled={linking || !devicesPassword}>Regenerate</button><button class="device-remove" type="button" on:click={cancelLink} disabled={linking || !devicesPassword}>Cancel</button></div>
           {:else if link?.state === 'connected'}
             <div class="link-success" role="status"><strong>Desktop connected</strong><span>The one-time code is closed. You can manage the desktop below.</span></div>
@@ -553,12 +553,12 @@
           <p class="account-label">Eligible downloads</p>
           <p class="panel-hint">Only account-gated builds with verified Tauri updater signatures and Sigstore publisher evidence appear here. Early-access installers are not Windows publisher-signed, so Windows may show an unknown-publisher warning.</p>
 		  {#if downloads.length > 0}<div class="download-list">{#each downloads as release (release.id)}<article><div><strong>Sesame {release.version}</strong><span>{release.platform} · {release.updaterVerified ? 'Tauri updater signature verified' : 'Updater signature unavailable'} · {release.sigstoreVerified ? 'Sigstore release workflow verified' : 'Release workflow evidence unavailable'} · {release.authenticodeVerified ? 'Windows publisher verified' : 'Unsigned Windows early-access build'}</span><code>SHA-256: {release.sha256}</code></div>{#if release.updaterVerified && release.sigstoreVerified}<button class="button button-sm" type="button" on:click={() => startDownload(release)} disabled={downloadStarting === release.id}>{downloadStarting === release.id ? 'Preparing download…' : 'Download'}</button>{:else}<span class="release-unavailable">Withheld</span>{/if}</article>{/each}</div>{:else}<div class="empty-account-state"><strong>No build assigned</strong><p>When your beta access includes a build, its installer and verification evidence will appear here.</p></div>{/if}
-          <a class="account-roadmap" href="/releases">Public release notes and supported Windows versions</a>
+          <a class="account-roadmap" href="/releases">Public release notes and platform support</a>
         </div>
       {/if}
     </div>
   {:else if authState.state === 'loading'}
-    <div class="account-panel card account-loading" role="status"><span class="session-spinner" aria-hidden="true"></span><div><h2>Preparing your account</h2><p>Loading your account controls.</p></div></div>
+    <div class="account-panel card account-loading" role="status"><span class="session-spinner" aria-hidden="true"></span><div><h2>Loading your account.</h2></div></div>
   {:else if authState.state === 'offline' || authState.state === 'error'}
     <div class="account-panel card signed-out"><h2>Account service unavailable.</h2><p>{authState.state === 'offline' ? 'Reconnect and try again. Your session has not been signed out.' : authState.error.message}</p><button class="button button-soft" type="button" on:click={() => window.location.reload()}>Try again</button></div>
   {:else}

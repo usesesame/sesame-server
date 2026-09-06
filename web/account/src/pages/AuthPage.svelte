@@ -77,7 +77,7 @@
 <section class="auth-page">
   <div class="auth-copy">
     <h1>{isRegistering ? 'Join the private beta.' : 'Sign in.'}</h1>
-    <p class="intro">This account manages beta access, verified private-beta downloads, licences, browser sessions, and connected desktops. It never stores or unlocks your vault.</p>
+    <p class="intro">One account for the Sesame website. It never stores or unlocks your vault.</p>
     <ul class="account-job-list" aria-label="What the account is for">
       <li>See builds you are eligible to download</li>
       <li>Manage licences and connected desktops</li>

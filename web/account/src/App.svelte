@@ -103,7 +103,7 @@
         <img class="brand-mark" src="/favicon.svg" alt="" />
         <strong>Sesame</strong>
       </a>
-      <p>Sesame never receives your vault. This portal manages only the optional website account.</p>
+      <p>This portal manages only the website account. Sesame never receives your vault.</p>
     </div>
     <nav class="footer-col" aria-label="Portal">
       <strong>Portal</strong>
