@@ -257,20 +257,21 @@ func (s *Store) TransitionExtensionPublication(ctx context.Context, actor Accoun
 	if extensionPublicationTransitions[publication.Status] != input.To {
 		return ExtensionPublication{}, ErrNotAllowed
 	}
-	publication.Evidence[input.To] = mergedEvidence(publication.Evidence, input.To, input.Evidence)
+	merged := mergedEvidence(publication.Evidence, input.To, input.Evidence)
 	nextRevision := publication.StateRevision + 1
-	merged, err := json.Marshal(publication.Evidence)
+	encoded, err := json.Marshal(merged)
 	if err != nil {
 		return ExtensionPublication{}, err
 	}
 	var updatedAt time.Time
 	if err := tx.QueryRowContext(ctx, `UPDATE sesame_extension_publications SET status = $2, evidence = $3, state_revision = $4, updated_at = NOW() WHERE id = $1 AND state_revision = $5 RETURNING updated_at`,
-		publicationID, input.To, merged, nextRevision, publication.StateRevision).Scan(&updatedAt); err != nil {
+		publicationID, input.To, encoded, nextRevision, publication.StateRevision).Scan(&updatedAt); err != nil {
 		return ExtensionPublication{}, err
 	}
 	if err := insertAudit(ctx, tx, actor, fmt.Sprintf("extension_publication.%s", input.To), "extension_publication", publication.ID, map[string]any{"store": publication.Store, "version": publication.Version, "from": publication.Status, "to": input.To}, ipHash); err != nil {
 		return ExtensionPublication{}, err
 	}
+	publication.Evidence = merged
 	publication.Status = input.To
 	publication.StateRevision = nextRevision
 	publication.UpdatedAt = updatedAt
