@@ -1,12 +1,3 @@
-# One-off candidate verification beside the live stack, driven by
-# scripts/deploy-release.mjs. It starts after production migrations have run,
-# serves on a loopback port Caddy does not route, and is removed before any
-# traffic moves. Traffic switches only when the deploy tool renames the staged
-# env file over .env.production and brings compose.prod.yaml up.
-#
-# The service reaches the production database through the live project's
-# network, where the db service is reachable by its service name.
-
 name: sesame-deploy-candidate
 
 services:
