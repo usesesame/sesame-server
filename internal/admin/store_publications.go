@@ -23,6 +23,14 @@ var extensionPublicationTransitions = map[string]string{
 	"published": "withdrawn",
 }
 
+func extensionPublicationTarget(state string) bool {
+	switch state {
+	case "uploaded", "submitted", "approved", "published", "withdrawn":
+		return true
+	}
+	return false
+}
+
 func extensionPublicationEvidence(evidence map[string]any) ([]byte, error) {
 	if evidence == nil {
 		return []byte("{}"), nil
@@ -118,7 +126,15 @@ func (s *Store) AcceptExtensionPublication(ctx context.Context, actor Account, c
 	if candidate.Filename == "" || len(candidate.Filename) > 200 || containsPathSeparator(candidate.Filename) {
 		return ExtensionPublication{}, ErrNotAllowed
 	}
-	encodedEvidence, err := extensionPublicationEvidence(candidate.Evidence)
+	builtEvidence, err := extensionPublicationEvidence(candidate.Evidence)
+	if err != nil {
+		return ExtensionPublication{}, err
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(builtEvidence, &normalized); err != nil {
+		return ExtensionPublication{}, err
+	}
+	encodedEvidence, err := json.Marshal(map[string]any{"built": normalized})
 	if err != nil {
 		return ExtensionPublication{}, err
 	}
@@ -130,12 +146,7 @@ func (s *Store) AcceptExtensionPublication(ctx context.Context, actor Account, c
 		ID: publicationID, Store: candidate.Store, Version: candidate.Version,
 		PackageSHA256: candidate.PackageSHA256, PackageBytes: candidate.PackageBytes,
 		Filename: candidate.Filename, Status: "built", StateRevision: 1,
-		Evidence: map[string]any{},
-	}
-	if len(encodedEvidence) > 2 {
-		if err := json.Unmarshal(encodedEvidence, &publication.Evidence); err != nil {
-			return ExtensionPublication{}, err
-		}
+		Evidence: map[string]any{"built": normalized},
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -205,7 +216,7 @@ func (s *Store) TransitionExtensionPublication(ctx context.Context, actor Accoun
 	if publicationID == "" || input.ExpectedStateRevision < 1 || input.To == "" {
 		return ExtensionPublication{}, ErrNotAllowed
 	}
-	if _, known := extensionPublicationTransitions[input.To]; !known {
+	if !extensionPublicationTarget(input.To) {
 		return ExtensionPublication{}, ErrNotAllowed
 	}
 	if _, err := extensionPublicationEvidence(input.Evidence); err != nil {
@@ -230,11 +241,8 @@ func (s *Store) TransitionExtensionPublication(ctx context.Context, actor Accoun
 	if err := json.Unmarshal(evidence, &publication.Evidence); err != nil {
 		return ExtensionPublication{}, errors.New("extension publication evidence is invalid")
 	}
-	if publication.StateRevision != input.ExpectedStateRevision {
-		return ExtensionPublication{}, ErrManifestRevisionConflict
-	}
-	storedState, _ := publication.Evidence[input.To].(map[string]any)
 	if publication.Status == input.To {
+		storedState, _ := publication.Evidence[input.To].(map[string]any)
 		if !sameEvidence(storedState, input.Evidence) {
 			return ExtensionPublication{}, ErrExtensionPublicationConflict
 		}
@@ -242,6 +250,9 @@ func (s *Store) TransitionExtensionPublication(ctx context.Context, actor Accoun
 			return ExtensionPublication{}, err
 		}
 		return publication, nil
+	}
+	if publication.StateRevision != input.ExpectedStateRevision {
+		return ExtensionPublication{}, ErrManifestRevisionConflict
 	}
 	if extensionPublicationTransitions[publication.Status] != input.To {
 		return ExtensionPublication{}, ErrNotAllowed
