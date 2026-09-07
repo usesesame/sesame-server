@@ -34,11 +34,13 @@ func publicationTestStore(t *testing.T) (*Store, *sql.DB) {
 	return store, accountStore.DB()
 }
 
-func publicationCandidate(storeName, version, digest string) ExtensionPublicationCandidate {
+const testPackageSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func publicationCandidate(storeName, version string) ExtensionPublicationCandidate {
 	return ExtensionPublicationCandidate{
 		Store:         storeName,
 		Version:       version,
-		PackageSHA256: digest,
+		PackageSHA256: testPackageSHA256,
 		PackageBytes:  48213,
 		Filename:      "sesame-extension-" + version + "-" + storeName + ".zip",
 		Evidence:      map[string]any{"built": map[string]any{"runURL": "https://ci.test.invalid/run/1"}},
@@ -51,7 +53,7 @@ func transitionInput(revision int64, to string, evidence map[string]any) Extensi
 
 func TestAcceptExtensionPublicationReplay(t *testing.T) {
 	store, _ := publicationTestStore(t)
-	candidate := publicationCandidate("chrome", "0.1.0", "a")
+	candidate := publicationCandidate("chrome", "0.1.0")
 	first, err := store.AcceptExtensionPublication(context.Background(), Account{Email: "release-pipeline"}, candidate, "test-ip")
 	if err != nil {
 		t.Fatalf("accept first publication: %v", err)
@@ -67,10 +69,10 @@ func TestAcceptExtensionPublicationReplay(t *testing.T) {
 
 func TestAcceptExtensionPublicationRejectsConflict(t *testing.T) {
 	store, _ := publicationTestStore(t)
-	if _, err := store.AcceptExtensionPublication(context.Background(), Account{Email: "release-pipeline"}, publicationCandidate("chrome", "0.1.0", "a"), "test-ip"); err != nil {
+	if _, err := store.AcceptExtensionPublication(context.Background(), Account{Email: "release-pipeline"}, publicationCandidate("chrome", "0.1.0"), "test-ip"); err != nil {
 		t.Fatalf("accept first publication: %v", err)
 	}
-	conflict := publicationCandidate("chrome", "0.1.0", "a")
+	conflict := publicationCandidate("chrome", "0.1.0")
 	conflict.PackageBytes = 48214
 	if _, err := store.AcceptExtensionPublication(context.Background(), Account{Email: "release-pipeline"}, conflict, "test-ip"); !errors.Is(err, ErrExtensionPublicationConflict) {
 		t.Fatalf("conflicting publication error = %v, want ErrExtensionPublicationConflict", err)
@@ -90,7 +92,7 @@ func TestAcceptExtensionPublicationRejectsInvalidCandidates(t *testing.T) {
 			candidate.Evidence = map[string]any{"built": map[string]any{"note": string(make([]byte, 8192))}}
 		},
 	} {
-		candidate := publicationCandidate("chrome", "0.1.0", "a")
+		candidate := publicationCandidate("chrome", "0.1.0")
 		mutate(&candidate)
 		if _, err := store.AcceptExtensionPublication(context.Background(), actor, candidate, "test-ip"); err == nil {
 			t.Fatalf("%s: accept invalid publication succeeded", name)
@@ -101,7 +103,7 @@ func TestAcceptExtensionPublicationRejectsInvalidCandidates(t *testing.T) {
 func TestExtensionPublicationForwardWalk(t *testing.T) {
 	store, db := publicationTestStore(t)
 	actor := Account{Email: "release-pipeline"}
-	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0", "a"), "test-ip")
+	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0"), "test-ip")
 	if err != nil {
 		t.Fatalf("accept publication: %v", err)
 	}
@@ -145,7 +147,7 @@ func TestExtensionPublicationForwardWalk(t *testing.T) {
 func TestExtensionPublicationRejectsImpossibleMoves(t *testing.T) {
 	store, _ := publicationTestStore(t)
 	actor := Account{Email: "release-pipeline"}
-	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0", "a"), "test-ip")
+	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0"), "test-ip")
 	if err != nil {
 		t.Fatalf("accept publication: %v", err)
 	}
@@ -159,7 +161,7 @@ func TestExtensionPublicationRejectsImpossibleMoves(t *testing.T) {
 func TestExtensionPublicationRejectsStaleRevision(t *testing.T) {
 	store, _ := publicationTestStore(t)
 	actor := Account{Email: "release-pipeline"}
-	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0", "a"), "test-ip")
+	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0"), "test-ip")
 	if err != nil {
 		t.Fatalf("accept publication: %v", err)
 	}
@@ -174,7 +176,7 @@ func TestExtensionPublicationRejectsStaleRevision(t *testing.T) {
 func TestExtensionPublicationReplayReconcilesWithoutNewAudit(t *testing.T) {
 	store, db := publicationTestStore(t)
 	actor := Account{Email: "release-pipeline"}
-	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0", "a"), "test-ip")
+	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0"), "test-ip")
 	if err != nil {
 		t.Fatalf("accept publication: %v", err)
 	}
@@ -202,7 +204,7 @@ func TestExtensionPublicationReplayReconcilesWithoutNewAudit(t *testing.T) {
 func TestExtensionPublicationConflictOnDivergentEvidence(t *testing.T) {
 	store, _ := publicationTestStore(t)
 	actor := Account{Email: "release-pipeline"}
-	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0", "a"), "test-ip")
+	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", "0.1.0"), "test-ip")
 	if err != nil {
 		t.Fatalf("accept publication: %v", err)
 	}
