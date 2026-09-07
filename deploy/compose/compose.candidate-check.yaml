@@ -1,0 +1,49 @@
+# One-off candidate verification beside the live stack, driven by
+# scripts/deploy-release.mjs. It starts after production migrations have run,
+# serves on a loopback port Caddy does not route, and is removed before any
+# traffic moves. Traffic switches only when the deploy tool renames the staged
+# env file over .env.production and brings compose.prod.yaml up.
+#
+# The service reaches the production database through the live project's
+# network, where the db service is reachable by its service name.
+
+name: sesame-deploy-candidate
+
+services:
+  api:
+    image: ${SESAME_API_IMAGE:?set to the candidate API digest}
+    environment:
+      SESAME_API_ADDR: 0.0.0.0:8787
+      SESAME_ENV: production
+      SESAME_WEB_ORIGIN: ${SESAME_ACCOUNT_ORIGIN:?}
+      SESAME_ADMIN_ORIGIN: ${SESAME_ADMIN_ORIGIN:?}
+      SESAME_PUBLIC_SITE_ORIGIN: ${SESAME_PUBLIC_SITE_ORIGIN:?}
+      SESAME_REGISTRATION_MODE: ${SESAME_REGISTRATION_MODE:-invite}
+      SESAME_SESSION_SECURE: "true"
+      SESAME_ADMIN_SESSION_SECURE: "true"
+      SESAME_TRUSTED_PROXIES: ${SESAME_TRUSTED_PROXIES:-}
+      SESAME_RP_ID: ${SESAME_RP_ID:?}
+      SESAME_RP_NAME: ${SESAME_RP_NAME:-Sesame}
+      SESAME_SMTP_ADDR: ${SESAME_SMTP_ADDR:-}
+      SESAME_SMTP_USERNAME: ${SESAME_SMTP_USERNAME:-}
+      SESAME_SMTP_PASSWORD: ${SESAME_SMTP_PASSWORD:-}
+      SESAME_SMTP_FROM: ${SESAME_SMTP_FROM:-}
+      SESAME_RELEASE_CANDIDATE_PUBLIC_KEY: ${SESAME_RELEASE_CANDIDATE_PUBLIC_KEY:-}
+      SESAME_RELEASE_CANDIDATE_KEY_ID: ${SESAME_RELEASE_CANDIDATE_KEY_ID:-}
+      SESAME_RELEASE_CANDIDATE_TOKEN: ${SESAME_RELEASE_CANDIDATE_TOKEN:-}
+      SESAME_CAPABILITY_SIGNING_KEY: ${SESAME_CAPABILITY_SIGNING_KEY:?}
+      SESAME_ADMIN_ENCRYPTION_KEY: ${SESAME_ADMIN_ENCRYPTION_KEY:?}
+      SESAME_ADMIN_IP_PEPPER: ${SESAME_ADMIN_IP_PEPPER:?}
+      DATABASE_URL: postgres://sesame:${SESAME_DATABASE_PASSWORD:?}@db:5432/sesame?sslmode=disable
+    ports:
+      - "127.0.0.1:8788:8787"
+    healthcheck:
+      test: ["CMD", "/sesame-healthcheck"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+
+networks:
+  default:
+    name: sesame-prod_default
+    external: true

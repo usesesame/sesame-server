@@ -114,6 +114,57 @@ capability signing key. GitHub supplies registry and attestation credentials
 only to the workflow. Host and deployment credentials do not enter the release
 job.
 
+### Deploying a release
+
+The deploy tool promotes one release artifact set end to end. Run it on the
+host as root or a user with Docker access, from a checkout of this repository
+at (or newer than) the revision that built the images:
+
+```bash
+npm ci
+npm run deploy:release -- plan server-release.json     # what would happen, nothing changes
+npm run deploy:release -- deploy server-release.json
+npm run deploy:release -- status
+npm run deploy:release -- rollback [version]
+```
+
+`deploy` runs these stages, and every stage is safe to retry after an
+interruption: pull and verify all three images by digest and identity labels;
+take a verified `pg_dump` backup; restore that backup into a scratch database
+and run the candidate migration and the previous revision's API against it
+(the rehearsal); apply the migration to the production database; start the
+candidate API beside the live stack on a port Caddy does not route and probe
+`/livez` and `/readyz`; only then rename the staged env file over
+`.env.production` and bring the production stack up with a bounded readiness
+wait; probe the live endpoints and both portals; record the deployment.
+
+Guarantees:
+
+- A failed health check before the switch changes no traffic: the previous
+  revision keeps serving and the env file is untouched.
+- A failed health check after the switch rolls back automatically: the tool
+  restores the recorded previous env snapshot, restarts the stack, probes it,
+  and records the rollback. The interrupted attempt is recorded, and rerunning
+  `deploy` with the same `server-release.json` converges on that revision
+  instead of duplicating it.
+- Deploying an older release than the recorded one is refused. Re-presenting
+  the same release with changed bytes is refused: artifact identity is
+  immutable.
+- State, env snapshots, and backups live under `deploy/state/` (gitignored):
+  `deployed.json`, `pending.json`, `backups/`, and `history/<version>/`.
+  Never delete `history/` while an older version is still a wanted rollback
+  target.
+- The rehearsal proves the previous revision still runs against the migrated
+  schema, so an ordinary rollback after migration is safe. Rollback restores
+  images and configuration only; it never reverts migrations. If a release
+  ships an incompatible database contraction, recovery means restoring the
+  recorded backup (`sesame-<version>-<timestamp>.sql.gz`) onto the previous
+  revision, which is a deliberate operator procedure, not an automatic one.
+
+Secrets from `.env.production` are read by the tool (mode 0600, never printed)
+and copied into the per-version snapshots under `deploy/state/history/`. Back
+that directory up with the same care as the env file itself.
+
 ## 3. Build and place the website
 
 The marketing site is a separate repository and is deliberately not part of the

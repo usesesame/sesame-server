@@ -16,3 +16,6 @@ dist/
 *.exe
 *.test
 coverage.out
+
+# Deploy tool state: backups, env snapshots, and the deployment record.
+deploy/state/

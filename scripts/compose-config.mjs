@@ -19,13 +19,15 @@ const common = {
   SESAME_SERVER_CONTEXT: '../..',
 }
 
-const development = check('deploy/compose/compose.yaml', common)
-const production = check('deploy/compose/compose.prod.yaml', {
+const productionValues = {
   ...common,
   SESAME_API_IMAGE: `registry.test.invalid/sesame-api@${digest}`,
   SESAME_ACCOUNT_IMAGE: `registry.test.invalid/sesame-account@${digest}`,
   SESAME_ADMIN_IMAGE: `registry.test.invalid/sesame-admin@${digest}`,
-})
+}
+const development = check('deploy/compose/compose.yaml', common)
+const production = check('deploy/compose/compose.prod.yaml', productionValues)
+const candidate = check('deploy/compose/compose.candidate-check.yaml', productionValues)
 
 for (const service of ['api', 'migrate', 'account', 'admin']) {
   if (!development.services[service]?.build) throw new Error(`Development ${service} must remain locally buildable.`)
@@ -37,6 +39,11 @@ if (production.services.api.image !== production.services.migrate.image) {
 }
 for (const service of ['api', 'account', 'admin']) {
   if (!production.services[service]?.healthcheck) throw new Error(`Production ${service} must define a health check.`)
+}
+digestReference(candidate.services.api?.image, 'Candidate check')
+if (candidate.services.api?.build) throw new Error('The candidate check must not contain a build context.')
+if (candidate.networks?.default?.name !== 'sesame-prod_default' || candidate.networks?.default?.external !== true) {
+  throw new Error('The candidate check must join the production network as an external network.')
 }
 
 function check(file, values) {
