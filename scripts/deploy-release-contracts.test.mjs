@@ -164,11 +164,12 @@ test('rewrites only the three image lines and refuses incomplete files', () => {
   assert.throws(() => rewriteEnvImages(duplicated, { api: {}, account: {}, admin: {} }))
 })
 
-test('accepts only a usable gzip dump as the pre-deployment backup', () => {
-  const sha256 = assertUsableBackup(gzipSync(backupPayload()))
+test('accepts only a usable gzip dump as the pre-deployment backup', async () => {
+  const sha256 = await assertUsableBackup(gzipSync(backupPayload()))
   assert.match(sha256, /^[0-9a-f]{64}$/)
-  assert.throws(() => assertUsableBackup(Buffer.from('plain text')))
-  assert.throws(() => assertUsableBackup(gzipSync(Buffer.from('too small'))))
+  await assert.rejects(() => assertUsableBackup(Buffer.from('plain text')))
+  await assert.rejects(() => assertUsableBackup(gzipSync(Buffer.from('too small'))))
+  await assert.rejects(() => assertUsableBackup(gzipSync(Buffer.from('deflate garbage without the dump marker'.repeat(64)))))
 })
 
 test('classifies deployments', () => {

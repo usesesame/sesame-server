@@ -68,12 +68,16 @@ const io = {
   now: () => new Date().toISOString(),
 }
 
-const waitTimeoutSeconds = () => {
+let waitTimeout = 300
+
+const parseWaitTimeout = () => {
   const index = process.argv.indexOf('--wait-timeout')
   const value = index >= 0 ? Number(process.argv[index + 1]) : 300
   if (!Number.isInteger(value) || value < 30 || value > 1800) throw new Error('--wait-timeout must be an integer number of seconds between 30 and 1800.')
   return value
 }
+
+const waitTimeoutSeconds = () => waitTimeout
 
 main(process.argv.slice(2)).catch((error) => {
   process.stderr.write(`${error instanceof Error ? error.message : error}\n`)
@@ -81,6 +85,7 @@ main(process.argv.slice(2)).catch((error) => {
 })
 
 async function main(args) {
+  waitTimeout = parseWaitTimeout()
   const positional = []
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === '--wait-timeout') { index += 1; continue }
@@ -167,7 +172,7 @@ async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
   try {
     docker(['run', '-d', '--name', scratchDatabase, '-e', 'POSTGRES_USER=sesame', '-e', `POSTGRES_PASSWORD=${password}`, '-e', 'POSTGRES_DB=sesame', '--tmpfs', '/var/lib/postgresql', scratchPostgresImage])
     await waitFor(() => spawnSync('docker', ['exec', scratchDatabase, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0, 'the rehearsal database never became ready')
-    const restore = spawnSync('sh', ['-c', `gunzip -c '${backupFile}' | docker exec -i ${scratchDatabase} psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame`], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
+    const restore = spawnSync('sh', ['-c', `umask 077; gunzip -c "$1" > /tmp/sesame-restore.$$.sql || { rm -f /tmp/sesame-restore.$$.sql; exit 1; }; docker exec -i ${scratchDatabase} psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame < /tmp/sesame-restore.$$.sql; status=$?; rm -f /tmp/sesame-restore.$$.sql; exit $status`, 'sh', backupFile], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
     if (restore.status !== 0) return { ok: false, error: `restoring the backup into the rehearsal database failed: ${lastLine(restore.stderr)}` }
     const migrate = spawnSync('docker', ['run', '--rm', '--network', `container:${scratchDatabase}`, '-e', `DATABASE_URL=${scratchURL}`, candidateRef, '/sesame-migrate'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
     if (migrate.status !== 0) return { ok: false, error: `the candidate migration failed on restored data: ${lastLine(migrate.stderr)}` }

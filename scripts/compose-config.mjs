@@ -40,8 +40,8 @@ if (production.services.api.image !== production.services.migrate.image) {
 for (const service of ['api', 'account', 'admin']) {
   if (!production.services[service]?.healthcheck) throw new Error(`Production ${service} must define a health check.`)
 }
-digestReference(candidate.services.api?.image, 'Candidate check')
-if (candidate.services.api?.build) throw new Error('The candidate check must not contain a build context.')
+digestReference(candidate.services['candidate-api']?.image, 'Candidate check')
+if (candidate.services['candidate-api']?.build) throw new Error('The candidate check must not contain a build context.')
 if (candidate.networks?.default?.name !== 'sesame-prod_default' || candidate.networks?.default?.external !== true) {
   throw new Error('The candidate check must join the production network as an external network.')
 }

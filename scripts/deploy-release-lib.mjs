@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { gunzipSync } from 'node:zlib'
+import { createGunzip } from 'node:zlib'
+import { Readable } from 'node:stream'
 import { dirname, join } from 'node:path'
 import { digestReference, releaseIdentity } from './release-contract.mjs'
 
@@ -80,13 +81,30 @@ export function rewriteEnvImages(text, images) {
   return rewritten.join('\n')
 }
 
-export function assertUsableBackup(gzipBytes) {
+export async function assertUsableBackup(gzipBytes) {
   if (!Buffer.isBuffer(gzipBytes) || gzipBytes.length < 1024 || gzipBytes[0] !== 0x1f || gzipBytes[1] !== 0x8b) {
     throw new Error('The pre-deployment backup is not a usable gzip dump.')
   }
-  const dump = gunzipSync(gzipBytes).toString('utf8')
-  if (!dump.includes(BACKUP_MARKER)) throw new Error('The pre-deployment backup does not contain a PostgreSQL dump.')
+  const prefix = await decompressedPrefix(gzipBytes, 64 * 1024)
+  if (!prefix.includes(BACKUP_MARKER)) throw new Error('The pre-deployment backup does not contain a PostgreSQL dump.')
   return createHash('sha256').update(gzipBytes).digest('hex')
+}
+
+async function decompressedPrefix(gzipBytes, limit) {
+  const gunzip = createGunzip()
+  const source = Readable.from([gzipBytes])
+  const chunks = []
+  let collected = 0
+  source.pipe(gunzip)
+  for await (const chunk of gunzip) {
+    chunks.push(chunk)
+    collected += chunk.length
+    if (collected >= limit) {
+      gunzip.destroy()
+      break
+    }
+  }
+  return Buffer.concat(chunks)
 }
 
 export async function readDeployedState(io, root) {
@@ -167,7 +185,13 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
     throw new Error(`A deployment of ${record.release.version} is still pending from a different manifest. Resolve it (or remove deploy/state/${PENDING_FILE}) before deploying ${release.version}.`)
   }
   const classification = classifyDeployment(state, release)
-  if (classification.action === 'noop') throw new Error(`Release ${release.version} is already the deployed revision.`)
+  if (classification.action === 'noop') {
+    if (record) {
+      await io.unlink(join(root, PENDING_FILE))
+      return { deployed: release.version, backup: state.current.backup, from: state.current.previous?.version ?? null }
+    }
+    throw new Error(`Release ${release.version} is already the deployed revision.`)
+  }
   if (classification.action === 'stale') {
     throw new Error(`Release ${release.version} is older than the deployed ${state.current.version}. Deploy a newer release or roll back deliberately.`)
   }
@@ -192,7 +216,7 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
 
   if (!record.backup || !(await io.exists(record.backup.file))) {
     const gzipBytes = await io.takeBackup()
-    const sha256 = assertUsableBackup(gzipBytes)
+    const sha256 = await assertUsableBackup(gzipBytes)
     const file = join(root, 'backups', `sesame-${release.version}-${stamp(io.now())}.sql.gz`)
     await io.mkdirp(dirname(file))
     await io.writeBinary(file, gzipBytes)

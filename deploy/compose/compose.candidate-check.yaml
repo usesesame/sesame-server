@@ -1,7 +1,7 @@
 name: sesame-deploy-candidate
 
 services:
-  api:
+  candidate-api:
     image: ${SESAME_API_IMAGE:?set to the candidate API digest}
     environment:
       SESAME_API_ADDR: 0.0.0.0:8787
