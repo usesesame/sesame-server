@@ -1727,6 +1727,121 @@
         "x-sesame-registration-pattern": "/v1/admin/auth/setup/complete"
       }
     },
+    "/v1/admin/extension-publications": {
+      "get": {
+        "operationId": "getV1AdminExtensionPublications",
+        "summary": "GET admin extension publications",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminExtensionPublications",
+        "x-sesame-registration-pattern": "/v1/admin/extension-publications"
+      },
+      "post": {
+        "operationId": "postV1AdminExtensionPublications",
+        "summary": "POST admin extension publication accept",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminExtensionPublicationAccept",
+        "x-sesame-registration-pattern": "/v1/admin/extension-publications"
+      }
+    },
+    "/v1/admin/extension-publications/{publicationID}/transition": {
+      "post": {
+        "operationId": "postV1AdminExtensionPublicationsPublicationIDTransition",
+        "summary": "POST admin extension publication transition",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "publicationID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque publication id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminExtensionPublicationTransition",
+        "x-sesame-registration-pattern": "/v1/admin/extension-publications/{publicationID}/transition"
+      }
+    },
     "/v1/admin/flags": {
       "get": {
         "operationId": "getV1AdminFlags",
@@ -4578,5 +4693,5 @@
     "internal/httpapi/admin_auth.go",
     "internal/httpapi/sync_routes.go"
   ],
-  "x-sesame-operation-count": 118
+  "x-sesame-operation-count": 121
 }
