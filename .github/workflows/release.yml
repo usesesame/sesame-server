@@ -148,39 +148,39 @@ jobs:
 
       - run: node scripts/release-contract.mjs manifest "$SESAME_RELEASE_VERSION" "$SESAME_RELEASE_COMMIT" "${{ steps.push.outputs.api_ref }}" "${{ steps.push.outputs.account_ref }}" "${{ steps.push.outputs.admin_ref }}" server-release.json
 
-      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-name: ${{ env.API_REPOSITORY }}
           subject-digest: ${{ steps.push.outputs.api_digest }}
           push-to-registry: true
 
-      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-name: ${{ env.API_REPOSITORY }}
           subject-digest: ${{ steps.push.outputs.api_digest }}
           sbom-path: api.spdx.json
           push-to-registry: true
 
-      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-name: ${{ env.ACCOUNT_REPOSITORY }}
           subject-digest: ${{ steps.push.outputs.account_digest }}
           push-to-registry: true
 
-      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-name: ${{ env.ACCOUNT_REPOSITORY }}
           subject-digest: ${{ steps.push.outputs.account_digest }}
           sbom-path: account.spdx.json
           push-to-registry: true
 
-      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-name: ${{ env.ADMIN_REPOSITORY }}
           subject-digest: ${{ steps.push.outputs.admin_digest }}
           push-to-registry: true
 
-      - uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-name: ${{ env.ADMIN_REPOSITORY }}
           subject-digest: ${{ steps.push.outputs.admin_digest }}
