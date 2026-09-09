@@ -104,21 +104,21 @@ jobs:
 
       - run: npm run compose:smoke
 
-      - uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84
+      - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
         with:
           image: ${{ env.API_REPOSITORY }}:${{ steps.contract.outputs.version }}
           format: spdx-json
           output-file: api.spdx.json
           upload-artifact: false
 
-      - uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84
+      - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
         with:
           image: ${{ env.ACCOUNT_REPOSITORY }}:${{ steps.contract.outputs.version }}
           format: spdx-json
           output-file: account.spdx.json
           upload-artifact: false
 
-      - uses: anchore/sbom-action@8e94d75ddd33f69f691467e42275782e4bfefe84
+      - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
         with:
           image: ${{ env.ADMIN_REPOSITORY }}:${{ steps.contract.outputs.version }}
           format: spdx-json
