@@ -24,6 +24,7 @@
     "admin:bootstrap": "node ./scripts/admin-bootstrap.mjs",
     "compose:up": "docker compose -f deploy/compose/compose.yaml up --build",
     "compose:down": "docker compose -f deploy/compose/compose.yaml down",
-    "compose:config": "node ./scripts/compose-config.mjs"
+    "compose:config": "node ./scripts/compose-config.mjs",
+    "test:fuzz": "node ./scripts/run-go.mjs test -run '^$' -fuzz FuzzDecode -fuzztime 30s ./internal/syncproto && node ./scripts/run-go.mjs test -run '^$' -fuzz FuzzVerifyActivation -fuzztime 15s ./internal/syncproto && node ./scripts/run-go.mjs test -run '^$' -fuzz FuzzVerifyRevocationIntent -fuzztime 15s ./internal/syncproto && node ./scripts/run-go.mjs test -run '^$' -fuzz FuzzVerifyReceipt -fuzztime 15s ./internal/syncproto"
   }
 }
