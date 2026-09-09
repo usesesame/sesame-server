@@ -2,10 +2,11 @@
   import { onMount } from 'svelte'
   import { SvelteURLSearchParams } from 'svelte/reactivity'
   import { APIError, apiURL, mutate, request } from './lib/api'
+  import ExtensionStoresWorkspace from './lib/releases/ExtensionStoresWorkspace.svelte'
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
   import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
   import { TICKET_CATEGORY_LABELS } from './lib/types'
-  import type { AdminAccount, AuditEntry, Flag, OperationalSnapshot, Overview, Plan, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
+  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
   const pageNames: Record<Page, string> = { overview: 'Overview', support: 'Support', users: 'Users', flags: 'Feature flags', releases: 'Releases', plans: 'Product plans', admins: 'Administrators', audit: 'Audit log', system: 'System' }
@@ -30,6 +31,7 @@
   let flags: Flag[] = []
   let plans: Plan[] = []
   let releases: Release[] = []
+  let publications: ExtensionPublication[] = []
   let admins: AdminAccount[] = []
   let audit: AuditEntry[] = []
   let auditAction = ''
@@ -121,7 +123,10 @@
       if (next === 'support') { await loadTickets(); void loadAssignees() }
       if (next === 'flags') flags = (await request<{ flags: Flag[] }>('/v1/admin/flags')).flags
       if (next === 'plans') plans = (await request<{ plans: Plan[] }>('/v1/admin/plans')).plans
-      if (next === 'releases') releases = (await request<{ releases: Release[] }>('/v1/admin/releases')).releases
+      if (next === 'releases') {
+        releases = (await request<{ releases: Release[] }>('/v1/admin/releases')).releases
+        publications = (await request<{ publications: ExtensionPublication[] }>('/v1/admin/extension-publications')).publications ?? []
+      }
       if (next === 'admins') admins = (await request<{ admins: AdminAccount[] }>('/v1/admin/admins')).admins
       if (next === 'audit') await loadAudit()
       if (next === 'system') {
@@ -272,6 +277,22 @@
       ? { expectedManifestRevision: release.manifestRevision, rolloutPercent: release.rolloutPercent }
       : { expectedManifestRevision: release.manifestRevision }
     try { await mutate(`/v1/admin/releases/${release.id}/${command}`, 'POST', body); await openPage('releases'); showNotice('Release updated.') } catch (reason) { if (reason instanceof APIError && reason.code === 'release_manifest_conflict') { await openPage('releases'); showNotice('Release state reloaded. Try the command again.') } else showError(reason) }
+  }
+
+  async function extensionTransition(publication: ExtensionPublication, to: string, evidence: Record<string, string>) {
+    const body = { expectedStateRevision: publication.stateRevision, to, evidence }
+    try { await mutate(`/v1/admin/extension-publications/${publication.id}/transition`, 'POST', body); await openPage('releases'); showNotice('Extension publication updated.') } catch (reason) {
+      if (reason instanceof APIError && reason.code === 'extension_publication_state_conflict') { await openPage('releases'); showNotice('Publication state reloaded. Try the command again.') }
+      else if (reason instanceof APIError && reason.code === 'extension_publication_conflict') showError(new APIError('That package is already recorded with different evidence. The reviewed digest is immutable.', reason.status, reason.code))
+      else showError(reason)
+    }
+  }
+
+  async function extensionAccept(input: { store: string; version: string; packageSha256: string; filename: string; packageBytes: number }) {
+    try { await mutate('/v1/admin/extension-publications', 'POST', input); await openPage('releases'); showNotice('Extension package recorded.') } catch (reason) {
+      if (reason instanceof APIError && reason.code === 'extension_publication_conflict') { await openPage('releases'); showNotice('That package is already recorded with different evidence.') }
+      else showError(reason)
+    }
   }
 
   async function publishToOwnerDevices() {
@@ -496,6 +517,7 @@
         <div class="form-grid">{#each plans as plan (plan.id)}<section class="panel form-card"><h2>{plan.name}</h2><label>Name<input bind:value={plan.name} disabled={!canEditPlans} /></label><div class="two"><label>Price<input bind:value={plan.price} disabled={!canEditPlans} /></label><label>Annual price<input bind:value={plan.annualPrice} placeholder="Optional" disabled={!canEditPlans} /></label></div><label>Billing<select bind:value={plan.billing} disabled={!canEditPlans}><option value="none">None</option><option value="one_time">One time</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label><label>Description<textarea bind:value={plan.description} disabled={!canEditPlans}></textarea></label><label class="check"><input type="checkbox" bind:checked={plan.available} disabled={!canEditPlans} /> Available</label>{#if canEditPlans}<button class="primary" onclick={() => savePlan(plan)}>Save plan</button>{/if}</section>{/each}</div>
       {:else if page === 'releases'}
         <ReleaseWorkspace {releases} canManage={canManageReleases} onCommand={releaseCommand} />
+        <ExtensionStoresWorkspace {publications} canManage={canManageReleases} onTransition={extensionTransition} onAccept={extensionAccept} />
       {:else if page === 'admins'}
         {#if canEditAdmins}<section class="panel"><h2>Invite an administrator</h2><div class="toolbar"><input type="email" placeholder="name@example.com" bind:value={inviteEmail} /><select bind:value={inviteRole}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select><button class="primary" onclick={inviteAdmin} disabled={!inviteEmail}>Create setup link</button></div>{#if inviteURL}<label>One-time setup link<input value={inviteURL} readonly onfocus={(event) => event.currentTarget.select()} /></label>{/if}</section>{/if}
         <section class="panel"><h2>Administrators</h2>{#each admins as admin (admin.id)}<div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select value={admin.role} onchange={(event) => updateAdmin(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => deleteAdmin(admin)} disabled={admin.id === me.id}>Delete</button>{/if}</div>{/each}</section>

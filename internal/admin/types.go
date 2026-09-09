@@ -223,6 +223,36 @@ type ReleaseCandidate struct {
 	SigningPayload        string            `json:"-"`
 }
 
+type ExtensionPublication struct {
+	ID            string         `json:"id"`
+	Store         string         `json:"store"`
+	Version       string         `json:"version"`
+	PackageSHA256 string         `json:"packageSha256"`
+	PackageBytes  int64          `json:"packageBytes"`
+	Filename      string         `json:"filename"`
+	Status        string         `json:"status"`
+	Evidence      map[string]any `json:"evidence"`
+	StateRevision int64          `json:"stateRevision"`
+	CreatedAt     time.Time      `json:"createdAt"`
+	UpdatedAt     time.Time      `json:"updatedAt"`
+	Audit         []AuditEntry   `json:"audit"`
+}
+
+type ExtensionPublicationCandidate struct {
+	Store         string         `json:"store"`
+	Version       string         `json:"version"`
+	PackageSHA256 string         `json:"packageSha256"`
+	PackageBytes  int64          `json:"packageBytes"`
+	Filename      string         `json:"filename"`
+	Evidence      map[string]any `json:"evidence,omitempty"`
+}
+
+type ExtensionTransitionInput struct {
+	ExpectedStateRevision int64          `json:"expectedStateRevision"`
+	To                    string         `json:"to"`
+	Evidence              map[string]any `json:"evidence,omitempty"`
+}
+
 type AuditEntry struct {
 	ID         int64          `json:"id"`
 	AdminID    *string        `json:"adminId,omitempty"`
