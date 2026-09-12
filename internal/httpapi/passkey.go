@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
 	"usesesame.app/backend/internal/accounts"
@@ -59,7 +60,9 @@ func (a *api) passkeyRegisterBegin(response http.ResponseWriter, request *http.R
 	if !ok {
 		return
 	}
-	creation, session, err := wa.BeginRegistration(waUser)
+	selection := wa.Config.AuthenticatorSelection
+	selection.UserVerification = protocol.VerificationRequired
+	creation, session, err := wa.BeginRegistration(waUser, webauthn.WithAuthenticatorSelection(selection))
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, "passkey_unavailable", "Sesame could not start passkey registration.")
 		return
@@ -118,7 +121,7 @@ func (a *api) passkeyLoginBegin(response http.ResponseWriter, request *http.Requ
 	if !ok {
 		return
 	}
-	assertion, session, err := wa.BeginDiscoverableLogin()
+	assertion, session, err := wa.BeginDiscoverableLogin(webauthn.WithUserVerification(protocol.VerificationRequired))
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, "passkey_unavailable", "Sesame could not start passkey sign-in.")
 		return
@@ -312,7 +315,7 @@ func (a *api) takeCeremony(response http.ResponseWriter, request *http.Request) 
 		return "", webauthn.SessionData{}, false
 	}
 	var session webauthn.SessionData
-	if json.Unmarshal(data, &session) != nil {
+	if json.Unmarshal(data, &session) != nil || session.UserVerification != protocol.VerificationRequired {
 		writeError(response, http.StatusBadRequest, "passkey_ceremony_expired", "That passkey request expired. Try again.")
 		return "", webauthn.SessionData{}, false
 	}
