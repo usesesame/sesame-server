@@ -348,7 +348,7 @@ func buildPasskeys(origin, rpID, rpName string) *webauthn.WebAuthn {
 		RPOrigins:     []string{origin},
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
 			ResidentKey:      protocol.ResidentKeyRequirementRequired,
-			UserVerification: protocol.VerificationPreferred,
+			UserVerification: protocol.VerificationRequired,
 		},
 	})
 	if err != nil {
