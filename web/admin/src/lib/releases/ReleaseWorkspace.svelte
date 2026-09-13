@@ -6,6 +6,14 @@
   const props = $props<{ releases: Release[]; canManage: boolean; onCommand: (release: Release, command: Command) => void }>()
   let pending = $state<{ releaseID: string; command: Command } | null>(null)
 
+  function platformLabel(platform: string) {
+    return platform === 'linux' ? 'Linux' : 'Windows'
+  }
+
+  function commandLabel(command: Command) {
+    return command === 'emergency-stop' ? 'emergency stop' : command.replace('-', ' ')
+  }
+
   function requestCommand(release: Release, command: Command) {
     if (command === 'rollout') {
       props.onCommand(release, command)
@@ -21,35 +29,76 @@
   }
 </script>
 
-<section class="panel">
-  <h2>Desktop releases</h2>
+<div class="release-stack">
   {#each props.releases as release (release.id)}
-    <div class="release-edit">
-      <div class="two"><label>Version<input value={release.version} readonly /></label><label>Status<input value={release.status} readonly /></label></div>
-      <div class="two"><label>Platform<input value={release.platform} readonly /></label><label>Channel<input value={release.channel} readonly /></label></div>
-      {#if release.artifacts.length > 0}
-        <div class="release-evidence">
-          <strong>Verified artifact set</strong>
-          <dl>
-            {#each release.artifacts as artifact (artifact.id)}
-              <div><dt>{artifact.format} ({artifact.architecture})</dt><dd><code>{artifact.sha256}</code>{artifact.updaterCapable ? ' · updater capable' : ''}</dd></div>
-            {/each}
-          </dl>
+    <article class="panel release-card">
+      <header class="release-card-head">
+        <div class="release-card-title">
+          <strong>Sesame {release.version}</strong>
+          <span class="badge" data-status={release.status}>{release.status}</span>
         </div>
-      {:else}<p class="empty">No eligible artifact evidence.</p>{/if}
-      <p>Revision {release.manifestRevision}</p>
-      {#if release.audit.length}<h3>Recent release activity</h3><ul>{#each release.audit as entry (entry.id)}<li>{entry.action.replace('release.', '').replaceAll('_', ' ')} by {entry.adminEmail || 'release pipeline'}</li>{/each}</ul>{/if}
-      {#if props.canManage}
-        {#if release.publicationBlockers.length > 0}<p class="release-blockers">Publishing needs {release.publicationBlockers.join(', ')}.</p>{/if}
-        {#if release.status === 'draft'}
-          <button class="primary" onclick={() => requestCommand(release, 'publish')} disabled={release.publicationBlockers.length > 0}>Publish</button>
-        {:else if release.status === 'published'}
-          <label>Rollout percentage<input type="number" min="0" max="100" bind:value={release.rolloutPercent} /></label>
-          <div class="toolbar"><button onclick={() => requestCommand(release, 'rollout')}>Set rollout</button><button class="danger" onclick={() => requestCommand(release, 'emergency-stop')}>Emergency stop</button><button class="danger" onclick={() => requestCommand(release, 'withdraw')}>Withdraw</button></div>
+        <div class="release-card-meta">
+          <span>{platformLabel(release.platform)}</span>
+          <span>{release.channel} channel</span>
+          <span>Revision {release.manifestRevision}</span>
+        </div>
+      </header>
+      <div class="release-card-body">
+        <section>
+          <h3>Verified artifact set</h3>
+          {#if release.artifacts.length > 0}
+            <dl>
+              {#each release.artifacts as artifact (artifact.id)}
+                <div><dt>{artifact.format} ({artifact.architecture})</dt><dd><code>{artifact.sha256}</code>{artifact.updaterCapable ? ' · updater capable' : ''}</dd></div>
+              {/each}
+            </dl>
+          {:else}
+            <p class="empty">No eligible artifact evidence.</p>
+          {/if}
+          {#if release.audit.length}
+            <h3>Recent activity</h3>
+            <ul class="release-activity">
+              {#each release.audit as entry (entry.id)}
+                <li>{entry.action.replace('release.', '').replaceAll('_', ' ')} by {entry.adminEmail || 'release pipeline'}</li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
+        {#if props.canManage}
+          <section class="release-actions-area">
+            <h3>Actions</h3>
+            {#if release.publicationBlockers.length > 0}
+              <p class="release-blockers">Publishing needs {release.publicationBlockers.join(', ')}.</p>
+            {/if}
+            {#if release.status === 'draft'}
+              <div class="release-actions">
+                <button class="primary" onclick={() => requestCommand(release, 'publish')} disabled={release.publicationBlockers.length > 0}>Publish</button>
+              </div>
+            {:else if release.status === 'published'}
+              <div class="release-rollout">
+                <label>Rollout percentage<input type="number" min="0" max="100" bind:value={release.rolloutPercent} /></label>
+                <button onclick={() => requestCommand(release, 'rollout')}>Set rollout</button>
+              </div>
+              <div class="release-actions">
+                <button class="danger" onclick={() => requestCommand(release, 'emergency-stop')}>Emergency stop</button>
+                <button class="danger" onclick={() => requestCommand(release, 'withdraw')}>Withdraw</button>
+              </div>
+            {:else}
+              <p class="empty">No commands for a release in this state.</p>
+            {/if}
+            {#if pending?.releaseID === release.id}
+              <div class="confirm-strip">
+                <p>Confirm {commandLabel(pending?.command ?? 'publish')} for {release.version}. This is written to the audit log.</p>
+                <div class="release-actions">
+                  <button class="danger" onclick={() => confirm(release)}>Confirm</button>
+                  <button onclick={() => (pending = null)}>Cancel</button>
+                </div>
+              </div>
+            {/if}
+          </section>
         {/if}
-        {#if pending?.releaseID === release.id}<div class="release-blockers"><p>Confirm {pending?.command?.replace('-', ' ')} for {release.version}.</p><button class="danger" onclick={() => confirm(release)}>Confirm</button><button onclick={() => pending = null}>Cancel</button></div>{/if}
-      {/if}
-    </div>
+      </div>
+    </article>
   {/each}
   {#if props.releases.length === 0}<p class="empty">No verified release candidates have been accepted yet.</p>{/if}
-</section>
+</div>
