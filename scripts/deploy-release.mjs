@@ -171,7 +171,13 @@ async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
   const scratchURL = `postgres://sesame:${encodeURIComponent(password)}@127.0.0.1:5432/sesame?sslmode=disable`
   try {
     docker(['run', '-d', '--name', scratchDatabase, '-e', 'POSTGRES_USER=sesame', '-e', `POSTGRES_PASSWORD=${password}`, '-e', 'POSTGRES_DB=sesame', '--tmpfs', '/var/lib/postgresql', scratchPostgresImage])
-    await waitFor(() => spawnSync('docker', ['exec', scratchDatabase, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0, 'the rehearsal database never became ready')
+    // The image answers pg_isready from its temporary init server; require two
+    // passes or the restore can land before the real server listens.
+    await waitFor(() => {
+      if (spawnSync('docker', ['exec', scratchDatabase, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status !== 0) return false
+      spawnSync('sleep', ['1'])
+      return spawnSync('docker', ['exec', scratchDatabase, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0
+    }, 'the rehearsal database never became ready', 90, 1000)
     const restore = spawnSync('sh', ['-c', `umask 077; gunzip -c "$1" > /tmp/sesame-restore.$$.sql || { rm -f /tmp/sesame-restore.$$.sql; exit 1; }; docker exec -i ${scratchDatabase} psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame < /tmp/sesame-restore.$$.sql; status=$?; rm -f /tmp/sesame-restore.$$.sql; exit $status`, 'sh', backupFile], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
     if (restore.status !== 0) return { ok: false, error: `restoring the backup into the rehearsal database failed: ${lastLine(restore.stderr)}` }
     const migrate = spawnSync('docker', ['run', '--rm', '--network', `container:${scratchDatabase}`, '-e', `DATABASE_URL=${scratchURL}`, candidateRef, '/sesame-migrate'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
