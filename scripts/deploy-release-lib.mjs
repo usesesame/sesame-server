@@ -22,7 +22,9 @@ export function parseRelease(bytes) {
   const identity = releaseIdentity(raw.version, raw.commit)
   const images = {}
   for (const [component, , label] of IMAGE_FIELDS) {
-    images[component] = digestReference(raw.images?.[component], label)
+    const value = raw.images?.[component]
+    const reference = typeof value === 'object' && value !== null ? value.reference : value
+    images[component] = digestReference(reference, label)
   }
   return { ...identity, images, setDigest: createHash('sha256').update(text).digest('hex') }
 }
