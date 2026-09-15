@@ -127,6 +127,28 @@ test('parses the release manifest and binds it to its exact bytes', () => {
   assert.equal(release.images.api.digest, DIGEST)
 })
 
+test('parses the workflow-generated manifest shape with named image objects', () => {
+  const image = (name, digest) => ({ reference: `${name}@${digest}`, name, digest })
+  const workflowManifest = (version, digest) => JSON.stringify({
+    schemaVersion: 1,
+    version,
+    commit: COMMIT,
+    images: {
+      api: image('registry.test.invalid/api', digest),
+      account: image('registry.test.invalid/account', digest),
+      admin: image('registry.test.invalid/admin', digest),
+    },
+  })
+  const release = parseRelease(workflowManifest('1.1.0', DIGEST))
+  assert.equal(release.version, '1.1.0')
+  assert.equal(release.commit, COMMIT)
+  assert.equal(release.images.api.reference, `registry.test.invalid/api@${DIGEST}`)
+  assert.equal(release.images.api.digest, DIGEST)
+  assert.equal(release.images.account.digest, DIGEST)
+  assert.equal(release.images.admin.digest, DIGEST)
+  assert.equal(release.setDigest, createHash('sha256').update(workflowManifest('1.1.0', DIGEST)).digest('hex'))
+})
+
 test('rejects malformed manifests', () => {
   for (const broken of [
     '{"schemaVersion":2,"version":"1.0.0","commit":"' + COMMIT + '","images":{}}',
@@ -134,6 +156,7 @@ test('rejects malformed manifests', () => {
     '{"schemaVersion":1,"version":"1.0.0","commit":"abc","images":{}}',
     '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":"registry.test.invalid/api:1.0.0","account":"registry.test.invalid/account@' + DIGEST + '","admin":"registry.test.invalid/admin@' + DIGEST + '"}}',
     '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":"registry.test.invalid/api@' + DIGEST + '","account":"registry.test.invalid/account@' + DIGEST + '"}}',
+    '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":{"name":"registry.test.invalid/api","digest":"' + DIGEST + '"},"account":"registry.test.invalid/account@' + DIGEST + '","admin":"registry.test.invalid/admin@' + DIGEST + '"}}',
   ]) {
     assert.throws(() => parseRelease(broken))
   }
