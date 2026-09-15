@@ -246,6 +246,15 @@ failure to recover from.
   signature, a recorded SHA-256, clean-profile verification, and Authenticode.
   Candidates without verified Authenticode evidence are lab-only and must not
   reach any download channel.
+- **Artifact delivery is a separate gate from Authenticode.** Authenticode
+  signs the executable. Delivering it needs `SESAME_ARTIFACT_GATEWAY_URL` and
+  `SESAME_ARTIFACT_GATEWAY_SIGNING_KEY` set together in `.env.production`, plus
+  `SESAME_DESKTOP_UPDATE_BASE_URL` for the Tauri updater format. The gateway
+  must serve release files at their object key and reject requests without a
+  valid `expires` and `signature` pair; public buckets are not supported.
+  While those values are unset the stack runs, but desktop download and update
+  delivery is off and the System page reports artifact delivery as not
+  configured.
 - **Trusted proxy ranges** are a reviewed configuration change, since they
   decide how a client address is trusted before authentication. The dashboard
   shows the active count but cannot edit it at runtime.
