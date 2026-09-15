@@ -161,7 +161,12 @@ async function probeLiveEndpoints() {
 }
 
 async function probeJSON(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+  let response
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+  } catch (error) {
+    throw new Error(`${url} was unreachable: ${error instanceof Error ? error.message : String(error)}`)
+  }
   if (!response.ok) throw new Error(`${url} returned ${response.status}`)
   return response.json()
 }
