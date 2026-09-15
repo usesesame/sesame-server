@@ -30,7 +30,7 @@ func Close(ctx context.Context, exec Executor, ticketID, closedBy string, now ti
 	args := append([]any{ticketID, now.UTC(), closedByArg}, extraArgs...)
 	query := `
 		UPDATE sesame_support_requests
-		SET status = 'closed', closed_at = $2, closed_by = $3, account_reopen_until = $2 + INTERVAL '` + ReopenWindow + `', updated_at = $2
+		SET status = 'closed', closed_at = $2, closed_by = $3, account_reopen_until = $2::timestamptz + INTERVAL '` + ReopenWindow + `', updated_at = $2
 		WHERE id = $1` + extraWhere
 	return exec.ExecContext(ctx, query, args...)
 }
