@@ -312,7 +312,9 @@ async function recoverFailedSwitch(io, root, prodEnvPath, state, release, record
   if (!live.ok) {
     throw new Error(`Traffic switch failed (${reason}); the rollback containers are up but health does not pass: ${live.error}. Manual recovery on the host is required.`)
   }
-  const restored = await findDeployedIdentity(state, snapshotVersion)
+  // 'pre-bootstrap' is not a real deployed identity: recording it as current
+  // would poison every later version comparison, so it stays as current null.
+  const restored = snapshotVersion === 'pre-bootstrap' ? null : await findDeployedIdentity(state, snapshotVersion)
   const at = io.now()
   const next = {
     schemaVersion: 1,

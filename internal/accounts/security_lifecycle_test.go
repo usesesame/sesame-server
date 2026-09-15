@@ -19,7 +19,7 @@ func lifecycleTestStore(t *testing.T) (*PostgresStore, *sql.DB) {
 		t.Fatalf("open account store: %v", err)
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
-	const lockID int64 = 762374924
+	const lockID int64 = 762374923
 	conn, err := accountStore.DB().Conn(context.Background())
 	if err != nil {
 		t.Fatalf("reserve test database connection: %v", err)

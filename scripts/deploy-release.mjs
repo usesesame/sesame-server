@@ -161,9 +161,22 @@ async function probeLiveEndpoints() {
 }
 
 async function probeJSON(url) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`)
-  return response.json()
+  let lastError = null
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    let response
+    try {
+      response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+    } catch (error) {
+      // A switch recreates containers, so a pooled socket or a rebound port can
+      // refuse one connection. Retry connection errors; status codes are real.
+      lastError = new Error(`${url} was unreachable: ${error instanceof Error ? error.message : String(error)}`)
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000))
+      continue
+    }
+    if (!response.ok) throw new Error(`${url} returned ${response.status}`)
+    return response.json()
+  }
+  throw lastError
 }
 
 async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
