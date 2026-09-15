@@ -55,6 +55,15 @@ services:
       SESAME_RELEASE_CANDIDATE_PUBLIC_KEY: ${SESAME_RELEASE_CANDIDATE_PUBLIC_KEY:-}
       SESAME_RELEASE_CANDIDATE_KEY_ID: ${SESAME_RELEASE_CANDIDATE_KEY_ID:-}
       SESAME_RELEASE_CANDIDATE_TOKEN: ${SESAME_RELEASE_CANDIDATE_TOKEN:-}
+      # Signed download delivery for desktop artifacts. Set both together; the
+      # API refuses to boot when only one is set. Left empty, the stack runs
+      # and the System page reports artifact delivery as not configured.
+      SESAME_ARTIFACT_GATEWAY_URL: ${SESAME_ARTIFACT_GATEWAY_URL:-}
+      SESAME_ARTIFACT_GATEWAY_SIGNING_KEY: ${SESAME_ARTIFACT_GATEWAY_SIGNING_KEY:-}
+      # Base for Tauri updater manifest URLs. This is the API's own public
+      # origin: the updater follows it to a one-time update ticket that then
+      # redirects to the signed artifact gateway.
+      SESAME_DESKTOP_UPDATE_BASE_URL: ${SESAME_DESKTOP_UPDATE_BASE_URL:-}
       SESAME_CAPABILITY_SIGNING_KEY: ${SESAME_CAPABILITY_SIGNING_KEY:?}
       SESAME_ADMIN_ENCRYPTION_KEY: ${SESAME_ADMIN_ENCRYPTION_KEY:?}
       SESAME_ADMIN_IP_PEPPER: ${SESAME_ADMIN_IP_PEPPER:?}
