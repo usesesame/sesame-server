@@ -180,7 +180,7 @@ async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
     }, 'the rehearsal database never became ready', 90, 1000)
     const restore = spawnSync('sh', ['-c', `umask 077; gunzip -c "$1" > /tmp/sesame-restore.$$.sql || { rm -f /tmp/sesame-restore.$$.sql; exit 1; }; docker exec -i ${scratchDatabase} psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame < /tmp/sesame-restore.$$.sql; status=$?; rm -f /tmp/sesame-restore.$$.sql; exit $status`, 'sh', backupFile], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
     if (restore.status !== 0) return { ok: false, error: `restoring the backup into the rehearsal database failed: ${lastLine(restore.stderr)}` }
-    const migrate = spawnSync('docker', ['run', '--rm', '--network', `container:${scratchDatabase}`, '-e', `DATABASE_URL=${scratchURL}`, candidateRef, '/sesame-migrate'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
+    const migrate = spawnSync('docker', ['run', '--rm', '--entrypoint', '/sesame-migrate', '--network', `container:${scratchDatabase}`, '-e', `DATABASE_URL=${scratchURL}`, candidateRef], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
     if (migrate.status !== 0) return { ok: false, error: `the candidate migration failed on restored data: ${lastLine(migrate.stderr)}` }
     if (previousRef) {
       docker(['run', '-d', '--name', scratchPrevious, '--network', `container:${scratchDatabase}`, '--env-file', prodEnvPath, '-e', `DATABASE_URL=${scratchURL}`, previousRef])
