@@ -247,11 +247,37 @@ test('deploys over a previous revision and records the rollback anchor', async (
   assert.ok(io.files.get('/state/history/1.0.0/env.production'))
 })
 
+test('a noop deploy converges a drifted pinned env to the release digests', async () => {
+  const release = releaseOf('1.1.0')
+  const current = { version: '1.1.0', commit: COMMIT, setDigest: release.setDigest, images: release.images, deployedAt: '', previous: null }
+  const io = fakeIO()
+  seedEnvironment(io, { current, history: [] })
+  io.files.set(PROD_ENV, Buffer.from(ENV_TEXT))
+  io.composeUp = async () => ({ ok: true })
+  io.liveHealth = async () => ({ ok: true, version: '1.1.0', commit: COMMIT })
+  await assert.rejects(() => deployRelease(io, { ...env, release }), /already the deployed revision/)
+  assert.ok(io.files.get(PROD_ENV).toString().includes(`SESAME_API_IMAGE=${release.images.api.reference}`))
+})
+
+test('a deploy whose target already serves converges the pinned env before recording', async () => {
+  const io = fakeIO()
+  seedEnvironment(io, {})
+  io.files.set(PROD_ENV, Buffer.from(ENV_TEXT))
+  const release = releaseOf('1.1.0')
+  io.composeUp = async () => ({ ok: true })
+  io.liveHealth = async () => ({ ok: true, version: '1.1.0', commit: COMMIT })
+  await deployRelease(io, { ...env, release })
+  const state = await readDeployedState(io, '/state')
+  assert.equal(state.current.version, '1.1.0')
+  assert.ok(io.files.get(PROD_ENV).toString().includes(`SESAME_API_IMAGE=${release.images.api.reference}`))
+})
+
 test('refuses to redeploy the same revision, an older one, or a changed manifest', async () => {
   const release = releaseOf('1.1.0')
   const current = { version: '1.1.0', commit: COMMIT, setDigest: release.setDigest, images: release.images, deployedAt: '', previous: null }
   const same = fakeIO()
   seedEnvironment(same, { current, history: [] })
+  same.liveHealth = async () => ({ ok: true, version: '1.1.0', commit: COMMIT })
   await assert.rejects(() => deployRelease(same, { ...env, release }), /already the deployed revision/)
   const older = releaseOf('1.0.9')
   await assert.rejects(() => deployRelease(same, { ...env, release: older }), /older than the deployed/)

@@ -180,6 +180,25 @@ async function verifyImages(io, release) {
   }
 }
 
+// The pinned env file is what every later restart uses, so a deployment is not
+// finished until its image lines carry the release digests. A rollback or a
+// converged switch can otherwise leave the old digests in place, and the next
+// plain restart silently downgrades the stack.
+async function convergePinnedEnv(io, prodEnvPath, release) {
+  const envText = await io.readText(prodEnvPath)
+  const staged = rewriteEnvImages(envText, release.images)
+  if (staged === envText) return
+  await io.writeText(prodEnvPath, staged, 0o600)
+  const up = await io.composeUp()
+  if (!up.ok) {
+    throw new Error(`The pinned env drifted from the deployed release and the restart failed: ${up.error}. The env now pins ${release.version}; bring the stack up manually to converge.`)
+  }
+  const live = await io.liveHealth()
+  if (!live.ok || live.version !== release.version || live.commit !== release.commit) {
+    throw new Error(`The pinned env drifted from the deployed release and the restarted stack does not serve ${release.version}.`)
+  }
+}
+
 export async function deployRelease(io, { root, prodEnvPath, release }) {
   const state = await readDeployedState(io, root)
   let record = await readPending(io, root)
@@ -192,6 +211,7 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
       await io.unlink(join(root, PENDING_FILE))
       return { deployed: release.version, backup: state.current.backup, from: state.current.previous?.version ?? null }
     }
+    await convergePinnedEnv(io, prodEnvPath, release)
     throw new Error(`Release ${release.version} is already the deployed revision.`)
   }
   if (classification.action === 'stale') {
@@ -256,6 +276,7 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
 
   const liveBefore = await io.liveHealth()
   if (liveBefore.ok && liveBefore.version === release.version && liveBefore.commit === release.commit) {
+    await convergePinnedEnv(io, prodEnvPath, release)
     return completeDeployment(io, root, state, release, record)
   }
 
