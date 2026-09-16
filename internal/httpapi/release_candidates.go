@@ -161,7 +161,11 @@ func releaseCandidateValidationError(candidate adminstore.ReleaseCandidate) stri
 }
 
 func validSigstoreCandidateEvidence(candidate adminstore.ReleaseCandidate, artifact adminstore.ReleaseArtifact) bool {
-	expectedIdentity := "https://github.com/usesesame/sesame-desktop/.github/workflows/release-early-access.yml@refs/tags/v" + candidate.Version
+	workflow := ".github/workflows/release-early-access.yml"
+	if candidate.Platform == "linux" {
+		workflow = ".github/workflows/release-linux-early-access.yml"
+	}
+	expectedIdentity := "https://github.com/usesesame/sesame-desktop/" + workflow + "@refs/tags/v" + candidate.Version
 	if !artifact.SigstoreVerified || artifact.SigstoreIssuer != "https://token.actions.githubusercontent.com" || artifact.SigstoreIdentity != expectedIdentity || !sha256Pattern.MatchString(artifact.SigstoreBundleSHA256) || len(artifact.SigstoreEvidence) == 0 {
 		return false
 	}
@@ -172,7 +176,7 @@ func validSigstoreCandidateEvidence(candidate adminstore.ReleaseCandidate, artif
 		evidence["issuer"] == artifact.SigstoreIssuer &&
 		evidence["certificateIdentity"] == artifact.SigstoreIdentity &&
 		evidence["repository"] == "usesesame/sesame-desktop" &&
-		evidence["workflow"] == ".github/workflows/release-early-access.yml" &&
+		evidence["workflow"] == workflow &&
 		evidence["ref"] == "refs/tags/v"+candidate.Version &&
 		evidence["artifactSha256"] == artifact.SHA256 &&
 		evidence["artifactBundleSha256"] == artifact.SigstoreBundleSHA256

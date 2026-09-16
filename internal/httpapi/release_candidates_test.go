@@ -71,6 +71,31 @@ func TestReleaseCandidateIngest(t *testing.T) {
 		}
 	})
 
+	t.Run("accepts the Linux lane identity and rejects cross-workflow evidence", func(t *testing.T) {
+		registry.err = nil
+		linux := signedTestCandidateForPlatform(t, privateKey, "linux")
+		response := requestReleaseCandidate(t, handler, &linux, token)
+		if response.Code != http.StatusCreated {
+			t.Fatalf("linux candidate status = %d: %s", response.Code, response.Body.String())
+		}
+		windowsWorkflowOnLinux := signedTestCandidateForPlatform(t, privateKey, "linux")
+		for i := range windowsWorkflowOnLinux.Artifacts {
+			windowsWorkflowOnLinux.Artifacts[i].SigstoreIdentity = "https://github.com/usesesame/sesame-desktop/.github/workflows/release-early-access.yml@refs/tags/v0.2.3"
+			windowsWorkflowOnLinux.Artifacts[i].SigstoreEvidence["workflow"] = ".github/workflows/release-early-access.yml"
+		}
+		response = requestReleaseCandidate(t, handler, &windowsWorkflowOnLinux, token)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_release_candidate") {
+			t.Fatalf("windows identity on linux candidate = %d %s", response.Code, response.Body.String())
+		}
+		linuxWorkflowOnWindows := signedTestCandidate(t, privateKey)
+		linuxWorkflowOnWindows.Artifacts[0].SigstoreIdentity = "https://github.com/usesesame/sesame-desktop/.github/workflows/release-linux-early-access.yml@refs/tags/v0.2.3"
+		linuxWorkflowOnWindows.Artifacts[0].SigstoreEvidence["workflow"] = ".github/workflows/release-linux-early-access.yml"
+		response = requestReleaseCandidate(t, handler, &linuxWorkflowOnWindows, token)
+		if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_release_candidate") {
+			t.Fatalf("linux identity on windows candidate = %d %s", response.Code, response.Body.String())
+		}
+	})
+
 	t.Run("rejects incomplete and altered release sets", func(t *testing.T) {
 		missing := signedTestCandidate(t, privateKey)
 		missing.Artifacts = nil
@@ -117,19 +142,30 @@ func requestReleaseCandidate(t *testing.T, handler http.Handler, candidate *admi
 
 func signedTestCandidate(t *testing.T, privateKey ed25519.PrivateKey) adminstore.ReleaseCandidate {
 	t.Helper()
+	return signedTestCandidateForPlatform(t, privateKey, "windows")
+}
+
+func signedTestCandidateForPlatform(t *testing.T, privateKey ed25519.PrivateKey, platform string) adminstore.ReleaseCandidate {
+	t.Helper()
 	digest := strings.Repeat("a", 64)
 	bundleDigest := strings.Repeat("b", 64)
-	identity := "https://github.com/usesesame/sesame-desktop/.github/workflows/release-early-access.yml@refs/tags/v0.2.3"
+	workflow := ".github/workflows/release-early-access.yml"
+	if platform == "linux" {
+		workflow = ".github/workflows/release-linux-early-access.yml"
+	}
+	identity := "https://github.com/usesesame/sesame-desktop/" + workflow + "@refs/tags/v0.2.3"
 	candidate := adminstore.ReleaseCandidate{
 		SchemaVersion:         3,
 		Version:               "0.2.3",
 		Channel:               "beta",
-		Platform:              "windows",
+		Platform:              platform,
 		Architecture:          "x86_64",
-		SupportedWindows:      "Windows 10",
 		ReleaseNotesURL:       "https://example.invalid/releases/0.2.3",
 		CandidateSigningKeyID: "test-key",
-		Artifacts: []adminstore.ReleaseArtifact{{
+	}
+	if platform == "windows" {
+		candidate.SupportedWindows = "Windows 10"
+		candidate.Artifacts = []adminstore.ReleaseArtifact{{
 			Format:               "nsis",
 			Architecture:         "x86_64",
 			URL:                  "https://downloads.example.invalid/Sesame.exe",
@@ -156,13 +192,48 @@ func signedTestCandidate(t *testing.T, privateKey ed25519.PrivateKey) adminstore
 				"artifactSha256":          digest,
 				"artifactBundleSha256":    bundleDigest,
 			},
-		}},
+		}}
+	} else {
+		for _, format := range []string{"appimage", "deb", "rpm"} {
+			filename := "Sesame_0.2.3_amd64." + format
+			if format == "rpm" {
+				filename = "Sesame-0.2.3-1.x86_64.rpm"
+			}
+			candidate.Artifacts = append(candidate.Artifacts, adminstore.ReleaseArtifact{
+				Format:               format,
+				Architecture:         "x86_64",
+				URL:                  "https://downloads.example.invalid/" + filename,
+				ObjectKey:            "releases/0.2.3/" + filename,
+				SHA256:               digest,
+				Bytes:                1,
+				DistributionClass:    "early_access",
+				SigstoreVerified:     true,
+				SigstoreIssuer:       "https://token.actions.githubusercontent.com",
+				SigstoreIdentity:     identity,
+				SigstoreBundleSHA256: bundleDigest,
+				SigstoreEvidence: map[string]any{
+					"schemaVersion":           1,
+					"verified":                true,
+					"transparencyLogVerified": true,
+					"issuer":                  "https://token.actions.githubusercontent.com",
+					"certificateIdentity":     identity,
+					"repository":              "usesesame/sesame-desktop",
+					"workflow":                ".github/workflows/release-linux-early-access.yml",
+					"ref":                     "refs/tags/v0.2.3",
+					"artifactSha256":          digest,
+					"artifactBundleSha256":    bundleDigest,
+				},
+			})
+		}
 	}
 	setDigest, ok := releaseSetDigest(candidate)
 	if !ok {
 		t.Fatal("build release set digest")
 	}
-	if setDigest != "ace8b84e98af42c87ceab7694ac1a3b4e77679995809cd299e5110a93f3dd154" {
+	if platform == "windows" && setDigest != "ace8b84e98af42c87ceab7694ac1a3b4e77679995809cd299e5110a93f3dd154" {
+		t.Fatalf("release set digest = %s, does not match the desktop contract", setDigest)
+	}
+	if platform == "linux" && setDigest != "7f7c954046391075bd87c546a0eee4d9528ea3f43b3c216f998a8b1c606c34a2" {
 		t.Fatalf("release set digest = %s, does not match the desktop contract", setDigest)
 	}
 	candidate.SetDigest = setDigest
