@@ -43,6 +43,45 @@ func TestAcceptReleaseCandidateRejectsConflict(t *testing.T) {
 	assertReleaseCounts(t, db, 1, 1, 1)
 }
 
+func TestAcceptReleaseCandidateAcceptsLinuxSet(t *testing.T) {
+	store, db := releaseTestStore(t)
+	candidate := releaseTestCandidate("0.2.5", "a")
+	candidate.Platform = "linux"
+	candidate.SupportedWindows = ""
+	candidate.Artifacts = []ReleaseArtifact{}
+	for _, format := range []string{"appimage", "deb", "rpm"} {
+		candidate.Artifacts = append(candidate.Artifacts, ReleaseArtifact{
+			Format:               format,
+			Architecture:         "x86_64",
+			URL:                  "https://downloads.example.invalid/" + candidate.Version + "/" + format,
+			ObjectKey:            "linux/" + candidate.Version + "/" + format,
+			SHA256:               strings.Repeat("a", 64),
+			Bytes:                1,
+			DistributionClass:    "early_access",
+			SigstoreEvidence:     map[string]any{"verified": true},
+			SigstoreVerified:     true,
+			SigstoreIssuer:       "https://token.actions.githubusercontent.com",
+			SigstoreIdentity:     "linux-test-identity",
+			SigstoreBundleSHA256: strings.Repeat("c", 64),
+		})
+	}
+	first, err := store.AcceptReleaseCandidate(context.Background(), Account{Email: "release-pipeline"}, candidate, "test-ip")
+	if err != nil {
+		t.Fatalf("accept Linux candidate: %v", err)
+	}
+	if first.Signature != "" || first.SigningKeyID != "" || first.SupportedWindows != "" {
+		t.Fatalf("Linux release row = signature:%q keyID:%q supportedWindows:%q, want empty updater evidence", first.Signature, first.SigningKeyID, first.SupportedWindows)
+	}
+	replay, err := store.AcceptReleaseCandidate(context.Background(), Account{Email: "release-pipeline"}, candidate, "test-ip")
+	if err != nil {
+		t.Fatalf("replay Linux candidate: %v", err)
+	}
+	if replay.ID != first.ID {
+		t.Fatalf("replay release ID = %q, want %q", replay.ID, first.ID)
+	}
+	assertReleaseCounts(t, db, 1, 3, 1)
+}
+
 func TestAcceptReleaseCandidateRollsBackPartialInsert(t *testing.T) {
 	store, db := releaseTestStore(t)
 	candidate := releaseTestCandidate("0.2.3", "a")
