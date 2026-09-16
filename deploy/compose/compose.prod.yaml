@@ -134,5 +134,23 @@ services:
       - database:/var/lib/postgresql
     restart: unless-stopped
 
+  # Serves release files that the API has signed a short-lived download URL
+  # for. Disabled without the signing key; every other request is refused.
+  gateway:
+    image: ${SESAME_API_IMAGE:?set to an immutable API digest}
+    entrypoint: ["/sesame-artifact-gateway"]
+    environment:
+      SESAME_ARTIFACT_GATEWAY_ADDR: 0.0.0.0:8791
+      SESAME_ARTIFACT_GATEWAY_DATA_DIR: /data
+      SESAME_ARTIFACT_GATEWAY_SIGNING_KEY: ${SESAME_ARTIFACT_GATEWAY_SIGNING_KEY:-}
+    volumes:
+      - /opt/sesame/artifacts:/data:ro
+    ports:
+      - "127.0.0.1:8791:8791"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   database:

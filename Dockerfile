@@ -10,7 +10,8 @@ RUN CGO_ENABLED=0 go test ./... && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X usesesame.app/backend/internal/buildinfo.Version=${SESAME_VERSION} -X usesesame.app/backend/internal/buildinfo.Commit=${SESAME_COMMIT}" -o /out/sesame-api ./cmd/api && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sesame-migrate ./cmd/migrate && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sesame-adminctl ./cmd/adminctl && \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sesame-healthcheck ./cmd/healthcheck
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sesame-healthcheck ./cmd/healthcheck && \
+    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sesame-artifact-gateway ./cmd/artifact-gateway
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 ARG SESAME_VERSION=0.1.0-dev
@@ -26,6 +27,7 @@ COPY --from=build /out/sesame-migrate /sesame-migrate
 # host, so the command ships in the image the deployment already builds.
 COPY --from=build /out/sesame-adminctl /sesame-adminctl
 COPY --from=build /out/sesame-healthcheck /sesame-healthcheck
+COPY --from=build /out/sesame-artifact-gateway /sesame-artifact-gateway
 USER nonroot:nonroot
 EXPOSE 8787
 ENV SESAME_API_ADDR=0.0.0.0:8787
