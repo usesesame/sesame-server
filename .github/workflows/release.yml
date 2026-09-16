@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: server-release
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
       attestations: write
@@ -196,3 +196,11 @@ jobs:
             account.spdx.json
             admin.spdx.json
           if-no-files-found: error
+
+      - name: Publish the release manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "v$SESAME_RELEASE_VERSION" >/dev/null 2>&1 || \
+            gh release create "v$SESAME_RELEASE_VERSION" --title "Sesame server $SESAME_RELEASE_VERSION" --notes "server-release.json carries the digest references the deploy tool consumes. Provenance attestations live on the images."
+          gh release upload "v$SESAME_RELEASE_VERSION" server-release.json api.spdx.json account.spdx.json admin.spdx.json --clobber
