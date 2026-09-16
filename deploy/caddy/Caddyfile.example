@@ -58,6 +58,13 @@ api.usesesame.app {
 	header -Server
 }
 
+# Serves only requests the API signed with the shared gateway key. Unsigned
+# and expired requests are refused by the gateway itself.
+downloads.usesesame.app {
+	reverse_proxy 127.0.0.1:8791
+	header -Server
+}
+
 # Both portals set their own security headers, including CSP, from the policy
 # compiled into their image. Do not add a second CSP here: two headers means
 # the strictest wins in some browsers and neither is what was reviewed.
