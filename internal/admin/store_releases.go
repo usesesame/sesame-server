@@ -410,7 +410,7 @@ func (s *Store) publishedReleasesWithArtifact(ctx context.Context, where string,
 	query := `SELECT release.id, release.channel, release.platform, release.architecture, release.version, release.download_url, release.artifact_object_key, release.sha256, release.signature, release.signing_key_id, release.supported_windows, release.release_notes_url, release.rollback_notice, release.status, release.rollout_percent, release.update_enabled, release.kill_switch, release.manifest_revision, release.published_at,
 		artifact.id, artifact.format, artifact.architecture, artifact.artifact_object_key, artifact.artifact_sha256, artifact.artifact_bytes, artifact.updater_capable, artifact.updater_signature, artifact.updater_signing_key_id, artifact.distribution_class, artifact.sigstore_verified, artifact.sigstore_identity, artifact.authenticode_verified, artifact.candidate_payload, artifact.candidate_signing_key_id, artifact.candidate_signature
 		FROM sesame_releases release
-		JOIN LATERAL (SELECT * FROM sesame_release_artifacts WHERE release_id = release.id AND eligible_for_distribution AND updater_capable` + receiptFilter + ` ORDER BY format, architecture LIMIT 1) artifact ON TRUE
+		JOIN LATERAL (SELECT * FROM sesame_release_artifacts WHERE release_id = release.id AND eligible_for_distribution` + receiptFilter + ` ORDER BY format, architecture LIMIT 1) artifact ON TRUE
 		WHERE ` + where + ` AND release.status = 'published' AND release.published_at IS NOT NULL AND release.update_enabled = TRUE AND release.kill_switch = FALSE`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {

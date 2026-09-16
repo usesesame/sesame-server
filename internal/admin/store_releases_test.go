@@ -82,6 +82,50 @@ func TestAcceptReleaseCandidateAcceptsLinuxSet(t *testing.T) {
 	assertReleaseCounts(t, db, 1, 3, 1)
 }
 
+func TestLatestPublishedReleaseServesTheLinuxPlatform(t *testing.T) {
+	store, _ := releaseTestStore(t)
+	candidate := releaseTestCandidate("0.2.5", "a")
+	candidate.Platform = "linux"
+	candidate.SupportedWindows = ""
+	candidate.Artifacts = []ReleaseArtifact{}
+	for _, format := range []string{"appimage", "deb", "rpm"} {
+		candidate.Artifacts = append(candidate.Artifacts, ReleaseArtifact{
+			Format:               format,
+			Architecture:         "x86_64",
+			URL:                  "https://downloads.example.invalid/" + candidate.Version + "/" + format,
+			ObjectKey:            "linux/" + candidate.Version + "/" + format,
+			SHA256:               strings.Repeat("a", 64),
+			Bytes:                1,
+			DistributionClass:    "early_access",
+			SigstoreEvidence:     map[string]any{"verified": true},
+			SigstoreVerified:     true,
+			SigstoreIssuer:       "https://token.actions.githubusercontent.com",
+			SigstoreIdentity:     "linux-test-identity",
+			SigstoreBundleSHA256: strings.Repeat("c", 64),
+		})
+	}
+	accepted, err := store.AcceptReleaseCandidate(context.Background(), Account{Email: "release-pipeline"}, candidate, "test-ip")
+	if err != nil {
+		t.Fatalf("accept Linux candidate: %v", err)
+	}
+	if err := store.PublishRelease(context.Background(), Account{Email: "admin@example.invalid"}, accepted.ID, PublishReleaseInput{ExpectedManifestRevision: 1}, "test-ip"); err != nil {
+		t.Fatalf("publish Linux release: %v", err)
+	}
+	latest, err := store.LatestPublishedRelease(context.Background(), "linux")
+	if err != nil {
+		t.Fatalf("latest published Linux release: %v", err)
+	}
+	if latest.Platform != "linux" || latest.Version != "0.2.5" {
+		t.Fatalf("latest = %s %s, want linux 0.2.5", latest.Platform, latest.Version)
+	}
+	if latest.Artifact == nil || latest.Artifact.Format != "appimage" || latest.Artifact.UpdaterCapable {
+		t.Fatalf("latest artifact = %+v, want the Linux appimage package without updater capability", latest.Artifact)
+	}
+	if _, err := store.LatestPublishedRelease(context.Background(), "windows"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("latest published Windows release error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestAcceptReleaseCandidateRollsBackPartialInsert(t *testing.T) {
 	store, db := releaseTestStore(t)
 	candidate := releaseTestCandidate("0.2.3", "a")
