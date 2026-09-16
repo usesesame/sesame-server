@@ -179,6 +179,14 @@ async function probeJSON(url) {
   throw lastError
 }
 
+// The raw env file lacks what compose injects, such as SESAME_WEB_ORIGIN.
+async function composeApiEnvironment() {
+  const result = spawnSync('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'config', '--format', 'json'], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
+  if (result.status !== 0) return null
+  const model = JSON.parse(result.stdout)
+  return model?.services?.api?.environment ?? null
+}
+
 async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
   const password = randomBytes(24).toString('base64url')
   const scratchURL = `postgres://sesame:${encodeURIComponent(password)}@127.0.0.1:5432/sesame?sslmode=disable`
@@ -196,7 +204,12 @@ async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
     const migrate = spawnSync('docker', ['run', '--rm', '--entrypoint', '/sesame-migrate', '--network', `container:${scratchDatabase}`, '-e', `DATABASE_URL=${scratchURL}`, candidateRef], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
     if (migrate.status !== 0) return { ok: false, error: `the candidate migration failed on restored data: ${lastLine(migrate.stderr)}` }
     if (previousRef) {
-      docker(['run', '-d', '--name', scratchPrevious, '--network', `container:${scratchDatabase}`, '--env-file', prodEnvPath, '-e', `DATABASE_URL=${scratchURL}`, previousRef])
+      const apiEnvironment = await composeApiEnvironment()
+      const envArgs = apiEnvironment ? Object.entries(apiEnvironment).flatMap(([name, value]) => ['-e', `${name}=${value}`]) : null
+      const previousArgs = envArgs
+        ? [...envArgs, '-e', `DATABASE_URL=${scratchURL}`]
+        : ['--env-file', prodEnvPath, '-e', `DATABASE_URL=${scratchURL}`]
+      docker(['run', '-d', '--name', scratchPrevious, '--network', `container:${scratchDatabase}`, ...previousArgs, previousRef])
       await waitFor(() => spawnSync('docker', ['exec', scratchPrevious, '/sesame-healthcheck']).status === 0, 'the previous revision never became healthy against the migrated schema')
     }
     return { ok: true }
