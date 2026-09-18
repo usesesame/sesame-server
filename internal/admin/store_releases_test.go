@@ -121,6 +121,18 @@ func TestLatestPublishedReleaseServesTheLinuxPlatform(t *testing.T) {
 	if latest.Artifact == nil || latest.Artifact.Format != "appimage" || latest.Artifact.UpdaterCapable {
 		t.Fatalf("latest artifact = %+v, want the Linux appimage package without updater capability", latest.Artifact)
 	}
+	if len(latest.Artifacts) != 3 {
+		t.Fatalf("latest artifacts = %d, want the complete appimage, deb, and rpm set", len(latest.Artifacts))
+	}
+	set := map[string]bool{}
+	for _, artifact := range latest.Artifacts {
+		set[artifact.Format] = true
+	}
+	for _, format := range []string{"appimage", "deb", "rpm"} {
+		if !set[format] {
+			t.Fatalf("latest artifacts miss %s", format)
+		}
+	}
 	if _, err := store.LatestPublishedRelease(context.Background(), "windows"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("latest published Windows release error = %v, want ErrNotFound", err)
 	}
