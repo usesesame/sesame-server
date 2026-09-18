@@ -411,7 +411,7 @@ func (s *Store) highestPublishedRelease(ctx context.Context, where string, args 
 }
 
 func (s *Store) eligibleReleaseArtifacts(ctx context.Context, releaseID string) ([]ReleaseArtifact, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, format, architecture, artifact_object_key, artifact_sha256, artifact_bytes, updater_capable, updater_signature, updater_signing_key_id, distribution_class, sigstore_verified, sigstore_identity, authenticode_verified FROM sesame_release_artifacts WHERE release_id = $1 AND eligible_for_distribution ORDER BY format, architecture`, releaseID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, format, architecture, artifact_url, artifact_object_key, artifact_sha256, artifact_bytes, updater_capable, updater_signature, updater_signing_key_id, distribution_class, sigstore_verified, sigstore_identity, authenticode_verified FROM sesame_release_artifacts WHERE release_id = $1 AND eligible_for_distribution ORDER BY format, architecture`, releaseID)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +419,7 @@ func (s *Store) eligibleReleaseArtifacts(ctx context.Context, releaseID string) 
 	artifacts := make([]ReleaseArtifact, 0)
 	for rows.Next() {
 		var artifact ReleaseArtifact
-		if err := rows.Scan(&artifact.ID, &artifact.Format, &artifact.Architecture, &artifact.ObjectKey, &artifact.SHA256, &artifact.Bytes, &artifact.UpdaterCapable, &artifact.UpdaterSignature, &artifact.UpdaterSigningKeyID, &artifact.DistributionClass, &artifact.SigstoreVerified, &artifact.SigstoreIdentity, &artifact.AuthenticodeVerified); err != nil {
+		if err := rows.Scan(&artifact.ID, &artifact.Format, &artifact.Architecture, &artifact.URL, &artifact.ObjectKey, &artifact.SHA256, &artifact.Bytes, &artifact.UpdaterCapable, &artifact.UpdaterSignature, &artifact.UpdaterSigningKeyID, &artifact.DistributionClass, &artifact.SigstoreVerified, &artifact.SigstoreIdentity, &artifact.AuthenticodeVerified); err != nil {
 			return nil, err
 		}
 		artifacts = append(artifacts, artifact)
