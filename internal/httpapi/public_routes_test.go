@@ -74,6 +74,13 @@ func TestLatestReleaseMessageMatchesTheArtifactEvidence(t *testing.T) {
 		Signed    bool   `json:"signed"`
 		Message   string `json:"message"`
 		Version   string `json:"version"`
+		Artifacts []struct {
+			Name   string `json:"name"`
+			Format string `json:"format"`
+			URL    string `json:"url"`
+			SHA256 string `json:"sha256"`
+			Signed bool   `json:"signed"`
+		} `json:"artifacts"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode latest Linux release: %v", err)
@@ -86,6 +93,27 @@ func TestLatestReleaseMessageMatchesTheArtifactEvidence(t *testing.T) {
 	}
 	if strings.Contains(payload.Message, "updater signature") && !strings.Contains(payload.Message, "no updater signature") {
 		t.Fatalf("Linux message claims an updater signature: %q", payload.Message)
+	}
+	if len(payload.Artifacts) != 3 {
+		t.Fatalf("Linux artifacts = %d, want the complete deb, rpm, and AppImage set", len(payload.Artifacts))
+	}
+	formats := map[string]bool{}
+	for _, artifact := range payload.Artifacts {
+		formats[artifact.Format] = true
+		if artifact.Signed {
+			t.Fatalf("%s reports an updater signature it does not carry", artifact.Name)
+		}
+		if artifact.Name == "" || !strings.HasSuffix(artifact.URL, "/"+artifact.Name) {
+			t.Fatalf("%q is not the file name of %s", artifact.Name, artifact.URL)
+		}
+		if len(artifact.SHA256) != 64 {
+			t.Fatalf("%s carries no SHA-256", artifact.Name)
+		}
+	}
+	for _, format := range []string{"appimage", "deb", "rpm"} {
+		if !formats[format] {
+			t.Fatalf("Linux artifacts miss %s: %v", format, formats)
+		}
 	}
 
 	windowsRequest := httptest.NewRequest(http.MethodGet, "/v1/releases/latest?platform=windows", nil)

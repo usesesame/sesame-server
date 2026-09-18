@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/url"
+	"path"
 	"strings"
 
 	"usesesame.app/backend/internal/accounts"
@@ -82,10 +84,17 @@ func (a *api) latestRelease(response http.ResponseWriter, request *http.Request)
 			if platform == "windows" {
 				supported = splitPublicList(release.SupportedWindows)
 			}
+			artifacts := make([]map[string]any, 0, len(release.Artifacts))
+			for _, artifact := range release.Artifacts {
+				artifacts = append(artifacts, map[string]any{
+					"name": artifactName(artifact.URL), "format": artifact.Format,
+					"url": artifact.URL, "sha256": artifact.SHA256, "signed": artifact.UpdaterSignature != "",
+				})
+			}
 			writeJSON(response, http.StatusOK, map[string]any{
 				"channel": release.Channel, "platform": release.Platform, "available": true,
 				"version": release.Version, "url": release.URL, "sha256": release.SHA256, "signed": release.Signature != "",
-				"message": message, "publishedAt": release.PublishedAt,
+				"message": message, "publishedAt": release.PublishedAt, "artifacts": artifacts,
 				"supportedWindows": supported, "rollbackNotice": release.RollbackNotice,
 				"releaseNotesUrl": release.ReleaseNotesURL, "signingKeyId": release.SigningKeyID,
 			})
@@ -159,6 +168,14 @@ func splitPublicList(value string) []string {
 		}
 	}
 	return result
+}
+
+func artifactName(artifactURL string) string {
+	parsed, err := url.Parse(artifactURL)
+	if err != nil {
+		return ""
+	}
+	return path.Base(parsed.EscapedPath())
 }
 
 func hasDesktopStore(store accounts.Store) bool {

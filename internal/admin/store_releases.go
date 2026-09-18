@@ -395,7 +395,39 @@ func (s *Store) highestPublishedRelease(ctx context.Context, where string, args 
 	if !found {
 		return Release{}, ErrNotFound
 	}
-	return selected, nil
+	artifacts, err := s.eligibleReleaseArtifacts(ctx, selected.ID)
+	if err != nil {
+		return Release{}, err
+	}
+	for _, artifact := range artifacts {
+		if artifact.ObjectKey == selected.ArtifactObjectKey && artifact.SHA256 == selected.SHA256 && artifact.UpdaterSignature == selected.Signature && artifact.UpdaterSigningKeyID == selected.SigningKeyID {
+			bound := artifact
+			selected.Artifact = &bound
+			selected.Artifacts = artifacts
+			return selected, nil
+		}
+	}
+	return Release{}, ErrNotFound
+}
+
+func (s *Store) eligibleReleaseArtifacts(ctx context.Context, releaseID string) ([]ReleaseArtifact, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, format, architecture, artifact_object_key, artifact_sha256, artifact_bytes, updater_capable, updater_signature, updater_signing_key_id, distribution_class, sigstore_verified, sigstore_identity, authenticode_verified FROM sesame_release_artifacts WHERE release_id = $1 AND eligible_for_distribution ORDER BY format, architecture`, releaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	artifacts := make([]ReleaseArtifact, 0)
+	for rows.Next() {
+		var artifact ReleaseArtifact
+		if err := rows.Scan(&artifact.ID, &artifact.Format, &artifact.Architecture, &artifact.ObjectKey, &artifact.SHA256, &artifact.Bytes, &artifact.UpdaterCapable, &artifact.UpdaterSignature, &artifact.UpdaterSigningKeyID, &artifact.DistributionClass, &artifact.SigstoreVerified, &artifact.SigstoreIdentity, &artifact.AuthenticodeVerified); err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return artifacts, nil
 }
 
 func (s *Store) publishedReleases(ctx context.Context, where string, args []any) ([]Release, error) {
