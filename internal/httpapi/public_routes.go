@@ -74,9 +74,9 @@ func (a *api) latestRelease(response http.ResponseWriter, request *http.Request)
 	}
 	if a.config.Admin != nil && a.runtimeFlagBool(request.Context(), "public_download", false) {
 		if release, err := a.config.Admin.LatestPublishedRelease(request.Context(), platform); err == nil {
-			message := "This Windows build has a verified Tauri updater signature."
-			if platform == "linux" {
-				message = "This Linux build has a verified Tauri updater signature."
+			message := "This build is verified with Sigstore and carries no updater signature."
+			if release.Signature != "" {
+				message = "This build has a verified Tauri updater signature."
 			}
 			supported := []string{}
 			if platform == "windows" {
