@@ -64,9 +64,12 @@ it.
   including its optional `annualPrice`.
 - `GET /v1/product/status` → current phase, platform, account, sign-in, sync,
   and download availability.
-- `GET /v1/releases/latest?platform=windows` → release availability. Stays
-  unavailable until verified Tauri updater and exact-workflow Sigstore evidence
-  exist. Production additionally requires verified Authenticode evidence.
+- `GET /v1/releases/latest?platform=windows|linux` → release availability for
+  the platform. Stays unavailable until the full release set clears the gate:
+  exact-workflow Sigstore evidence for every package, and a verified Tauri
+  updater signature on the Windows NSIS artifact alone. `signed` reports only
+  the updater signature. Production additionally requires verified
+  Authenticode evidence.
 - `GET /v1/security/boundaries` → machine-readable confirmation that the API
   accepts and stores no vault data or credentials.
 - `GET /v1/support` → public support availability and a safe-submission
