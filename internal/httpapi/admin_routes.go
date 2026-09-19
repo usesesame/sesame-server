@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -528,6 +529,9 @@ func (a *api) adminAuditExport(response http.ResponseWriter, request *http.Reque
 		_ = writer.Write([]string{strconv.FormatInt(entry.ID, 10), entry.CreatedAt.Format(time.RFC3339), csvSafe(entry.AdminEmail), csvSafe(entry.Action), csvSafe(entry.TargetType), csvSafe(target), csvSafe(string(detail))})
 	}
 	writer.Flush()
+	if err := writer.Error(); err != nil {
+		slog.Error("Sesame admin audit export failed", "error", err)
+	}
 }
 
 func csvSafe(value string) string {

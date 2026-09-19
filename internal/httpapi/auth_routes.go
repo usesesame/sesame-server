@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -287,7 +288,9 @@ func (a *api) recordAccountEvent(ctx context.Context, accountID, eventType, labe
 	if !ok {
 		return
 	}
-	_ = store.RecordAccountEvent(ctx, accounts.AccountEvent{AccountID: accountID, Type: eventType, Label: label, Metadata: metadata})
+	if err := store.RecordAccountEvent(ctx, accounts.AccountEvent{AccountID: accountID, Type: eventType, Label: label, Metadata: metadata}); err != nil {
+		slog.Warn("Sesame account event could not be recorded", "event", eventType)
+	}
 }
 
 func (a *api) sendSecurityNotification(ctx context.Context, user accounts.User, kind, subject, body string) {
@@ -295,8 +298,10 @@ func (a *api) sendSecurityNotification(ctx context.Context, user accounts.User, 
 		return
 	}
 	// Mandatory; contains no action link, token, vault identifier, or raw network address.
-	_ = a.config.EmailSender.SendAccountEmail(ctx, AccountEmail{
+	if err := a.config.EmailSender.SendAccountEmail(ctx, AccountEmail{
 		Kind: kind, To: user.Email, Subject: subject, Body: body,
 		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
-	})
+	}); err != nil {
+		slog.Warn("Sesame security notification could not be sent", "kind", kind)
+	}
 }
