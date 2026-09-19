@@ -58,6 +58,8 @@ func Allowed(role Role, permission Permission) bool {
 		return role == RoleSupport
 	case PermissionSupportRead:
 		return role == RoleSupport || role == RoleReadonly
+	case PermissionUsersDelete, PermissionAdminsManage:
+		return role == RoleSuper
 	default:
 		return false
 	}
