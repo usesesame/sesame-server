@@ -24,7 +24,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (response.status === 204) return undefined as T
   const body = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string } }
   if (!response.ok) {
-    if (response.status === 403 && body.error?.code === 'csrf_invalid') csrf = ''
+    if (response.status === 403 && body.error?.code === 'invalid_csrf') csrf = ''
     throw new APIError(body.error?.message || 'The request could not be completed.', response.status, body.error?.code)
   }
   return body as T
