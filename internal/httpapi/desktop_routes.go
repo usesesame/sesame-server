@@ -66,7 +66,7 @@ func (a *api) linkDesktop(response http.ResponseWriter, request *http.Request) {
 		"accessToken":   token,
 		"device":        connection,
 		"expiresAt":     time.Now().Add(desktopSessionTTL).UTC().Format(time.RFC3339),
-		"syncAvailable": false,
+		"syncAvailable": a.syncEnabled(request.Context()),
 	})
 }
 
@@ -78,7 +78,7 @@ func (a *api) desktopStatus(response http.ResponseWriter, request *http.Request)
 	if !ok {
 		return
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"connected": true, "device": connection, "syncAvailable": false, "browserHelperAvailable": connection.BrowserHelperCapable})
+	writeJSON(response, http.StatusOK, map[string]any{"connected": true, "device": connection, "syncAvailable": a.syncEnabled(request.Context()), "browserHelperAvailable": connection.BrowserHelperCapable})
 }
 
 func (a *api) desktopHeartbeat(response http.ResponseWriter, request *http.Request) {
@@ -124,7 +124,7 @@ func (a *api) desktopConfig(response http.ResponseWriter, request *http.Request)
 	}
 	writeJSON(response, http.StatusOK, map[string]any{
 		"minimumProtocolVersion": 1,
-		"syncAvailable":          false,
+		"syncAvailable":          a.syncEnabled(request.Context()),
 		"browserHelper":          map[string]any{"capable": connection.BrowserHelperCapable, "lastObservedAt": connection.BrowserHelperLastObservedAt},
 	})
 }
