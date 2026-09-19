@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import { randomBytes } from 'node:crypto'
 import test from 'node:test'
@@ -459,4 +462,19 @@ test('rollback refuses unknown versions, missing snapshots, and a already-servin
   const nothing = fakeIO()
   seedEnvironment(nothing)
   await assert.rejects(() => rollbackRelease(nothing, inputs), /Nothing is recorded as deployed/)
+})
+
+test('the compose stack creates its own secrets before it starts', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const scripts = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts ?? {}
+  const starters = Object.entries(scripts).filter(([, body]) => /docker\s+compose[^&|]*\bup\b/.test(body))
+  assert.equal(
+    starters.length,
+    1,
+    `expected exactly one script that starts the Compose stack, found: ${starters.map(([name]) => name).join(', ')}`,
+  )
+  const [name, body] = starters[0]
+  assert.match(body, /deploy\/compose\/compose\.yaml/, `${name} does not start the deployment stack`)
+  assert.match(scripts.setup ?? '', /scripts\/setup\.mjs/, 'the setup script no longer generates deployment secrets')
+  assert.match(readFileSync(join(root, 'README.md'), 'utf8'), /npm run setup/, 'the README no longer tells a self-hoster to create the secrets first')
 })
