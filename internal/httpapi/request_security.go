@@ -323,7 +323,15 @@ func requestIP(request *http.Request) string {
 }
 
 func writeError(response http.ResponseWriter, status int, code, message string) {
-	writeJSON(response, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+	writeErrorFields(response, status, code, message, nil)
+}
+
+func writeErrorFields(response http.ResponseWriter, status int, code, message string, fields map[string]any) {
+	body := map[string]any{"error": map[string]string{"code": code, "message": message}}
+	for key, value := range fields {
+		body[key] = value
+	}
+	writeJSON(response, status, body)
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {
