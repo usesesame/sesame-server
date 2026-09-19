@@ -14,6 +14,67 @@ const goSources = readdirSync(httpRoot)
 const dynamicRoutes = {
 }
 
+// Query and header parameters the handlers read from the request rather than
+// from the registration string, keyed by "METHOD /path".
+const queryParameters = {
+  'GET /v1/releases/latest': [
+    { name: 'platform', schema: { type: 'string', enum: ['windows', 'linux'] }, description: 'Release channel to report. Defaults to windows.' },
+  ],
+  'GET /v1/desktop/updates': [
+    { name: 'format', schema: { type: 'string', enum: ['tauri'] }, description: 'Selects the Tauri dynamic-updater response shape.' },
+    { name: 'currentVersion', schema: { type: 'string' }, description: 'Installed desktop version used to decide whether an update is available.' },
+  ],
+  'GET /v1/admin/users': [
+    { name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+    { name: 'size', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+    { name: 'query', schema: { type: 'string', maxLength: 254 } },
+  ],
+  'GET /v1/admin/audit': [
+    { name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+    { name: 'size', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+    { name: 'admin', schema: { type: 'string', maxLength: 128 } },
+    { name: 'action', schema: { type: 'string', maxLength: 128 } },
+    { name: 'from', schema: { type: 'string', format: 'date-time' } },
+    { name: 'to', schema: { type: 'string', format: 'date-time' } },
+  ],
+  'GET /v1/admin/audit/me': [
+    { name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+    { name: 'size', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+  ],
+  'GET /v1/admin/audit/export': [
+    { name: 'admin', schema: { type: 'string', maxLength: 128 } },
+    { name: 'action', schema: { type: 'string', maxLength: 128 } },
+    { name: 'from', schema: { type: 'string', format: 'date-time' } },
+    { name: 'to', schema: { type: 'string', format: 'date-time' } },
+  ],
+  'GET /v1/admin/support': [
+    { name: 'page', schema: { type: 'integer', minimum: 1, default: 1 } },
+    { name: 'size', schema: { type: 'integer', minimum: 1, maximum: 100, default: 25 } },
+    { name: 'status', schema: { type: 'string' } },
+    { name: 'priority', schema: { type: 'string' } },
+    { name: 'category', schema: { type: 'string' } },
+    { name: 'assigned', schema: { type: 'string' } },
+    { name: 'query', schema: { type: 'string', maxLength: 254 } },
+  ],
+  'POST /v1/account/passkey/register/finish': [
+    { name: 'name', schema: { type: 'string' }, description: 'Passkey label. Defaults to Passkey.' },
+  ],
+  'DELETE /v1/account/passkeys': [
+    { name: 'id', required: true, schema: { type: 'string' }, description: 'Hex-encoded credential id to remove.' },
+  ],
+}
+
+const headerParameters = {
+  'POST /v1/account/download-tickets': [
+    {
+      name: 'Idempotency-Key',
+      required: true,
+      schema: { type: 'string', minLength: 24 },
+      description: 'Random key that makes a retry reuse the unredeemed ticket.',
+    },
+  ],
+}
+
 function registeredHandlers() {
   const routes = []
   const pattern = /(?:service|a)[.]route\(mux, [^,]+, "([^"]+)", (?:service|a)[.]([A-Za-z0-9_]+)(?:[(][^)]*[)])?\)/g
@@ -60,14 +121,17 @@ function isMutation(method) {
 
 function authFor(path, method) {
   if (path.startsWith('/v1/admin/')) {
-    if (path === '/v1/admin/auth/csrf') return ['public', []]
+    // Every admin route is origin-gated, including the CSRF bootstrap that
+    // carries no session.
+    const origin = { adminOrigin: [] }
+    if (path === '/v1/admin/auth/csrf') return ['admin-origin', [origin]]
     if (path === '/v1/admin/auth/login' || path.startsWith('/v1/admin/auth/setup/')) {
-      return ['admin-csrf', [{ adminCsrfCookie: [], adminCsrfHeader: [] }]]
+      return ['admin-csrf', [{ ...origin, adminCsrfCookie: [], adminCsrfHeader: [] }]]
     }
-    if (path === '/v1/admin/auth/me') return ['admin-session', [{ adminSession: [] }]]
+    if (path === '/v1/admin/auth/me') return ['admin-session', [{ ...origin, adminSession: [] }]]
     return isMutation(method)
-      ? ['admin-session-csrf', [{ adminSession: [], adminCsrfCookie: [], adminCsrfHeader: [] }]]
-      : ['admin-session', [{ adminSession: [] }]]
+      ? ['admin-session-csrf', [{ ...origin, adminSession: [], adminCsrfCookie: [], adminCsrfHeader: [] }]]
+      : ['admin-session', [{ ...origin, adminSession: [] }]]
   }
   if (path.startsWith('/v1/sync/')) return ['desktop-token-built-disabled', [{ desktopToken: [] }]]
   if (path === '/v1/release-candidates') return ['release-pipeline-token', [{ releasePipelineToken: [] }]]
@@ -132,13 +196,18 @@ function build() {
         assert.ok(!paths[path][method.toLowerCase()], `duplicate OpenAPI operation ${method} ${path}`)
         operationIds.add(id)
         const [authClass, security] = authFor(path, method)
-        const parameters = [...path.matchAll(/{([A-Za-z0-9]+)}/g)].map((match) => ({
-          name: match[1],
-          in: 'path',
-          required: true,
-          description: parameterName(match[1]),
-          schema: { type: 'string', minLength: 1 },
-        }))
+        const key = `${method} ${path}`
+        const parameters = [
+          ...[...path.matchAll(/{([A-Za-z0-9]+)}/g)].map((match) => ({
+            name: match[1],
+            in: 'path',
+            required: true,
+            description: parameterName(match[1]),
+            schema: { type: 'string', minLength: 1 },
+          })),
+          ...(queryParameters[key] ?? []).map((parameter) => ({ in: 'query', required: false, ...parameter })),
+          ...(headerParameters[key] ?? []).map((parameter) => ({ in: 'header', required: false, ...parameter })),
+        ]
         paths[path][method.toLowerCase()] = {
           operationId: id,
           summary: `${method} ${words(route.handler)}`,
@@ -194,6 +263,12 @@ function build() {
         adminSession: { type: 'apiKey', in: 'cookie', name: 'sesame_admin_session' },
         adminCsrfCookie: { type: 'apiKey', in: 'cookie', name: 'sesame_admin_csrf' },
         adminCsrfHeader: { type: 'apiKey', in: 'header', name: 'X-Sesame-CSRF' },
+        adminOrigin: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'Origin',
+          description: 'Must equal the configured admin origin. Admin routes refuse every request without one.',
+        },
         desktopToken: { type: 'apiKey', in: 'header', name: 'Authorization', description: 'Exact form: Sesame <opaque device token>.' },
         releasePipelineToken: { type: 'apiKey', in: 'header', name: 'Authorization', description: 'Protected release-pipeline bearer credential.' },
       },

@@ -239,8 +239,15 @@ recorded in the account activity log without the raw ticket or artifact object k
 - `POST /v1/desktop/link` with `{code,deviceName}` is called by the desktop app
   and returns its opaque device token.
 - `GET /v1/desktop/status` reports the calling device's connection.
+- `POST /v1/desktop/heartbeat` with
+  `{appVersion,platform,architecture,updateChannel,protocolVersion,browserHelperCapable,browserHelperObserved}`
+  records runtime details for the calling device → `{device}`.
+- `GET /v1/desktop/config` →
+  `{minimumProtocolVersion,syncAvailable,browserHelper:{capable,lastObservedAt}}`.
 - `DELETE /v1/desktop/connection` revokes the connection from the desktop.
 - `GET /v1/account/devices` → `{devices:[...]}`.
+- `PATCH /v1/account/devices/{deviceId}` with `{deviceName}` → `204` and
+  renames a connected desktop.
 - `DELETE /v1/account/devices/{deviceId}` → `204`.
 
 Link states are `none`, `pending`, `connected`, or `expired`. The raw code is
@@ -335,8 +342,8 @@ usable:
   supplying new encrypted key packages for every survivor.
 - `DELETE /v1/sync/devices/{id}` → lets only the calling device leave the
   vault. Removing another approved device requires the signed rekey ceremony.
-- `GET /v1/sync/key-package?deviceId=` → the wrapped vault key addressed to one
-  device.
+- `GET /v1/sync/key-package` → the wrapped vault key addressed to the
+  authenticated device.
 - `POST /v1/sync/activate` → proves that an approved device received its key
   package before making it active.
 - `POST /v1/sync/reset` → deletes an abandoned synced vault only when no
@@ -374,3 +381,7 @@ route decoding.
   pending and failed totals, and the last maintenance result. Dependency waits
 	stop after two seconds and return a safe status rather than config values
   or credentials. Each outbox total is capped at 100.
+- `GET /v1/admin/system/rate-limits` returns the current limiter counters for
+  `system:read`.
+- `GET /v1/admin/system/config` returns the feature-flag document for
+  `system:read`.

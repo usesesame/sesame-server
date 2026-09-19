@@ -517,7 +517,18 @@
             "browserCsrfHeader": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "header",
+            "required": true,
+            "name": "Idempotency-Key",
+            "schema": {
+              "type": "string",
+              "minLength": 24
+            },
+            "description": "Random key that makes a retry reuse the unredeemed ticket."
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -763,7 +774,17 @@
             "browserCsrfHeader": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": false,
+            "name": "name",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Passkey label. Defaults to Passkey."
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -831,7 +852,17 @@
             "browserCsrfHeader": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": true,
+            "name": "id",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Hex-encoded credential id to remove."
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -1269,6 +1300,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -1301,6 +1333,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -1337,6 +1370,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -1382,6 +1416,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -1429,10 +1464,69 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": false,
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "size",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "admin",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "action",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "from",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "to",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -1463,10 +1557,48 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": false,
+            "name": "admin",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "action",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "from",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "to",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -1497,10 +1629,33 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": false,
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "size",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -1529,7 +1684,11 @@
         "tags": [
           "admin"
         ],
-        "security": [],
+        "security": [
+          {
+            "adminOrigin": []
+          }
+        ],
         "parameters": [],
         "responses": {
           "2XX": {
@@ -1546,7 +1705,7 @@
             }
           }
         },
-        "x-sesame-auth": "public",
+        "x-sesame-auth": "admin-origin",
         "x-sesame-availability": "configured-admin-only",
         "x-sesame-handler": "adminCSRF",
         "x-sesame-registration-pattern": "/v1/admin/auth/csrf"
@@ -1561,6 +1720,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
           }
@@ -1596,6 +1756,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -1632,6 +1793,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -1666,6 +1828,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
           }
@@ -1701,6 +1864,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
           }
@@ -1736,6 +1900,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -1768,6 +1933,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -1804,6 +1970,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -1851,6 +2018,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -1885,6 +2053,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -1932,6 +2101,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -1966,6 +2136,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -2000,6 +2171,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2047,6 +2219,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -2081,6 +2254,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2128,6 +2302,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2175,6 +2350,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2222,6 +2398,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2269,10 +2446,74 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": false,
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "size",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "priority",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "category",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "assigned",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 254
+            }
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -2303,6 +2544,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -2348,6 +2590,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2395,6 +2638,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2442,6 +2686,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2489,6 +2734,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2536,6 +2782,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2583,6 +2830,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -2617,6 +2865,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -2651,6 +2900,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -2685,6 +2935,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -2719,10 +2970,42 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": false,
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "size",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            }
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 254
+            }
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -2753,6 +3036,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": []
           }
         ],
@@ -2796,6 +3080,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2843,6 +3128,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2888,6 +3174,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2935,6 +3222,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -2992,6 +3280,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -3037,6 +3326,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -3084,6 +3374,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -3131,6 +3422,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -3176,6 +3468,7 @@
         ],
         "security": [
           {
+            "adminOrigin": [],
             "adminSession": [],
             "adminCsrfCookie": [],
             "adminCsrfHeader": []
@@ -3878,7 +4171,29 @@
             "desktopToken": []
           }
         ],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": false,
+            "name": "format",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tauri"
+              ]
+            },
+            "description": "Selects the Tauri dynamic-updater response shape."
+          },
+          {
+            "in": "query",
+            "required": false,
+            "name": "currentVersion",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Installed desktop version used to decide whether an update is available."
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -4047,7 +4362,21 @@
           "public"
         ],
         "security": [],
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "required": false,
+            "name": "platform",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "windows",
+                "linux"
+              ]
+            },
+            "description": "Release channel to report. Defaults to windows."
+          }
+        ],
         "responses": {
           "2XX": {
             "description": "Successful response. Exact status and body are defined in API.md and handler tests."
@@ -4646,6 +4975,12 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Sesame-CSRF"
+      },
+      "adminOrigin": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Origin",
+        "description": "Must equal the configured admin origin. Admin routes refuse every request without one."
       },
       "desktopToken": {
         "type": "apiKey",
