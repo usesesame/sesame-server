@@ -130,8 +130,12 @@ test('the append-only Sync audit records no vault content', () => {
     'migrations',
     '0024_sync_control_plane.sql',
   )
-  const audit = migration.slice(migration.indexOf('CREATE TABLE IF NOT EXISTS sesame_sync_audit'))
-  const table = audit.slice(0, audit.indexOf(');'))
+  const auditStart = migration.indexOf('CREATE TABLE IF NOT EXISTS sesame_sync_audit')
+  assert.ok(auditStart >= 0, 'the sesame_sync_audit table is missing from the Sync control-plane migration')
+  const audit = migration.slice(auditStart)
+  const tableEnd = audit.indexOf(');')
+  assert.ok(tableEnd >= 0, 'the sesame_sync_audit table definition never closes')
+  const table = audit.slice(0, tableEnd)
   for (const forbidden of ['ciphertext', 'nonce', 'signature', 'label', 'size', 'bytes']) {
     assert.ok(
       !table.includes(forbidden),
@@ -335,6 +339,21 @@ test('the cross-language signing fixture is asserted from Go', () => {
   const goTest = read('internal', 'syncproto', 'envelope_fixture_test.go')
   assert.match(goTest, /envelope-signing-payload\.json/)
   assert.match(goTest, /VerifySignature/)
+  assert.match(
+    goTest,
+    /tampered\.Revision\s*=/,
+    'the tampered envelope must change the signed Revision field',
+  )
+  assert.match(
+    goTest,
+    /tampered\.PreviousRevision\s*=/,
+    'the tampered envelope must change the signed PreviousRevision field',
+  )
+  assert.match(
+    goTest,
+    /VerifySignature\([^)]*\);\s*err == nil/,
+    'the Go fixture must prove a tampered envelope fails verification',
+  )
   assert.match(
     goTest,
     /filepath\.Join\("testdata"/,

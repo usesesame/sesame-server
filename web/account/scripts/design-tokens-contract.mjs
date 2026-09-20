@@ -32,12 +32,40 @@ for (const retired of ['--border-input-focus', '--focus-glow', '--field-border-f
 assert.match(tokens, /--field-ring:/)
 assert.match(tokens, /--field-border-hover:/)
 
+const cssChunks = (path, text) => {
+  if (path.endsWith('.css')) return [text]
+  if (path.endsWith('.svelte')) return [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((match) => match[1])
+  return []
+}
+
+const cssBlocks = (text) => {
+  const blocks = []
+  const open = []
+  let selector = ''
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '{') {
+      open.push({ selector: selector.trim(), bodyStart: index + 1 })
+      selector = ''
+    } else if (char === '}') {
+      const block = open.pop()
+      if (block) blocks.push({ selector: block.selector, body: text.slice(block.bodyStart, index) })
+      selector = ''
+    } else {
+      selector += char
+    }
+  }
+  return blocks
+}
+
 const whiteOnTheme = []
 for (const file of files) {
-  for (const line of file.text.split('\n')) {
-    if (!/color:\s*(#fff\b|#ffffff\b|white\b)/i.test(line)) continue
-    if (!/background(-color)?:\s*var\(--/.test(line)) continue
-    whiteOnTheme.push(`${file.path.slice(root.length + 1)}: ${line.trim().slice(0, 90)}`)
+  for (const chunk of cssChunks(file.path, file.text)) {
+    for (const block of cssBlocks(chunk)) {
+      if (!/(?:^|;)\s*color\s*:\s*(#fff\b|#ffffff\b|white\b)/im.test(block.body)) continue
+      if (!/(?:^|;)\s*background(?:-color)?\s*:\s*var\(--/im.test(block.body)) continue
+      whiteOnTheme.push(`${file.path.slice(root.length + 1)}: ${block.selector.slice(0, 90)}`)
+    }
   }
 }
 assert.deepEqual(whiteOnTheme, [], `hardcoded white over a themed background:\n  ${whiteOnTheme.join('\n  ')}`)

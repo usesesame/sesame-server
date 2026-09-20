@@ -35,47 +35,86 @@ for (const retired of ['--border-input-focus', '--focus-glow', '--field-border-f
 assert.match(tokens, /--field-ring:/)
 assert.match(tokens, /--field-border-hover:/)
 
+const cssChunks = (path, text) => {
+  if (path.endsWith('.css')) return [text]
+  if (path.endsWith('.svelte')) return [...text.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((match) => match[1])
+  return []
+}
+
+const cssBlocks = (text) => {
+  const blocks = []
+  const open = []
+  let selector = ''
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    if (char === '{') {
+      open.push({ selector: selector.trim(), bodyStart: index + 1 })
+      selector = ''
+    } else if (char === '}') {
+      const block = open.pop()
+      if (block) blocks.push({ selector: block.selector, body: text.slice(block.bodyStart, index) })
+      selector = ''
+    } else {
+      selector += char
+    }
+  }
+  return blocks
+}
+
+const selectorParts = (selector) =>
+  selector
+    .split(',')
+    .map((part) => part.trim().replace(/\s+/g, ' '))
+    .filter(Boolean)
+
 const whiteOnTheme = []
 for (const file of files) {
-  for (const line of file.text.split('\n')) {
-    if (!/color:\s*(#fff\b|#ffffff\b|white\b)/i.test(line)) continue
-    if (!/background(-color)?:\s*var\(--/.test(line)) continue
-    whiteOnTheme.push(`${file.path.slice(root.length + 1)}: ${line.trim().slice(0, 90)}`)
+  for (const chunk of cssChunks(file.path, file.text)) {
+    for (const block of cssBlocks(chunk)) {
+      if (!/(?:^|;)\s*color\s*:\s*(#fff\b|#ffffff\b|white\b)/im.test(block.body)) continue
+      if (!/(?:^|;)\s*background(?:-color)?\s*:\s*var\(--/im.test(block.body)) continue
+      whiteOnTheme.push(`${file.path.slice(root.length + 1)}: ${block.selector.slice(0, 90)}`)
+    }
   }
 }
 assert.deepEqual(whiteOnTheme, [], `hardcoded white over a themed background:\n  ${whiteOnTheme.join('\n  ')}`)
 
 const appCss = readFileSync(join(root, 'src', 'app.css'), 'utf8')
-const lines = appCss.split('\n')
+const appBlocks = cssBlocks(appCss)
 const fieldFocus = []
-for (const line of lines) {
-  if (!/:focus/.test(line)) continue
-  if (!/\b(input|textarea|select|search-box)\b/.test(line)) continue
+for (const block of appBlocks) {
+  if (!/:focus/.test(block.selector)) continue
+  if (!/\b(input|textarea|select|search-box)\b/.test(block.selector)) continue
   for (const [pattern, name] of [
     [/border-color:\s*var\(--border-input-focus\)/, 'border-color: var(--border-input-focus)'],
     [/border-color:\s*var\(--accent-link\)/, 'border-color: var(--accent-link)'],
     [/box-shadow:\s*var\(--focus-glow\)/, 'box-shadow: var(--focus-glow)'],
     [/outline:\s*\d+px solid/, 'a solid outline'],
   ]) {
-    if (pattern.test(line)) fieldFocus.push(`${name} in ${line.trim().slice(0, 90)}`)
+    if (pattern.test(block.body)) fieldFocus.push(`${name} on ${block.selector.trim().slice(0, 90)}`)
   }
 }
 assert.deepEqual(fieldFocus, [], `these field focus rules bypass the shared treatment:\n  ${fieldFocus.join('\n  ')}`)
 
+const silencers = new Map()
+for (const block of appBlocks) {
+  if (!/box-shadow:\s*none/.test(block.body)) continue
+  for (const part of selectorParts(block.selector)) {
+    if (!silencers.has(part)) silencers.set(part, block)
+  }
+}
 const unsilenced = []
-for (const [index, line] of lines.entries()) {
-  if (!/box-shadow:[^;]*var\(--field-ring(-danger)?\)/.test(line)) continue
-  const wrapper = line.match(/^(\S+?)(:focus-within|:has\(input:focus)/)
-  if (!wrapper) continue
-  const base = wrapper[1]
-  const silenced = lines.some(
-    (candidate) =>
-      candidate !== line &&
-      candidate.includes(base) &&
-      /:focus(-visible)?\b/.test(candidate) &&
-      /box-shadow: none/.test(candidate),
-  )
-  if (!silenced) unsilenced.push(`app.css:${index + 1} rings ${base} without silencing the input inside it`)
+for (const block of appBlocks) {
+  if (!/box-shadow:[^;{}]*var\(--field-ring(-danger)?\)/.test(block.body)) continue
+  for (const part of selectorParts(block.selector)) {
+    const wrapper = part.match(/^(.+?)(:focus-within|:has\(input:focus\))$/)
+    if (!wrapper) continue
+    const base = wrapper[1].trim()
+    const silencing = [`${base} input:focus`, `${base} input:focus-visible`]
+      .map((selector) => silencers.get(selector))
+      .find((found) => found !== undefined)
+    if (!silencing) unsilenced.push(`app.css rings ${part} without silencing the input inside it`)
+  }
 }
 assert.deepEqual(unsilenced, [], `a field would draw two concentric halos:\n  ${unsilenced.join('\n  ')}`)
 

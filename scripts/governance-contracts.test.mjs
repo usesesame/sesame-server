@@ -8,9 +8,20 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const read = (...parts) => readFileSync(join(root, ...parts), 'utf8')
 
 const workflows = readdirSync(join(root, '.github', 'workflows'))
-  .filter((name) => name.endsWith('.yml'))
+  .filter((name) => /\.(ya?ml)$/.test(name))
   .map((name) => join('.github', 'workflows', name))
   .sort()
+
+const repository = 'usesesame/sesame-server'
+
+const jobBlock = (body, job) => {
+  const start = body.indexOf(`\n  ${job}:\n`)
+  assert.ok(start >= 0, `the ${job} job is missing from the workflow`)
+  const rest = body.slice(start + 1)
+  const afterFirst = rest.indexOf('\n') + 1
+  const next = rest.slice(afterFirst).match(/^ {2}[a-z0-9_-]+:$/m)
+  return next ? rest.slice(0, afterFirst + next.index) : rest
+}
 
 test('every workflow declares permissions and pins every third-party action', () => {
   assert.ok(workflows.length >= 2, `expected this repository's workflows, found ${workflows.length}`)
@@ -22,6 +33,7 @@ test('every workflow declares permissions and pins every third-party action', ()
     if (!/^permissions:\s*$/m.test(body)) missingPermissions.push(workflow)
     for (const [, action] of body.matchAll(/uses:\s*([^\s#]+)/g)) {
       if (action.startsWith('./')) continue
+      if (action.startsWith(`${repository}/`) && action.length > repository.length + 1 && !action.includes('@')) continue
       if (!/@[0-9a-f]{40}$/.test(action)) unpinned.push(`${workflow}: ${action}`)
     }
   }
@@ -39,9 +51,17 @@ test('a workflow that writes says so at the job that writes', () => {
       `${workflow} should default to contents: read at the top and widen per job`,
     )
   }
-  const release = read('.github', 'workflows', 'release.yml')
-  assert.match(release, /environment: server-release/, 'the release job should run behind its protected environment')
-  assert.match(release, /id-token: write/, 'the release job signs and attests keylessly and needs an OIDC token')
+  const releaseJob = jobBlock(read('.github', 'workflows', 'release.yml'), 'release')
+  assert.match(
+    releaseJob,
+    /^\s+environment:\s*server-release\s*$/m,
+    'the release job should run behind its protected environment',
+  )
+  assert.match(
+    releaseJob,
+    /^\s+id-token:\s*write\s*$/m,
+    'the release job signs and attests keylessly and needs an OIDC token',
+  )
 })
 
 test('every job a workflow depends on exists in that workflow', () => {
