@@ -101,4 +101,8 @@ jobs:
 
       - run: npm run ci
 
+      # `ci` stops at the type check, so the portal tests would otherwise never
+      # run in this workflow.
+      - run: npm test
+
       - run: npm run build

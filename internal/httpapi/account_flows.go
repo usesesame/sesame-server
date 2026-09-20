@@ -364,18 +364,6 @@ func (a *api) confirmEmailChange(response http.ResponseWriter, request *http.Req
 	writeJSON(response, http.StatusOK, map[string]any{"user": user, "otherSessionsRevoked": true})
 }
 
-func (a *api) accountSessions(response http.ResponseWriter, request *http.Request) {
-	switch request.Method {
-	case http.MethodGet:
-		a.listAccountSessions(response, request)
-	case http.MethodDelete:
-		a.revokeAllAccountSessions(response, request)
-	default:
-		response.Header().Set("Allow", "GET, DELETE, OPTIONS")
-		writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "This endpoint does not allow that method.")
-	}
-}
-
 func (a *api) listAccountSessions(response http.ResponseWriter, request *http.Request) {
 	if !a.requireAccounts(response) || !a.allowRequest(response, request, "account-sessions", 60, time.Minute) {
 		return

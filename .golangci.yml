@@ -96,6 +96,14 @@ linters:
           - gosec
           - errcheck
           - staticcheck
+      # The private artifact gateway resolves SESAME_ARTIFACT_GATEWAY_DATA_DIR,
+      # a path only the operator sets, then validates every request object key
+      # against a fixed character set and joins it under that root. gosec's
+      # taint tracking treats the operator's environment as untrusted input.
+      - path: cmd/artifact-gateway/main\.go
+        linters:
+          - gosec
+        text: G703
 
 formatters:
   enable:

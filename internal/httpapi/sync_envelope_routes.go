@@ -114,12 +114,9 @@ func (a *api) syncUploadEnvelope(response http.ResponseWriter, request *http.Req
 		if head, headErr := store.LatestEnvelope(request.Context(), vault.ID); headErr == nil {
 			currentRevision, vaultEpoch = head.Revision, head.VaultEpoch
 		}
-		writeJSON(response, http.StatusConflict, map[string]any{
-			"error":           "sync_conflict",
-			"message":         "Another device changed this vault. Review the difference before syncing.",
-			"currentRevision": currentRevision,
-			"vaultEpoch":      vaultEpoch,
-		})
+		writeErrorFields(response, http.StatusConflict, "sync_conflict",
+			"Another device changed this vault. Review the difference before syncing.",
+			map[string]any{"currentRevision": currentRevision, "vaultEpoch": vaultEpoch})
 		return
 	case errors.Is(err, syncstore.ErrApprovalRejected):
 		writeError(response, http.StatusForbidden, "sync_device_not_approved", "This device is not approved to sync.")

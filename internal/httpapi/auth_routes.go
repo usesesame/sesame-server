@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	termsVersion  = "2026-08-18"
+	termsVersion   = "2026-08-18"
 	privacyVersion = "2026-08-18"
 )
 

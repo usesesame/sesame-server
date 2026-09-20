@@ -19,14 +19,14 @@ const (
 )
 
 type routePolicy struct {
-	audience routeAudience
+	audience         routeAudience
 	requireWebOrigin bool
 }
 
 type routeRegistry struct {
-	policies map[string]routePolicy
+	policies  map[string]routePolicy
 	preflight map[string][]routePolicy
-	methods map[string][]string
+	methods   map[string][]string
 }
 
 func newRouteRegistry() *routeRegistry {
