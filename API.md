@@ -49,51 +49,51 @@ the website clear only the stale signed-in state.
 
 ## Health
 
-- `GET /livez` → `200 {status,service,version,commit}`. A lightweight liveness probe
+- `GET /livez` returns `200 {status,service,version,commit}`. A lightweight liveness probe
   that only confirms the process is running.
-- `GET /readyz` → `200 {status,service,version,commit,accounts}` when the database is
+- `GET /readyz` returns `200 {status,service,version,commit,accounts}` when the database is
   reachable, otherwise `503`. Load balancers and deployment systems use it.
 - `GET /healthz` is a deprecated alias for `/readyz`.
 
 ## Public metadata
 
-Read-only. These reject mutation methods and every request body without parsing
-it.
+These endpoints are read-only. They reject mutation methods and parse no request
+body.
 
-- `GET /v1/plans` → the free app and the planned Sesame Sync subscription,
+- `GET /v1/plans` returns the free app and the planned Sesame Sync subscription,
   including its optional `annualPrice`.
-- `GET /v1/product/status` → current phase, platform, account, sign-in, sync,
+- `GET /v1/product/status` returns current phase, platform, account, sign-in, sync,
   and download availability.
-- `GET /v1/releases/latest?platform=windows|linux` → release availability for
+- `GET /v1/releases/latest?platform=windows|linux` returns release availability for
   the platform. Stays unavailable until the full release set clears the gate:
   exact-workflow Sigstore evidence for every package, and a verified Tauri
   updater signature on the Windows NSIS artifact alone. `signed` reports only
   the updater signature. `artifacts` lists every distributable package with
   its file name, format, URL, SHA-256, and updater-signature state. Production
   additionally requires verified Authenticode evidence.
-- `GET /v1/security/boundaries` → machine-readable confirmation that the API
+- `GET /v1/security/boundaries` returns machine-readable confirmation that the API
   accepts and stores no vault data or credentials.
-- `GET /v1/support` → public support availability and a safe-submission
+- `GET /v1/support` returns public support availability and a safe-submission
   warning.
 
 ## Registration and email
 
-- `GET /v1/auth/registration` →
+- `GET /v1/auth/registration` returns
   `{mode:"closed"|"invite"|"public",enabled,requiresInvite,emailDeliveryAvailable}`.
-- `POST /v1/auth/register` with `{email,password,inviteCode?}` → `201`
+- `POST /v1/auth/register` with `{email,password,inviteCode?}` returns `201`
   `{user,verificationQueued}` and a browser-session cookie. The server enforces
   the registration mode and consumes eligibility/invites transactionally.
   `verificationQueued` is `true` when the verification email has been written
   to the durable outbox; it does not mean the message has been accepted by the
   upstream SMTP relay yet.
-- `POST /v1/auth/email/verification/request` with no body → `202`.
-- `POST /v1/auth/email/verification/confirm` with `{token}` → `200 {user}`.
-- `POST /v1/auth/password/recovery/request` with `{email}` → `202`. Missing,
+- `POST /v1/auth/email/verification/request` with no body returns `202`.
+- `POST /v1/auth/email/verification/confirm` with `{token}` returns `200 {user}`.
+- `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
   malformed, and known emails receive the same response shape.
-- `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` →
+- `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` returns
   `200 {user,otherSessionsRevoked:true}` and a replacement session.
-- `POST /v1/account/email/change/request` with `{newEmail}` → `202`.
-- `POST /v1/account/email/change/confirm` with `{token}` →
+- `POST /v1/account/email/change/request` with `{newEmail}` returns `202`.
+- `POST /v1/account/email/change/confirm` with `{token}` returns
   `200 {user,otherSessionsRevoked:true}` and a replacement session.
 
 Verification tokens live for 24 hours. Recovery and email-change tokens live
@@ -116,10 +116,10 @@ Password login, passkey login, registration, recovery completion, and email
 change completion mark a browser session as recently authenticated. The default
 recent-auth window is ten minutes.
 
-- `POST /v1/account/reauthenticate` with `{password}` → `204`.
-- `GET /v1/account/sessions` → `{sessions:[Session]}`.
-- `DELETE /v1/account/sessions` → `204` and revokes every website session.
-- `DELETE /v1/account/sessions/{id}` → `204`.
+- `POST /v1/account/reauthenticate` with `{password}` returns `204`.
+- `GET /v1/account/sessions` returns `{sessions:[Session]}`.
+- `DELETE /v1/account/sessions` returns `204` and revokes every website session.
+- `DELETE /v1/account/sessions/{id}` returns `204`.
 
 `Session` is
 `{id,label,createdAt,lastSeenAt,authenticatedAt,expiresAt,current}`. Session
@@ -152,24 +152,24 @@ ceremony.
 
 ## Account state and deletion
 
-- `GET /v1/auth/me` → the signed-in account id and email only.
-- `GET /v1/account/bootstrap` → the combined first-paint state the website
+- `GET /v1/auth/me` returns the signed-in account id and email only.
+- `GET /v1/account/bootstrap` returns the combined first-paint state the website
   needs, so a signed-in page load does not fan out into several requests.
-- `GET /v1/account/activity` → `{events:[...]}`, the account's own 50 most
+- `GET /v1/account/activity` returns `{events:[...]}`, the account's own 50 most
   recent security events.
-- `GET /v1/account/notifications` → `{securityMandatory:true,preferences}`.
+- `GET /v1/account/notifications` returns `{securityMandatory:true,preferences}`.
   `PATCH` the same path with `{betaReleases,supportReplies,productAnnouncements}`
-  → `204`. Security mail cannot be switched off.
-- `POST /v1/account/delete` with `{password}` → deletes the account. Requires
+  returns `204`. Security mail cannot be switched off.
+- `POST /v1/account/delete` with `{password}` deletes the account. Requires
   recent authentication and re-verifies the password.
 
 ## Beta access, licences, and verified private-beta downloads
 
-- `GET /v1/account/access` →
+- `GET /v1/account/access` returns
   `{betaAccess,emailVerified,downloadsAllowed,licences:[Licence]}`.
-- `GET /v1/account/downloads` → `{releases:[Release]}`.
+- `GET /v1/account/downloads` returns `{releases:[Release]}`.
 - `POST /v1/account/download-tickets` with
-  `{releaseId,platform}` and a random `Idempotency-Key` header →
+  `{releaseId,platform}` and a random `Idempotency-Key` header returns
   `{downloadUrl,expiresAt,releaseId,platform}`. A retry with the same key and
   payload refreshes the unredeemed ticket without creating another audit event.
 - `GET /v1/downloads/{ticket}` requires the same signed-in account, accepts a
@@ -231,24 +231,24 @@ recorded in the account activity log without the raw ticket or artifact object k
 
 ## Desktop linking and devices
 
-- `GET /v1/account/desktop-link` → latest `{state,linkId?,createdAt?,expiresAt?,deviceId?,device?}`.
-- `POST /v1/account/desktop-link` with no body →
+- `GET /v1/account/desktop-link` returns the latest `{state,linkId?,createdAt?,expiresAt?,deviceId?,device?}`.
+- `POST /v1/account/desktop-link` with no body returns
   `201 {state:"pending",linkId,code,createdAt,expiresAt}`. Creating another
   request cancels the previous unused code.
-- `DELETE /v1/account/desktop-link` → `204` and cancels the pending request.
+- `DELETE /v1/account/desktop-link` returns `204` and cancels the pending request.
 - `POST /v1/desktop/link` with `{code,deviceName}` is called by the desktop app
   and returns its opaque device token.
 - `GET /v1/desktop/status` reports the calling device's connection.
 - `POST /v1/desktop/heartbeat` with
   `{appVersion,platform,architecture,updateChannel,protocolVersion,browserHelperCapable,browserHelperObserved}`
-  records runtime details for the calling device → `{device}`.
-- `GET /v1/desktop/config` →
+  records runtime details for the calling device and returns `{device}`.
+- `GET /v1/desktop/config` returns
   `{minimumProtocolVersion,syncAvailable,browserHelper:{capable,lastObservedAt}}`.
 - `DELETE /v1/desktop/connection` revokes the connection from the desktop.
-- `GET /v1/account/devices` → `{devices:[...]}`.
-- `PATCH /v1/account/devices/{deviceId}` with `{deviceName}` → `204` and
+- `GET /v1/account/devices` returns `{devices:[...]}`.
+- `PATCH /v1/account/devices/{deviceId}` with `{deviceName}` returns `204` and
   renames a connected desktop.
-- `DELETE /v1/account/devices/{deviceId}` → `204`.
+- `DELETE /v1/account/devices/{deviceId}` returns `204`.
 
 Link states are `none`, `pending`, `connected`, or `expired`. The raw code is
 returned once on creation and is never stored in recoverable form. A connected
@@ -325,31 +325,31 @@ Sync requires a code change as well as a flag change.
 The routes are listed here so the contract is reviewable, not because they are
 usable:
 
-- `POST /v1/sync/enroll/begin` → issues a one-time, vault-bound, expiring
+- `POST /v1/sync/enroll/begin` issues a one-time, vault-bound, expiring
   enrollment challenge and creates the vault on first use.
-- `POST /v1/sync/enroll/finish` → registers a device's Ed25519 signing key and
+- `POST /v1/sync/enroll/finish` registers a device's Ed25519 signing key and
   X25519 encryption key with a signed proof. The device is `pending` and can do
   nothing until approved.
-- `GET /v1/sync/devices` → lists the vault's devices and states.
-- `POST /v1/sync/devices/{id}/approve` → carries an encrypted key package from
+- `GET /v1/sync/devices` lists the vault's devices and states.
+- `POST /v1/sync/devices/{id}/approve` carries an encrypted key package from
   an already-approved device. The service cannot produce this package, which is
   what makes "Sesame cannot add a device to your vault" a property rather than a
   promise.
-- `POST /v1/sync/devices/{id}/deny` → removes a pending device, which never had
+- `POST /v1/sync/devices/{id}/deny` removes a pending device, which never had
   the vault key and therefore needs no key rotation.
-- `POST /v1/sync/devices/{id}/rekey` → removes another approved device while
+- `POST /v1/sync/devices/{id}/rekey` removes another approved device while
   atomically advancing the vault epoch, replacing the encrypted envelope, and
   supplying new encrypted key packages for every survivor.
-- `DELETE /v1/sync/devices/{id}` → lets only the calling device leave the
+- `DELETE /v1/sync/devices/{id}` lets only the calling device leave the
   vault. Removing another approved device requires the signed rekey ceremony.
-- `GET /v1/sync/key-package` → the wrapped vault key addressed to the
+- `GET /v1/sync/key-package` returns the wrapped vault key addressed to the
   authenticated device.
-- `POST /v1/sync/activate` → proves that an approved device received its key
+- `POST /v1/sync/activate` proves that an approved device received its key
   package before making it active.
-- `POST /v1/sync/reset` → deletes an abandoned synced vault only when no
+- `POST /v1/sync/reset` deletes an abandoned synced vault only when no
   approved device remains.
-- `GET /v1/sync/envelope` → current revision and opaque ciphertext.
-- `POST /v1/sync/envelope` → compare-and-swap upload. Returns
+- `GET /v1/sync/envelope` returns the current revision and opaque ciphertext.
+- `POST /v1/sync/envelope` performs a compare-and-swap upload. Returns
   `409 sync_conflict` with the current revision when another device got there
   first. A client must resolve that with the user and must never retry by
   overwriting.

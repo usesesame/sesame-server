@@ -152,7 +152,9 @@ func (o *PostgresOutbox) MarkDelivered(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("mark outbox message delivered: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("mark outbox message delivered: %w", err)
+	} else if n == 0 {
 		return errors.New("outbox message not found")
 	}
 	return nil
@@ -185,7 +187,9 @@ func (o *PostgresOutbox) MarkFailed(ctx context.Context, id string, attemptErr e
 	if err != nil {
 		return fmt.Errorf("mark outbox message failed: %w", err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
+	if n, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("mark outbox message failed: %w", err)
+	} else if n == 0 {
 		return errors.New("outbox message not found")
 	}
 	return nil

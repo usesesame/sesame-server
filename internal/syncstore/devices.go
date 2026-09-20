@@ -49,9 +49,13 @@ func (s *Store) EnrollDevice(ctx context.Context, enrollment Enrollment) (Device
 		// Serializable-isolation retry rationale: quota and first-device status
 		// are read-then-write, so locking the vault row turns the race into a
 		// queue and the decision is made once.
-		if _, err := tx.ExecContext(ctx, `
+		var lockedVaultID string
+		if err := tx.QueryRowContext(ctx, `
 			SELECT id FROM sesame_sync_vaults WHERE id = $1 FOR UPDATE
-		`, enrollment.VaultID); err != nil {
+		`, enrollment.VaultID).Scan(&lockedVaultID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrChallengeUnusable
+			}
 			return fmt.Errorf("lock sync vault: %w", err)
 		}
 

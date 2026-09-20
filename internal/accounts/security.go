@@ -276,7 +276,9 @@ func (s *PostgresStore) RegisterEligible(ctx context.Context, input Registration
 	`, input.VerificationTokenHash, user.ID, TokenVerifyEmail, input.VerificationExpiresAt); err != nil {
 		return User{}, err
 	}
-	_, _ = tx.ExecContext(ctx, `UPDATE sesame_beta_eligibility SET status = 'registered', registered_at = NOW() WHERE email = $1`, input.Email)
+	if _, err := tx.ExecContext(ctx, `UPDATE sesame_beta_eligibility SET status = 'registered', registered_at = NOW() WHERE email = $1`, input.Email); err != nil {
+		return User{}, err
+	}
 	if inviteUsed {
 		if _, err := tx.ExecContext(ctx, `UPDATE sesame_beta_invites SET uses = uses + 1 WHERE code_hash = $1`, input.InviteHash); err != nil {
 			return User{}, err
@@ -312,10 +314,7 @@ func (s *PostgresStore) MarkSessionAuthenticated(ctx context.Context, tokenHash 
 	if err != nil {
 		return err
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affectedOrNotFound(result)
 }
 
 func (s *PostgresStore) SessionsForAccount(ctx context.Context, accountID string) ([]SessionInfo, error) {
@@ -344,10 +343,7 @@ func (s *PostgresStore) DeleteSessionForAccount(ctx context.Context, accountID, 
 	if err != nil {
 		return err
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affectedOrNotFound(result)
 }
 
 func (s *PostgresStore) RevokeAllSessions(ctx context.Context, accountID string) error {
@@ -365,8 +361,8 @@ func (s *PostgresStore) ChangePasswordAndRotateSession(ctx context.Context, inpu
 	if err != nil {
 		return err
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return ErrNotFound
+	if err := affectedOrNotFound(result); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, input.AccountID); err != nil {
 		return err
@@ -436,8 +432,8 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	if err != nil {
 		return User{}, err
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return User{}, ErrNotFound
+	if err := affectedOrNotFound(result); err != nil {
+		return User{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
 		return User{}, err
@@ -836,7 +832,11 @@ func (s *PostgresStore) CloseSupportTicket(ctx context.Context, accountID, ticke
 	if err != nil {
 		return SupportTicketDetail{}, err
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if affected == 0 {
 		var status string
 		err := s.db.QueryRowContext(ctx, `SELECT status FROM sesame_support_requests WHERE id = $1 AND account_id = $2`, ticketID, accountID).Scan(&status)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -855,7 +855,11 @@ func (s *PostgresStore) ReopenSupportTicket(ctx context.Context, accountID, tick
 	if err != nil {
 		return SupportTicketDetail{}, err
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if affected == 0 {
 		var exists bool
 		if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sesame_support_requests WHERE id = $1 AND account_id = $2)`, ticketID, accountID).Scan(&exists); err != nil {
 			return SupportTicketDetail{}, err

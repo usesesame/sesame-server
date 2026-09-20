@@ -4,7 +4,7 @@ This describes shipped behaviour, not a proposal.
 
 The support system is implemented across the public website, the vault-blind Go API, and the separate admin application. It accepts text only. It must never receive a vault, password-manager export, password, PIN, recovery kit, backup code, TOTP seed, encryption key, session token, or screenshot containing those values.
 
-This file records the current boundary and the remaining release work. It is not a proposal for an unbuilt admin page.
+This file records the current boundary and the remaining release work.
 
 ## Implemented
 
@@ -31,7 +31,7 @@ This file records the current boundary and the remaining release work. It is not
 
 - `super` and `support` administrators can list, filter, and inspect support requests.
 - The users and ticket lists paginate (100 per page, Prev/Next) and search as you type; the backend already returned `page`/`size`/`total`.
-- A ticket from a signed-in account shows any desktop currently linked to that account, so staff can tell a linked user from a bare guest email at a glance. This reads the existing desktop-link table; it does not add a new link mechanism.
+- A ticket from a signed-in account shows any desktop currently linked to that account, so staff can see the link state directly. This reads the existing desktop-link table; it does not add a new link mechanism.
 - Staff can assign or unassign a request, set its priority and status, add an internal note, and add a staff reply. The ticket detail shows the current assignee and, for `super`/`support` roles, a dropdown to reassign or unassign. The dropdown is fed by `GET /v1/admin/support/assignees`, which returns only the `id` and `email` of `super` and `support` administrators (the only targets `AssignTicket` accepts) and requires `support:read`, so a read-only admin can see who a ticket is assigned to without being able to change it.
 - Assigning an open ticket moves it to `in_progress`, matching the store's existing workflow transition.
 - Internal notes are never exposed through the account portal.

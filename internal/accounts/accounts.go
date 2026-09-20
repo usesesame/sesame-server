@@ -259,10 +259,7 @@ func (s *PostgresStore) UpdatePassword(ctx context.Context, accountID, passwordH
 	if err != nil {
 		return err
 	}
-	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affectedOrNotFound(result)
 }
 
 func (s *PostgresStore) DeleteAccountSessions(ctx context.Context, accountID string) error {
@@ -275,7 +272,15 @@ func (s *PostgresStore) DeleteAccount(ctx context.Context, accountID string) err
 	if err != nil {
 		return err
 	}
-	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
+	return affectedOrNotFound(result)
+}
+
+func affectedOrNotFound(result sql.Result) error {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
 		return ErrNotFound
 	}
 	return nil
@@ -399,10 +404,7 @@ func (s *PostgresStore) RevokeDesktopConnectionForAccount(ctx context.Context, a
 	if err != nil {
 		return err
 	}
-	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affectedOrNotFound(result)
 }
 
 func (s *PostgresStore) RenameDesktopConnection(ctx context.Context, accountID, deviceID, deviceName string) error {
@@ -413,10 +415,7 @@ func (s *PostgresStore) RenameDesktopConnection(ctx context.Context, accountID, 
 	if err != nil {
 		return err
 	}
-	if affected, _ := result.RowsAffected(); affected == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return affectedOrNotFound(result)
 }
 
 func (s *PostgresStore) HeartbeatDesktopConnection(ctx context.Context, tokenHash []byte, heartbeat DesktopHeartbeat) (DesktopConnection, error) {
