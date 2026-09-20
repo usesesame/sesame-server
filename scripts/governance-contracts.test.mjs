@@ -1,0 +1,112 @@
+import assert from 'node:assert/strict'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import test from 'node:test'
+
+const root = dirname(dirname(fileURLToPath(import.meta.url)))
+const read = (...parts) => readFileSync(join(root, ...parts), 'utf8')
+
+const workflows = readdirSync(join(root, '.github', 'workflows'))
+  .filter((name) => /\.(ya?ml)$/.test(name))
+  .map((name) => join('.github', 'workflows', name))
+  .sort()
+
+const repository = 'usesesame/sesame-server'
+
+const jobBlock = (body, job) => {
+  const start = body.indexOf(`\n  ${job}:\n`)
+  assert.ok(start >= 0, `the ${job} job is missing from the workflow`)
+  const rest = body.slice(start + 1)
+  const afterFirst = rest.indexOf('\n') + 1
+  const next = rest.slice(afterFirst).match(/^ {2}[a-z0-9_-]+:$/m)
+  return next ? rest.slice(0, afterFirst + next.index) : rest
+}
+
+test('every workflow declares permissions and pins every third-party action', () => {
+  assert.ok(workflows.length >= 2, `expected this repository's workflows, found ${workflows.length}`)
+
+  const missingPermissions = []
+  const unpinned = []
+  for (const workflow of workflows) {
+    const body = read(workflow)
+    if (!/^permissions:\s*$/m.test(body)) missingPermissions.push(workflow)
+    for (const [, action] of body.matchAll(/uses:\s*([^\s#]+)/g)) {
+      if (action.startsWith('./')) continue
+      if (action.startsWith(`${repository}/`) && action.length > repository.length + 1 && !action.includes('@')) continue
+      if (!/@[0-9a-f]{40}$/.test(action)) unpinned.push(`${workflow}: ${action}`)
+    }
+  }
+  assert.deepEqual(missingPermissions, [], `these workflows inherit their permissions:\n  ${missingPermissions.join('\n  ')}`)
+  assert.deepEqual(unpinned, [], `a moved tag would change what these runs execute:\n  ${unpinned.join('\n  ')}`)
+})
+
+test('a workflow that writes says so at the job that writes', () => {
+  for (const workflow of workflows) {
+    const body = read(workflow)
+    const header = body.slice(0, body.indexOf('\njobs:'))
+    assert.match(
+      header,
+      /^permissions:\s*\n\s+contents: read\s*$/m,
+      `${workflow} should default to contents: read at the top and widen per job`,
+    )
+  }
+  const releaseJob = jobBlock(read('.github', 'workflows', 'release.yml'), 'release')
+  assert.match(
+    releaseJob,
+    /^\s+environment:\s*server-release\s*$/m,
+    'the release job should run behind its protected environment',
+  )
+  assert.match(
+    releaseJob,
+    /^\s+id-token:\s*write\s*$/m,
+    'the release job signs and attests keylessly and needs an OIDC token',
+  )
+})
+
+test('every job a workflow depends on exists in that workflow', () => {
+  for (const workflow of workflows) {
+    const body = read(workflow)
+    const names = new Set([...body.matchAll(/^ {2}([a-z0-9_-]+):$/gm)].map(([, name]) => name))
+    for (const [, list] of body.matchAll(/^\s+needs:\s*(.+)$/gm)) {
+      for (const name of list.replaceAll('[', ' ').replaceAll(']', ' ').split(',')) {
+        const job = name.trim()
+        if (!job) continue
+        assert.ok(names.has(job), `${workflow} requires job ${job}, which the workflow does not define`)
+      }
+    }
+  }
+})
+
+test('review routing names paths that exist in this repository', () => {
+  const owners = read('.github', 'CODEOWNERS')
+  assert.match(owners, /^\*\s+@/m, 'the repository has no default owner')
+  for (const control of ['/.github/', '/package.json']) {
+    assert.ok(owners.includes(control), `the repository does not route ${control}`)
+  }
+  for (const control of ['/package-lock.json', '/go.sum']) {
+    assert.ok(owners.includes(control), `the repository does not route ${control}`)
+  }
+  for (const [, routed] of owners.matchAll(/^(\/[^\s#]+)/gm)) {
+    assert.ok(
+      existsSync(join(root, routed.slice(1))),
+      `CODEOWNERS routes ${routed}, which does not exist in this repository`,
+    )
+  }
+})
+
+test('every dependency ecosystem this repository uses is updated', () => {
+  const body = read('.github', 'dependabot.yml')
+  for (const ecosystem of ['gomod', 'npm', 'docker', 'github-actions']) {
+    assert.match(body, new RegExp(`package-ecosystem: ${ecosystem}\\b`), `dependabot does not update ${ecosystem}`)
+  }
+})
+
+test('the security policy tells a reporter where to send a vulnerability', () => {
+  assert.ok(statSync(join(root, 'SECURITY.md')).isFile())
+  const body = read('SECURITY.md')
+  assert.match(body, /Do not open a public issue/i, 'the policy does not say to report privately')
+  assert.match(body, /Report a vulnerability/, 'the policy does not name the private reporting route')
+  assert.match(body, /## Scope/, 'the policy has no scope, so a reporter cannot tell what counts')
+  assert.match(body, /vault-blind/i, 'the policy is not scoped to this product')
+})
