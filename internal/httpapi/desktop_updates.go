@@ -177,6 +177,10 @@ func (a *api) redeemDesktopUpdateTicket(response http.ResponseWriter, request *h
 	if !a.requireAccounts(response) {
 		return
 	}
+	if !a.capabilityEnabled(request.Context(), "updater_enabled") {
+		writeError(response, http.StatusServiceUnavailable, "updater_unavailable", "Desktop updates are temporarily unavailable.")
+		return
+	}
 	connection, ok := a.desktopConnectionForRequest(response, request)
 	if !ok {
 		return

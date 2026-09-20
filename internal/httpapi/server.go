@@ -244,6 +244,10 @@ func New(config Config) http.Handler {
 	service.route(mux, web, "PATCH /v1/account/notifications", service.updateAccountNotificationPreferences)
 	service.route(mux, privateWebRead, "GET /v1/account/downloads", service.accountDownloads)
 	service.route(mux, web, "POST /v1/account/download-tickets", service.accountDownloadTickets)
+	// A signed-in download is a top-level navigation, so it carries no Origin
+	// header; the browser-session audience without the origin requirement keeps
+	// that path working while the handler still requires the account session.
+	service.route(mux, web, "GET /v1/downloads/{ticket}", service.redeemDownloadTicket)
 	service.route(mux, web, "GET /v1/account/support", service.accountSupportTickets)
 	service.route(mux, web, "GET /v1/account/support/{ticketID}", service.accountSupportTicket)
 	service.route(mux, web, "POST /v1/account/support/{ticketID}/reply", service.accountSupportTicketAction("reply"))
@@ -265,7 +269,6 @@ func New(config Config) http.Handler {
 	service.route(mux, web, "POST /v1/auth/passkey/login/finish", service.passkeyLoginFinish)
 
 	desktop := routePolicy{audience: audienceDesktopClient}
-	service.route(mux, desktop, "GET /v1/downloads/{ticket}", service.redeemDownloadTicket)
 	service.route(mux, desktop, "POST /v1/desktop/link", service.linkDesktop)
 	service.route(mux, desktop, "GET /v1/desktop/status", service.desktopStatus)
 	service.route(mux, desktop, "POST /v1/desktop/heartbeat", service.desktopHeartbeat)
