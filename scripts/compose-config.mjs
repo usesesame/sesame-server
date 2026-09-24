@@ -26,8 +26,15 @@ const productionValues = {
   SESAME_ADMIN_IMAGE: `registry.test.invalid/sesame-admin@${digest}`,
 }
 const development = check('deploy/compose/compose.yaml', common)
+const developmentWithOverride = check(['deploy/compose/compose.yaml', 'deploy/compose/compose.dev.yaml'], common)
 const production = check('deploy/compose/compose.prod.yaml', productionValues)
 const candidate = check('deploy/compose/compose.candidate-check.yaml', productionValues)
+
+// `npm run dev` runs the API natively, so the override must publish the database.
+const developmentDatabasePorts = developmentWithOverride.services.db?.ports ?? []
+if (developmentDatabasePorts.length !== 1 || developmentDatabasePorts[0]?.target !== 5432 || developmentDatabasePorts[0]?.host_ip !== '127.0.0.1') {
+  throw new Error('The development override must publish PostgreSQL on 127.0.0.1:5432 for npm run dev.')
+}
 
 for (const service of ['api', 'migrate', 'account', 'admin']) {
   if (!development.services[service]?.build) throw new Error(`Development ${service} must remain locally buildable.`)
@@ -46,8 +53,9 @@ if (candidate.networks?.default?.name !== 'sesame-prod_default' || candidate.net
   throw new Error('The candidate check must join the production network as an external network.')
 }
 
-function check(file, values) {
-  const result = spawnSync('docker', ['compose', '--file', file, 'config', '--format', 'json'], {
+function check(files, values) {
+  const fileArgs = (Array.isArray(files) ? files : [files]).flatMap((file) => ['--file', file])
+  const result = spawnSync('docker', ['compose', ...fileArgs, 'config', '--format', 'json'], {
     encoding: 'utf8',
     env: { ...process.env, ...values },
   })
