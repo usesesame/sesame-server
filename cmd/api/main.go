@@ -76,6 +76,17 @@ func main() {
 		os.Exit(1)
 	}
 	defer store.Close()
+	pendingMigrations, err := store.PendingMigrations(ctx)
+	if err != nil {
+		slog.Error("Sesame API could not verify the database schema", "error", err)
+		os.Exit(1)
+	}
+	if len(pendingMigrations) > 0 {
+		slog.Error("Sesame API database schema is not current",
+			"pending", strings.Join(pendingMigrations, ", "),
+			"fix", "run the migrate job for this release before starting the API")
+		os.Exit(1)
+	}
 	var adminService *adminstore.Store
 	adminKeyValue := strings.TrimSpace(os.Getenv("SESAME_ADMIN_ENCRYPTION_KEY"))
 	adminOrigin := ""
