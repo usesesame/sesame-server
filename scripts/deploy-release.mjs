@@ -1,10 +1,11 @@
 import { spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
-import { chmod, mkdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { classifyDeployment, deployRelease, parseRelease, readDeployedState, rollbackRelease } from './deploy-release-lib.mjs'
+import { fileIO } from './deploy-io.mjs'
+import { classifyDeployment, deployRelease, parseRelease, readDeployedState, rehearsalEnvFile, rollbackRelease } from './deploy-release-lib.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const stateRoot = join(repoRoot, 'deploy', 'state')
@@ -17,26 +18,7 @@ const scratchPostgresImage = 'postgres:18-alpine@sha256:d3e1620b530c944afa6e887d
 const candidatePort = 8788
 
 const io = {
-  readText: (path) => readFile(path, 'utf8'),
-  writeText: async (path, text, mode) => {
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, text, mode === undefined ? {} : { mode })
-    if (mode !== undefined) await chmod(path, mode)
-  },
-  writeBinary: async (path, bytes) => {
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(path, bytes)
-  },
-  writeJSONAtomic: async (path, value, mode) => {
-    const staging = `${path}.staging-${process.pid}`
-    await mkdir(dirname(path), { recursive: true })
-    await writeFile(staging, `${JSON.stringify(value, null, 2)}\n`, { mode: mode ?? 0o600 })
-    await rename(staging, path)
-  },
-  renamePath: (from, to) => rename(from, to),
-  exists: async (path) => { try { await stat(path); return true } catch { return false } },
-  mkdirp: (path) => mkdir(path, { recursive: true }),
-  unlink: async (path) => { try { await unlink(path) } catch (error) { if (error.code !== 'ENOENT') throw error } },
+  ...fileIO,
   pullImage: (reference) => {
     const result = spawnSync('docker', ['pull', reference], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
     if (result.status !== 0) throw new Error(`Could not pull ${reference}: ${lastLine(result.stderr)}`)
@@ -204,13 +186,21 @@ async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
     const migrate = spawnSync('docker', ['run', '--rm', '--entrypoint', '/sesame-migrate', '--network', `container:${scratchDatabase}`, '-e', `DATABASE_URL=${scratchURL}`, candidateRef], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
     if (migrate.status !== 0) return { ok: false, error: `the candidate migration failed on restored data: ${lastLine(migrate.stderr)}` }
     if (previousRef) {
+      // The resolved API environment carries every production secret. Passing it
+      // through argv would expose it in the host process list, so it goes through
+      // a mode 0600 env file that is removed after the rehearsal.
       const apiEnvironment = await composeApiEnvironment()
-      const envArgs = apiEnvironment ? Object.entries(apiEnvironment).flatMap(([name, value]) => ['-e', `${name}=${value}`]) : null
-      const previousArgs = envArgs
-        ? [...envArgs, '-e', `DATABASE_URL=${scratchURL}`]
-        : ['--env-file', prodEnvPath, '-e', `DATABASE_URL=${scratchURL}`]
-      docker(['run', '-d', '--name', scratchPrevious, '--network', `container:${scratchDatabase}`, ...previousArgs, previousRef])
-      await waitFor(() => spawnSync('docker', ['exec', scratchPrevious, '/sesame-healthcheck']).status === 0, 'the previous revision never became healthy against the migrated schema')
+      const envFilePath = apiEnvironment ? join(stateRoot, `rehearsal-api-${process.pid}.env`) : null
+      try {
+        const previousArgs = envFilePath
+          ? ['--env-file', envFilePath]
+          : ['--env-file', prodEnvPath, '-e', `DATABASE_URL=${scratchURL}`]
+        if (envFilePath) await io.writeText(envFilePath, rehearsalEnvFile(apiEnvironment, scratchURL), 0o600)
+        docker(['run', '-d', '--name', scratchPrevious, '--network', `container:${scratchDatabase}`, ...previousArgs, previousRef])
+        await waitFor(() => spawnSync('docker', ['exec', scratchPrevious, '/sesame-healthcheck']).status === 0, 'the previous revision never became healthy against the migrated schema')
+      } finally {
+        if (envFilePath) await io.unlink(envFilePath)
+      }
     }
     return { ok: true }
   } catch (error) {

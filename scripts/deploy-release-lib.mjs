@@ -83,6 +83,21 @@ export function rewriteEnvImages(text, images) {
   return rewritten.join('\n')
 }
 
+// The rehearsal resolves the production API environment through `compose config`.
+// `docker run --env-file` takes literal `NAME=value` lines, so a value that spans
+// lines cannot be represented and must fail loudly instead of being truncated.
+export function rehearsalEnvFile(apiEnvironment, scratchURL) {
+  const lines = []
+  for (const [name, value] of Object.entries(apiEnvironment ?? {})) {
+    if (name === 'DATABASE_URL' || value === null || value === undefined) continue
+    const text = String(value)
+    if (text.includes('\n') || text.includes('\r')) throw new Error(`The API environment variable ${name} spans multiple lines and cannot be rehearsed through an env file.`)
+    lines.push(`${name}=${text}`)
+  }
+  lines.push(`DATABASE_URL=${scratchURL}`)
+  return `${lines.join('\n')}\n`
+}
+
 export async function assertUsableBackup(gzipBytes) {
   if (!Buffer.isBuffer(gzipBytes) || gzipBytes.length < 1024 || gzipBytes[0] !== 0x1f || gzipBytes[1] !== 0x8b) {
     throw new Error('The pre-deployment backup is not a usable gzip dump.')
@@ -270,6 +285,11 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
   const candidate = await io.candidateHealth(stagingPath)
   if (!candidate.ok) {
     throw new Error(`Candidate health check failed before the traffic switch: ${candidate.error}. The previous revision is still serving; resolve and retry the deploy.`)
+  }
+  // A healthy candidate can still be the wrong revision: a stale local image or
+  // an env rewrite bug would pass the probe. Compare identity before any switch.
+  if (candidate.version !== release.version || candidate.commit !== release.commit) {
+    throw new Error(`The candidate reports ${candidate.version} at ${candidate.commit} instead of ${release.version} at ${release.commit}. The previous revision is still serving; resolve and retry the deploy.`)
   }
   record.phase = 'checked'
   await savePending(io, root, record)

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import { randomBytes } from 'node:crypto'
 import test from 'node:test'
+import { fileIO } from './deploy-io.mjs'
 import {
   assertUsableBackup,
   classifyDeployment,
@@ -13,6 +16,7 @@ import {
   deployRelease,
   parseRelease,
   readDeployedState,
+  rehearsalEnvFile,
   rewriteEnvImages,
   rollbackRelease,
 } from './deploy-release-lib.mjs'
@@ -340,6 +344,55 @@ test('a failed candidate check leaves the traffic and env untouched', async () =
   const pending = JSON.parse(await io.readText('/state/pending.json'))
   assert.equal(pending.phase, 'prepared')
   assert.equal(pending.rehearsal.ok, true)
+})
+
+test('a healthy candidate that reports the wrong revision aborts before the switch', async () => {
+  const io = fakeIO()
+  seedEnvironment(io)
+  const release = releaseOf('1.1.0')
+  io.candidateHealth = async () => ({ ok: true, version: '1.0.0', commit: COMMIT })
+  await assert.rejects(() => deployRelease(io, { ...env, release }), /reports 1\.0\.0 at /)
+  assert.equal(io.calls.switch, 0)
+  assert.equal(await io.readText(PROD_ENV), ENV_TEXT)
+  const pending = JSON.parse(await io.readText('/state/pending.json'))
+  assert.equal(pending.phase, 'prepared')
+})
+
+test('the rehearsal env file carries the API environment and only the scratch database URL', () => {
+  const scratchURL = 'postgres://sesame:scratch@127.0.0.1:5432/sesame?sslmode=disable'
+  const text = rehearsalEnvFile({
+    DATABASE_URL: 'postgres://production',
+    SESAME_ADMIN_ENCRYPTION_KEY: 'secret-value',
+    SESAME_SMTP_FROM: 'Sesame <accounts@example.test>',
+    SESAME_EMPTY: null,
+  }, scratchURL)
+  assert.ok(text.includes('SESAME_ADMIN_ENCRYPTION_KEY=secret-value'))
+  assert.ok(text.includes('SESAME_SMTP_FROM=Sesame <accounts@example.test>'))
+  assert.ok(!text.includes('SESAME_EMPTY'))
+  assert.equal(text.match(/DATABASE_URL=/g).length, 1)
+  assert.ok(text.endsWith(`DATABASE_URL=${scratchURL}\n`))
+  assert.throws(() => rehearsalEnvFile({ SESAME_BROKEN: 'line one\nline two' }, scratchURL), /spans multiple lines/)
+})
+
+test('the rehearsal passes the API environment through an env file, never argv', () => {
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'deploy-release.mjs'), 'utf8')
+  assert.ok(source.includes('rehearsalEnvFile(apiEnvironment'))
+  assert.ok(!/flatMap\(\(\[name, value\]\) => \['-e'/.test(source))
+})
+
+test('deploy files and their backup directory are written with restrictive permissions', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'sesame-deploy-io-'))
+  try {
+    const backup = join(directory, 'backups', 'sesame.sql.gz')
+    await fileIO.writeBinary(backup, Buffer.from('bytes'))
+    assert.equal((await stat(backup)).mode & 0o777, 0o600)
+    assert.equal((await stat(dirname(backup))).mode & 0o777, 0o700)
+    const env = join(directory, 'state', 'rehearsal-api.env')
+    await fileIO.writeText(env, 'SECRET=value\n')
+    assert.equal((await stat(env)).mode & 0o777, 0o600)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test('a failed traffic switch rolls back to the recorded snapshot', async () => {
