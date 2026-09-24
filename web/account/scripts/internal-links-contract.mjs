@@ -16,6 +16,9 @@ const knownRoutes = new Set([
   '/reset-password',
   '/verify-email',
   '/confirm-email-change',
+  '/terms',
+  '/privacy',
+  '/security',
 ])
 
 function sourceFiles(directory) {
@@ -33,6 +36,19 @@ for (const file of sourceFiles(join(root, 'src'))) {
   for (const match of source.matchAll(/href="(\/[^"#?]*)"/g)) {
     checked += 1
     if (!knownRoutes.has(match[1])) failures.push(`${relative(root, file)}: ${match[1]}`)
+  }
+}
+
+const app = readFileSync(join(root, 'src', 'App.svelte'), 'utf8')
+const auth = readFileSync(join(root, 'src', 'pages', 'AuthPage.svelte'), 'utf8')
+for (const route of ['/terms', '/privacy', '/security']) {
+  checked += 1
+  if (!app.includes(`'${route.slice(1)}'`)) failures.push(`src/App.svelte: ${route} is not a served route`)
+}
+for (const [name, source] of [['App.svelte', app], ['pages/AuthPage.svelte', auth]]) {
+  for (const route of ['terms', 'privacy']) {
+    checked += 1
+    if (!source.includes(`\${siteOrigin}/${route}`)) failures.push(`${name}: no link to \${siteOrigin}/${route}`)
   }
 }
 
