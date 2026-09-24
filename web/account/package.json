@@ -11,9 +11,10 @@
         "lint": "eslint .",
         "check": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
         "design:tokens:check": "node scripts/design-tokens-contract.mjs",
+        "links:check": "node scripts/internal-links-contract.mjs",
         "test": "node scripts/skip-with-message.mjs \"account portal browser\" \"npm run build\"",
-        "release:check": "npm run design:tokens:check && npm run lint && npm run check && npm run build",
-        "ci": "npm run design:tokens:check && npm run lint && npm run check"
+        "release:check": "npm run design:tokens:check && npm run links:check && npm run lint && npm run check && npm run build",
+        "ci": "npm run design:tokens:check && npm run links:check && npm run lint && npm run check"
     },
     "dependencies": {
         "svelte": "^5.57.0"

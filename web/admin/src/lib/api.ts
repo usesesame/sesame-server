@@ -16,6 +16,13 @@ async function csrfToken() {
 }
 
 export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  return perform<T>(path, init, true)
+}
+
+// The CSRF cookie expires after an hour while the admin session lasts eight, so
+// a stale token is normal use, not an error. Clear the cached value and retry
+// the same request once with a fresh token.
+async function perform<T>(path: string, init: RequestInit, allowRetry: boolean): Promise<T> {
   const method = (init.method || 'GET').toUpperCase()
   const headers = new Headers(init.headers)
   if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) headers.set('X-Sesame-CSRF', await csrfToken())
@@ -24,7 +31,10 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
   if (response.status === 204) return undefined as T
   const body = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string } }
   if (!response.ok) {
-    if (response.status === 403 && body.error?.code === 'invalid_csrf') csrf = ''
+    if (response.status === 403 && body.error?.code === 'invalid_csrf') {
+      csrf = ''
+      if (allowRetry) return perform<T>(path, init, false)
+    }
     throw new APIError(body.error?.message || 'The request could not be completed.', response.status, body.error?.code)
   }
   return body as T

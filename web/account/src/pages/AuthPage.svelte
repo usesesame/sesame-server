@@ -3,6 +3,7 @@
   import { getRegistrationStatus, register, signIn, type Account, type RegistrationStatus } from '../lib/auth'
   import { LEGAL_VERSION } from '../lib/legal'
   import { passkeysSupported, signInWithPasskey } from '../lib/passkey'
+  import { siteOrigin } from '../lib/runtime-config'
 
   export let mode: 'login' | 'register'
   export let onAuthenticated: (account: Account) => void
@@ -112,7 +113,7 @@
         {#if isRegistering}
           <label class="legal-agreement">
             <input type="checkbox" bind:checked={legalAccepted} required disabled={submitting} />
-            <span>I agree to the <a href="/terms" target="_blank" rel="noreferrer">Terms of Use</a> and acknowledge the <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>.</span>
+            <span>I agree to the <a href={`${siteOrigin}/terms`} target="_blank" rel="noopener noreferrer">Terms of Use</a> and acknowledge the <a href={`${siteOrigin}/privacy`} target="_blank" rel="noopener noreferrer">Privacy Policy</a>.</span>
           </label>
         {/if}
         {#if error}<p class="auth-error" role="alert">{error}</p>{/if}

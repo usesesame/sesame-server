@@ -84,6 +84,27 @@ func (s *Store) RevokeAndRekey(ctx context.Context, rekey Rekey) (Vault, error) 
 			}
 		}
 
+		// Every approved device except the initiator must receive exactly one new
+		// package. A missing recipient would stay at the old epoch, where its
+		// uploads are rejected as stale; a duplicate would silently drop one
+		// package. Validate the set before advancing anything.
+		required, err := approvedDeviceIDs(ctx, tx, rekey.VaultID, rekey.InitiatorDeviceID)
+		if err != nil {
+			return err
+		}
+		covered := make(map[string]bool, len(rekey.Survivors))
+		for _, survivor := range rekey.Survivors {
+			if !required[survivor.RecipientDeviceID] || covered[survivor.RecipientDeviceID] {
+				return ErrApprovalRejected
+			}
+			covered[survivor.RecipientDeviceID] = true
+		}
+		for id := range required {
+			if !covered[id] {
+				return ErrApprovalRejected
+			}
+		}
+
 		var newEpoch uint64
 		if err := tx.QueryRowContext(ctx, `
 			UPDATE sesame_sync_vaults
@@ -107,30 +128,13 @@ func (s *Store) RevokeAndRekey(ctx context.Context, rekey Rekey) (Vault, error) 
 		}
 
 		// Survivors stay un-activated until they prove they opened the package.
+		var initiatorKey []byte
+		if err := tx.QueryRowContext(ctx, `
+			SELECT signing_public_key FROM sesame_sync_devices WHERE id = $1 AND vault_id = $2
+		`, rekey.InitiatorDeviceID, rekey.VaultID).Scan(&initiatorKey); err != nil {
+			return fmt.Errorf("read rekey initiator key: %w", err)
+		}
 		for _, survivor := range rekey.Survivors {
-			if survivor.RecipientDeviceID == rekey.RevokedDeviceID {
-				return ErrApprovalRejected
-			}
-			var state string
-			var signingKey []byte
-			err := tx.QueryRowContext(ctx, `
-				SELECT state, signing_public_key FROM sesame_sync_devices WHERE id = $1 AND vault_id = $2
-			`, survivor.RecipientDeviceID, rekey.VaultID).Scan(&state, &signingKey)
-			switch {
-			case errors.Is(err, sql.ErrNoRows):
-				return ErrNotFound
-			case err != nil:
-				return fmt.Errorf("read surviving sync device: %w", err)
-			case state != DeviceApproved:
-				return ErrApprovalRejected
-			}
-
-			var initiatorKey []byte
-			if err := tx.QueryRowContext(ctx, `
-				SELECT signing_public_key FROM sesame_sync_devices WHERE id = $1 AND vault_id = $2
-			`, rekey.InitiatorDeviceID, rekey.VaultID).Scan(&initiatorKey); err != nil {
-				return fmt.Errorf("read rekey initiator key: %w", err)
-			}
 			pkg := syncproto.EncryptedKeyPackage{
 				VaultID:           rekey.VaultID,
 				SenderDeviceID:    rekey.InitiatorDeviceID,
@@ -185,6 +189,30 @@ func (s *Store) RevokeAndRekey(ctx context.Context, rekey Rekey) (Vault, error) 
 		return Vault{}, err
 	}
 	return vault, nil
+}
+
+func approvedDeviceIDs(ctx context.Context, tx *sql.Tx, vaultID, exceptDeviceID string) (map[string]bool, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id FROM sesame_sync_devices WHERE vault_id = $1 AND state = 'approved'
+	`, vaultID)
+	if err != nil {
+		return nil, fmt.Errorf("list approved sync devices: %w", err)
+	}
+	defer rows.Close()
+	required := make(map[string]bool)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan approved sync device: %w", err)
+		}
+		if id != exceptDeviceID {
+			required[id] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list approved sync devices: %w", err)
+	}
+	return required, nil
 }
 
 // Two-phase activation: the proof is a signature over the sealed package's

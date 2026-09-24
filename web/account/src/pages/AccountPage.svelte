@@ -553,7 +553,7 @@
           <p class="account-label">Eligible downloads</p>
           <p class="panel-hint">Only account-gated builds with verified Tauri updater signatures and Sigstore publisher evidence appear here. Early-access installers are not Windows publisher-signed, so Windows may show an unknown-publisher warning.</p>
 		  {#if downloads.length > 0}<div class="download-list">{#each downloads as release (release.id)}<article><div><strong>Sesame {release.version}</strong><span>{release.platform} · {release.updaterVerified ? 'Tauri updater signature verified' : 'Updater signature unavailable'} · {release.sigstoreVerified ? 'Sigstore release workflow verified' : 'Release workflow evidence unavailable'} · {release.authenticodeVerified ? 'Windows publisher verified' : 'Unsigned Windows early-access build'}</span><code>SHA-256: {release.sha256}</code></div>{#if release.updaterVerified && release.sigstoreVerified}<button class="button button-sm" type="button" on:click={() => startDownload(release)} disabled={downloadStarting === release.id}>{downloadStarting === release.id ? 'Preparing download…' : 'Download'}</button>{:else}<span class="release-unavailable">Withheld</span>{/if}</article>{/each}</div>{:else}<div class="empty-account-state"><strong>No build assigned</strong><p>When your beta access includes a build, its installer and verification evidence will appear here.</p></div>{/if}
-          <a class="account-roadmap" href="/releases">Public release notes and platform support</a>
+          <a class="account-roadmap" href={`${siteOrigin}/releases`}>Public release notes and platform support</a>
         </div>
       {/if}
     </div>

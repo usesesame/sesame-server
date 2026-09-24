@@ -1,0 +1,6 @@
+services:
+  # `npm run dev` runs the API natively and needs the database on the host.
+  # The self-hosting stack keeps PostgreSQL on the Compose network only.
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
