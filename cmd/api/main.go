@@ -103,6 +103,10 @@ func main() {
 			slog.Error("Sesame admin configuration is invalid", "error", originErr)
 			os.Exit(1)
 		}
+		if err := validateAdminOrigin(adminOrigin, webOrigin); err != nil {
+			slog.Error("Sesame admin configuration is invalid", "error", err)
+			os.Exit(1)
+		}
 		adminKey, keyErr := adminstore.ParseEncryptionKey(adminKeyValue)
 		if keyErr != nil {
 			slog.Error("Sesame admin configuration is invalid", "error", keyErr)
@@ -382,6 +386,16 @@ func env(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// The account and admin portals are separate origins on purpose. If they
+// collapse into one, any account-portal script can reach the admin API with a
+// valid Origin and CSRF token, which is the boundary the portals are built on.
+func validateAdminOrigin(adminOrigin, webOrigin string) error {
+	if adminOrigin == "" || webOrigin == "" || adminOrigin != webOrigin {
+		return nil
+	}
+	return errors.New("SESAME_ADMIN_ORIGIN must differ from SESAME_WEB_ORIGIN")
 }
 
 func configuredOrigin(name string) (string, error) {
