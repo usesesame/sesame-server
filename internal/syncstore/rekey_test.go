@@ -77,11 +77,15 @@ func rekeyTestStore(t *testing.T) (*Store, *sql.DB) {
 	})
 	if _, err := db.ExecContext(ctx, `
 		TRUNCATE sesame_sync_audit, sesame_sync_envelopes, sesame_sync_key_packages,
-		         sesame_sync_challenges, sesame_sync_devices, sesame_sync_vaults,
-		         sesame_accounts
+		         sesame_sync_challenges, sesame_sync_devices, sesame_sync_vaults
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatalf("clear sync tables: %v", err)
+	}
+	// Other packages insert accounts concurrently, so this test deletes only its
+	// own row instead of truncating the shared table.
+	if _, err := db.ExecContext(ctx, `DELETE FROM sesame_accounts WHERE id = 'acct-rekey'`); err != nil {
+		t.Fatalf("clear rekey test account: %v", err)
 	}
 	return New(db), db
 }
