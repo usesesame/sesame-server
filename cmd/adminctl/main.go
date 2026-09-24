@@ -15,8 +15,8 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 3 || (os.Args[1] != "bootstrap" && os.Args[1] != "reset") {
-		fmt.Fprintln(os.Stderr, "usage: adminctl <bootstrap|reset> <email>")
+	if len(os.Args) != 3 || (os.Args[1] != "bootstrap" && os.Args[1] != "reset" && os.Args[1] != "invite") {
+		fmt.Fprintln(os.Stderr, "usage: adminctl <bootstrap|reset|invite> <email>")
 		os.Exit(2)
 	}
 	email := strings.ToLower(strings.TrimSpace(os.Args[2]))
@@ -52,6 +52,29 @@ func main() {
 	}
 	defer store.Close()
 	var token string
+	if os.Args[1] == "invite" {
+		webOrigin := strings.TrimSuffix(strings.TrimSpace(os.Getenv("SESAME_WEB_ORIGIN")), "/")
+		if webOrigin == "" {
+			slog.Error("SESAME_WEB_ORIGIN is required to print the registration link")
+			os.Exit(1)
+		}
+		admins, err := store.Admins(ctx)
+		if err != nil {
+			slog.Error("could not read administrators", "error", err)
+			os.Exit(1)
+		}
+		if len(admins) == 0 {
+			slog.Error("no administrator exists; run adminctl bootstrap first")
+			os.Exit(1)
+		}
+		token, err := store.CreateBetaInvite(ctx, admins[0], email, time.Now().UTC().Add(24*time.Hour), "")
+		if err != nil {
+			slog.Error("could not create the invitation", "error", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Open this one-time registration link within 24 hours:\n%s/register?invite=%s\n", webOrigin, url.QueryEscape(token))
+		return
+	}
 	if os.Args[1] == "bootstrap" {
 		token, err = store.BootstrapSuper(ctx, email, time.Now().UTC().Add(time.Hour))
 	} else {

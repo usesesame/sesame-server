@@ -64,3 +64,16 @@ test('the dev command points at the self-hosting stack and its database override
   assert.ok(existsSync(join(root, 'deploy', 'compose', 'compose.yaml')))
   assert.ok(!source.includes("resolve(backendRoot, '..', 'compose.yaml')"))
 })
+
+test('the first-account invite runs through the admin CLI and the setup wrapper', () => {
+  const wrapper = readFileSync(join(root, 'scripts', 'admin-bootstrap.mjs'), 'utf8')
+  assert.ok(wrapper.includes("'bootstrap', 'reset', 'invite'"), 'the wrapper does not accept invite')
+  assert.ok(wrapper.includes('SESAME_WEB_ORIGIN'), 'the wrapper does not pass the portal origin')
+
+  const cli = readFileSync(join(root, 'cmd', 'adminctl', 'main.go'), 'utf8')
+  assert.ok(cli.includes('"invite"'), 'adminctl does not accept invite')
+  assert.ok(cli.includes('CreateBetaInvite'), 'adminctl does not create an invite')
+
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  assert.equal(pkg.scripts['account:invite'], 'node ./scripts/admin-bootstrap.mjs invite')
+})
