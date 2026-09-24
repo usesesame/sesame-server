@@ -83,8 +83,21 @@ func (s *PostgresStore) CredentialsForAccount(ctx context.Context, accountID str
 }
 
 func (s *PostgresStore) UpdateCredential(ctx context.Context, credentialID, credential []byte) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE sesame_webauthn_credentials SET credential = $2 WHERE credential_id = $1`, credentialID, credential)
-	return err
+	result, err := s.db.ExecContext(ctx, `UPDATE sesame_webauthn_credentials SET credential = $2 WHERE credential_id = $1`, credentialID, credential)
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	// A zero-row update means the credential was removed between the ceremony
+	// and this write. The caller must treat that as a login failure: the sign
+	// counter is the cloned-authenticator check and it did not persist.
+	if updated == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *PostgresStore) ListCredentials(ctx context.Context, accountID string) ([]CredentialInfo, error) {
