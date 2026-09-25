@@ -33,12 +33,12 @@
     }
   })
   $: title = mode === 'forgot-password'
-    ? 'Recover your website account.'
+    ? 'Recover your website account'
     : mode === 'reset-password'
-      ? 'Choose a new account password.'
+      ? 'Choose a new account password'
       : mode === 'verify-email'
-        ? 'Verify your email.'
-        : 'Confirm your new email.'
+        ? 'Verify your email'
+        : 'Confirm your new email'
 
   async function submit() {
     error = ''
@@ -81,11 +81,11 @@
   <div class="auth-form card">
     {#if complete}
       {#if mode === 'forgot-password'}
-        <h2>Check your email.</h2>
+        <h2>Check your email</h2>
         <p>If an eligible account exists for that address, we sent a recovery link. This page never confirms whether an address is registered.</p>
         <a class="button button-soft" href="/login">Back to sign in</a>
       {:else}
-        <h2>{mode === 'verify-email' ? 'Email verified.' : mode === 'confirm-email-change' ? 'Email updated.' : 'Password updated.'}</h2>
+        <h2>{mode === 'verify-email' ? 'Email verified' : mode === 'confirm-email-change' ? 'Email updated' : 'Password updated'}</h2>
         <p>{mode === 'reset-password' || mode === 'confirm-email-change' ? 'Other website sessions were revoked.' : 'You can continue to your account.'}</p>
         <a class="button" href="/account">Open account</a>
       {/if}

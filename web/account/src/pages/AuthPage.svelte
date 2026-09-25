@@ -77,7 +77,7 @@
 
 <section class="auth-page">
   <div class="auth-copy">
-    <h1>{isRegistering ? 'Join the private beta.' : 'Sign in.'}</h1>
+    <h1>{isRegistering ? 'Join the private beta' : 'Sign in'}</h1>
     <p class="intro">One account for the Sesame website. It never stores or unlocks your vault.</p>
     <ul class="account-job-list" aria-label="What the account is for">
       <li>See builds you are eligible to download</li>
@@ -88,7 +88,7 @@
 
   {#if isRegistering && !registrationLoading && !registrationAllowed}
     <div class="auth-form card registration-closed">
-      <h2>Accounts are invite-only.</h2>
+      <h2>Accounts are invite-only</h2>
       <p>There is no public waitlist yet. Existing testers can sign in; new invitations include a private registration link. To ask about early access, use the <a href="/support">support page</a>.</p>
       <a class="button button-soft" href="/login">Back to sign in</a>
     </div>
