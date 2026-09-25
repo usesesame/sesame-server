@@ -560,7 +560,7 @@
   {:else if authState.state === 'loading'}
     <div class="account-panel card account-loading" role="status"><span class="session-spinner" aria-hidden="true"></span><div><h2>Loading your account</h2></div></div>
   {:else if authState.state === 'offline' || authState.state === 'error'}
-    <div class="account-panel card signed-out"><h2>Account service unavailable</h2><p>{authState.state === 'offline' ? 'Reconnect and try again. Your session has not been signed out.' : authState.error.message}</p><button class="button button-soft" type="button" on:click={() => window.location.reload()}>Try again</button></div>
+    <div class="account-panel card signed-out" role="status"><h2>Account service unavailable</h2><p>{authState.state === 'offline' ? 'Reconnect and try again. Your session has not been signed out.' : authState.error.message}</p><button class="button button-soft" type="button" on:click={() => window.location.reload()}>Try again</button></div>
   {:else}
     <div class="account-panel card signed-out"><h2>You are signed out</h2><p>Sign in to manage website services.</p><a class="button" href="/login">Sign in</a></div>
   {/if}
