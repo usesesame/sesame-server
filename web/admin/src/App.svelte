@@ -9,9 +9,11 @@
   import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
+  type AdminIdentity = { admin: AdminAccount; deploymentProfile?: 'operator' | 'project' }
   const pageNames: Record<Page, string> = { overview: 'Overview', support: 'Support', users: 'Users', flags: 'Feature flags', releases: 'Releases', plans: 'Product plans', admins: 'Administrators', audit: 'Audit log', system: 'System' }
   const roles: Role[] = ['super', 'support', 'ops', 'billing', 'readonly']
   let me: AdminAccount | null = null
+  let deploymentProfile: 'operator' | 'project' = 'operator'
   let loading = true
   let page: Page = 'overview'
   let error = ''
@@ -63,16 +65,20 @@
   let ticketSearchTimer: ReturnType<typeof setTimeout> | undefined
 
   $: isSetup = setupToken.length > 0
+  $: projectProfile = deploymentProfile === 'project'
+  $: if (!projectProfile && (page === 'releases' || page === 'plans')) page = 'overview'
   $: canUsers = me?.role === 'super' || me?.role === 'support' || me?.role === 'billing' || me?.role === 'readonly'
   $: canFlags = me?.role === 'super' || me?.role === 'ops' || me?.role === 'readonly'
-  $: canPlans = me?.role === 'super' || me?.role === 'billing' || me?.role === 'readonly'
+  $: canPlans = projectProfile && (me?.role === 'super' || me?.role === 'billing' || me?.role === 'readonly')
   $: canViewAdmins = me?.role === 'super' || me?.role === 'readonly'
   $: canEditAdmins = me?.role === 'super'
   $: canAuditAll = me?.role === 'super' || me?.role === 'readonly'
   $: canSystem = me?.permissions.includes('system:read') ?? false
   $: canEditUsers = me?.role === 'super' || me?.role === 'support'
   $: canEditFlags = me?.role === 'super' || me?.role === 'ops'
-  $: canManageReleases = me?.permissions.includes('releases:write') ?? false
+  $: canManageReleases = projectProfile && (me?.permissions.includes('releases:write') ?? false)
+  $: canViewReleases = projectProfile && (canManageReleases || me?.role === 'readonly')
+  $: canOwnerRelease = projectProfile && canEditFlags
   $: canEditPlans = me?.role === 'super' || me?.role === 'billing'
   $: canSupport = me?.role === 'super' || me?.role === 'support'
   $: canViewSupport = canSupport || me?.role === 'readonly'
@@ -88,11 +94,16 @@
       return
     }
     try {
-      me = (await request<{ admin: AdminAccount }>('/v1/admin/auth/me')).admin
+      applyIdentity(await request<AdminIdentity>('/v1/admin/auth/me'))
       await openPage('overview')
     } catch { me = null }
     loading = false
   })
+
+  function applyIdentity(result: AdminIdentity) {
+    me = result.admin
+    deploymentProfile = result.deploymentProfile === 'project' ? 'project' : 'operator'
+  }
 
   function showError(reason: unknown) { error = reason instanceof Error ? reason.message : 'The request failed.'; notice = '' }
   function showNotice(message: string) { notice = message; error = '' }
@@ -100,7 +111,7 @@
   async function login() {
     busy = true; error = ''
     try {
-      me = (await mutate<{ admin: AdminAccount }>('/v1/admin/auth/login', 'POST', { email, password, code })).admin
+      applyIdentity(await mutate<AdminIdentity>('/v1/admin/auth/login', 'POST', { email, password, code }))
       password = ''; code = ''; await openPage('overview')
     } catch (reason) { showError(reason) } finally { busy = false }
   }
@@ -108,7 +119,7 @@
   async function completeSetup() {
     busy = true; error = ''
     try {
-      me = (await mutate<{ admin: AdminAccount }>('/v1/admin/auth/setup/complete', 'POST', { token: setupToken, password, code })).admin
+      applyIdentity(await mutate<AdminIdentity>('/v1/admin/auth/setup/complete', 'POST', { token: setupToken, password, code }))
       history.replaceState({}, '', '/'); setupToken = ''; password = ''; code = ''; await openPage('overview')
     } catch (reason) { showError(reason) } finally { busy = false }
   }
@@ -379,7 +390,7 @@
         {#if canViewSupport}<button class:active={page === 'support'} onclick={() => openPage('support')}>Support</button>{/if}
         {#if canUsers}<button class:active={page === 'users'} onclick={() => openPage('users')}>Users</button>{/if}
         {#if canFlags}<button class:active={page === 'flags'} onclick={() => openPage('flags')}>Feature flags</button>{/if}
-        {#if canManageReleases || me?.role === 'readonly'}<button class:active={page === 'releases'} onclick={() => openPage('releases')}>Releases</button>{/if}
+        {#if canViewReleases}<button class:active={page === 'releases'} onclick={() => openPage('releases')}>Releases</button>{/if}
         {#if canPlans}<button class:active={page === 'plans'} onclick={() => openPage('plans')}>Product plans</button>{/if}
         {#if canViewAdmins}<button class:active={page === 'admins'} onclick={() => openPage('admins')}>Administrators</button>{/if}
         <button class:active={page === 'audit'} onclick={() => openPage('audit')}>Audit log</button>
@@ -506,7 +517,7 @@
           {#if selectedUser}<aside class="detail"><div class="detail-head"><h2>{selectedUser.email}</h2><button aria-label="Close details" onclick={() => selectedUser = null}>×</button></div><dl><div><dt>Created</dt><dd>{date(selectedUser.createdAt)}</dd></div><div><dt>Email</dt><dd>{selectedUser.emailVerified ? 'Verified' : 'Not verified'}</dd></div></dl>
             {#if selectedUser.betaAccess && !selectedUser.emailVerified}<p class="message error">Beta is granted but inactive until this email address is verified. Downloads and desktop linking remain blocked.</p>{/if}
             {#if canEditUsers}<div class="action-grid"><button onclick={() => userAction('beta', selectedUser!.betaAccess ? 'DELETE' : 'POST')}>{selectedUser.betaAccess ? 'Revoke beta' : 'Grant beta'}</button><button onclick={() => userAction('sessions', 'DELETE')}>Revoke sessions</button><button onclick={toggleUserSuspension}>{selectedUser.suspendedAt ? 'Unsuspend' : 'Suspend'}</button>{#if me.role === 'super'}<button class="danger" onclick={deleteUser}>Delete account</button>{/if}</div>{/if}
-            {#if canEditFlags}<div class="owner-release-action"><button class="primary" onclick={publishToOwnerDevices}>Add to owner update ring</button><small>Grants this verified beta account access to owner-channel updates as well as beta updates. It does not publish a release.</small></div>{/if}
+            {#if canOwnerRelease}<div class="owner-release-action"><button class="primary" onclick={publishToOwnerDevices}>Add to owner update ring</button><small>Grants this verified beta account access to owner-channel updates as well as beta updates. It does not publish a release.</small></div>{/if}
             <h3>Website sessions</h3>{#if selectedUser.sessions?.length}{#each selectedUser.sessions as session (session.id)}<div class="compact-row"><div><strong>{session.label}</strong><small>{date(session.lastSeenAt)}</small></div></div>{/each}{:else}<p class="empty">No active sessions.</p>{/if}
             <h3>Connected devices</h3>{#if selectedUser.devices?.length}{#each selectedUser.devices as device (device.id)}<div class="compact-row"><div><strong>{device.name}</strong><small>{date(device.connectedAt)}</small></div>{#if canEditUsers}<button onclick={() => userAction(`devices/${device.id}`, 'DELETE')}>Revoke</button>{/if}</div>{/each}{:else}<p class="empty">No connected devices.</p>{/if}
           </aside>{/if}

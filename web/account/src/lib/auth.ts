@@ -83,6 +83,7 @@ export type AccountBootstrap = {
   account: Account
   access: AccountAccess
   licences: AccountAccess['licences']
+  deploymentProfile?: 'operator' | 'project'
   capabilities: {
     desktopLinking: boolean
     passkeys: boolean
