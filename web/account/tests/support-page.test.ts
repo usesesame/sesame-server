@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { SupportTicketDetail, SupportTicketSummary } from '../src/lib/support'
 
 const support = vi.hoisted(() => ({
@@ -9,12 +9,18 @@ const support = vi.hoisted(() => ({
   reopenSupportTicket: vi.fn(),
   replyToSupportTicket: vi.fn(),
   submitSupportRequest: vi.fn(),
+  getSupportMetadata: vi.fn(),
+}))
+
+const auth = vi.hoisted(() => ({
+  getNotificationPreferences: vi.fn(),
 }))
 
 vi.mock('../src/lib/support', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../src/lib/support')>()
   return { ...actual, ...support }
 })
+vi.mock('../src/lib/auth', () => auth)
 vi.mock('../src/lib/runtime-config', () => ({ siteOrigin: 'https://website.test.invalid', apiBaseURL: 'https://api.test.invalid' }))
 
 import SupportPage from '../src/pages/SupportPage.svelte'
@@ -57,7 +63,46 @@ afterEach(() => {
   support.reopenSupportTicket.mockReset()
   support.replyToSupportTicket.mockReset()
   support.submitSupportRequest.mockReset()
+  support.getSupportMetadata.mockReset()
+  auth.getNotificationPreferences.mockReset()
   window.history.replaceState({}, '', '/support')
+})
+
+function mockEmailExpectations(receiptEmail = true, supportReplies = true) {
+  support.getSupportMetadata.mockResolvedValue({ status: 'private-beta', url: 'https://website.test.invalid/support', intake: '/v1/support/requests', attachmentsAccepted: false, receiptEmail })
+  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: true, supportReplies, productAnnouncements: false })
+  support.getSupportTickets.mockResolvedValue([])
+}
+
+beforeEach(() => {
+  mockEmailExpectations()
+})
+
+test('tells a guest that a receipt is emailed when mail is configured', async () => {
+  mockEmailExpectations(true)
+  render(SupportPage, { account: null })
+  expect(await screen.findByText('We will email a receipt to this address. Guest requests do not receive reply email.')).toBeTruthy()
+})
+
+test('tells a signed-in requester that reply email is on and links to the setting', async () => {
+  mockEmailExpectations(true, true)
+  render(SupportPage, { account })
+  expect(await screen.findByText('We will email a receipt, and replies from support will be emailed to tester@example.invalid.', { exact: false })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Change your reply email setting' }).getAttribute('href')).toBe('/account#security')
+})
+
+test('tells a signed-in requester when reply email is turned off', async () => {
+  mockEmailExpectations(true, false)
+  render(SupportPage, { account })
+  expect(await screen.findByText('We will email a receipt. Reply email is turned off for this account.', { exact: false })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Change your reply email setting' }).getAttribute('href')).toBe('/account#security')
+})
+
+test('says email is unavailable when the deployment has no mail configured', async () => {
+  mockEmailExpectations(false)
+  render(SupportPage, { account: null })
+  expect(await screen.findByText('Email is unavailable on this deployment, so no receipt will be sent. Keep the reference shown after you send.')).toBeTruthy()
+  expect(screen.queryByRole('link', { name: 'Change your reply email setting' })).toBeNull()
 })
 
 test('blocks secret-shaped intake and accepts a clean guest request', async () => {

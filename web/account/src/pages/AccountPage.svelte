@@ -140,6 +140,7 @@
       if (link?.state === 'pending') void refreshDesktopLink(false)
     }, 5000)
     supportReplyNoticeVisible = supportReplyNoticeUnseen()
+    if (window.location.hash === '#security') selectTab('security')
     void loadAccess()
   })
 

@@ -180,6 +180,7 @@ p { overflow-wrap: break-word; }
 .password-toggle:focus-visible { box-shadow: var(--field-ring); border-radius: var(--radius-sm); }
 .password-toggle:disabled { cursor: not-allowed; opacity: .6; }
 .auth-error { margin: 16px 0 0 !important; border-left: 3px solid var(--warn-text); padding: 4px 0 4px 11px; color: var(--warn-text) !important; font-size: var(--type-2) !important; }
+.auth-notice { margin: 0 0 14px; border-left: 3px solid var(--accent-link); padding: 6px 0 6px 11px; color: var(--text-muted); font-size: var(--type-2); line-height: 1.5; }
 .auth-switch { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 18px; margin: 20px 0 0 !important; text-align: center; font-size: var(--type-2) !important; }
 .auth-switch a { color: var(--accent-link); font-weight: var(--weight-bold); }
 .account-job-list { display: grid; gap: 11px; margin: 28px 0 0; padding: 0; list-style: none; }
@@ -332,6 +333,8 @@ p { overflow-wrap: break-word; }
 .support-ticket-list small { color: var(--text-faint); font-size: var(--type-2); }
 .ticket-list-end { display: inline-flex; align-items: center; justify-content: end; gap: 7px; flex: 0 0 auto; }
 .ticket-unread { display: grid; min-width: 19px; height: 19px; place-items: center; border-radius: var(--radius-pill); padding: 0 5px; color: var(--surface); background: var(--accent); font-size: var(--type-1); font-weight: var(--weight-bold); line-height: 1; }
+.nav-count { display: inline-grid; min-width: 17px; height: 17px; place-items: center; margin-left: 6px; border-radius: var(--radius-pill); padding: 0 5px; color: var(--surface); background: var(--accent); font-size: var(--type-1); font-weight: var(--weight-bold); line-height: 1; vertical-align: middle; }
+.support-email-note { margin: 10px 0 0; color: var(--text-muted); font-size: var(--type-2); line-height: 1.5; }
 .support-lifecycle-actions { display: flex; justify-content: flex-end; margin-top: 12px; }
 .ticket-status { display: inline-flex; flex: none; min-height: 23px; align-items: center; border-radius: var(--radius-pill); padding: 3px 8px; color: var(--text-muted); background: var(--surface); font-size: var(--type-1); font-weight: var(--weight-bold); }
 .ticket-status.open,
