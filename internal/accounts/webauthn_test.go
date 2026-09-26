@@ -9,6 +9,7 @@ import (
 func TestUpdateCredentialRefusesAConcurrentDeletion(t *testing.T) {
 	store, db := lifecycleTestStore(t)
 	ctx := context.Background()
+	clearFixtureAccount(t, db, "acct-passkey")
 	if _, err := db.ExecContext(ctx, `INSERT INTO sesame_accounts (id, email, password_hash) VALUES ('acct-passkey', 'passkey-user@example.invalid', 'test')`); err != nil {
 		t.Fatalf("create account: %v", err)
 	}

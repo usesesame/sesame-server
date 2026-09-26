@@ -545,6 +545,33 @@ func (s *Store) SetBeta(ctx context.Context, actor Account, accountID string, en
 	})
 }
 
+func (s *Store) CreateBetaInvite(ctx context.Context, actor Account, email string, expiresAt time.Time, ipHash string) (string, error) {
+	email = normalizeEmail(email)
+	if email == "" {
+		return "", errors.New("an invitation needs the email address it is bound to")
+	}
+	token, tokenHash, err := NewToken()
+	if err != nil {
+		return "", err
+	}
+	detail := map[string]any{
+		"email":     email,
+		"maxUses":   1,
+		"expiresAt": expiresAt.UTC().Format(time.RFC3339),
+	}
+	err = s.mutate(ctx, actor, "user.invite.create", "invite", fmt.Sprintf("%x", tokenHash), ipHash, detail, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO sesame_beta_invites (code_hash, email, max_uses, expires_at)
+			VALUES ($1, $2, 1, $3)
+		`, tokenHash, email, expiresAt)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
 func (s *Store) SetSuspended(ctx context.Context, actor Account, accountID string, suspended bool, reason, ipHash string) error {
 	action := "user.unsuspend"
 	if suspended {

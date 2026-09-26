@@ -6,12 +6,12 @@ import { fileURLToPath } from 'node:url'
 const backendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryRoot = resolve(backendRoot, '..')
 const [action, email] = process.argv.slice(2)
-if (!['bootstrap', 'reset'].includes(action)) {
-  console.error('Usage: npm run admin:bootstrap -- <bootstrap|reset> admin@example.com')
+if (!['bootstrap', 'reset', 'invite'].includes(action)) {
+  console.error('Usage: npm run admin:bootstrap -- <bootstrap|reset|invite> admin@example.com')
   process.exit(2)
 }
 if (!email) {
-  console.error('Usage: npm run admin:bootstrap -- <bootstrap|reset> admin@example.com')
+  console.error('Usage: npm run admin:bootstrap -- <bootstrap|reset|invite> admin@example.com')
   process.exit(2)
 }
 
@@ -69,6 +69,8 @@ const environment = {
       : 'postgres://sesame:sesame-development-only@127.0.0.1:5432/sesame?sslmode=disable'),
   SESAME_ADMIN_ORIGIN:
     process.env.SESAME_ADMIN_ORIGIN || fileValues.get('SESAME_ADMIN_ORIGIN') || 'http://localhost:4174',
+  SESAME_WEB_ORIGIN:
+    process.env.SESAME_WEB_ORIGIN || fileValues.get('SESAME_ACCOUNT_ORIGIN') || 'http://localhost:4175',
   SESAME_ADMIN_ENCRYPTION_KEY: adminKey,
 }
 

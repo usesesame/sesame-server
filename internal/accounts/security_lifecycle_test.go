@@ -33,8 +33,7 @@ func lifecycleTestStore(t *testing.T) (*PostgresStore, *sql.DB) {
 		_ = conn.Close()
 	})
 	if _, err := accountStore.DB().ExecContext(context.Background(), `
-		TRUNCATE sesame_support_requests, sesame_support_messages, sesame_support_notes,
-		         sesame_accounts, sesame_sessions, sesame_email_outbox
+		TRUNCATE sesame_support_requests, sesame_support_messages, sesame_support_notes
 		RESTART IDENTITY CASCADE
 	`); err != nil {
 		t.Fatalf("clear lifecycle tables: %v", err)
@@ -42,9 +41,22 @@ func lifecycleTestStore(t *testing.T) (*PostgresStore, *sql.DB) {
 	return accountStore, accountStore.DB()
 }
 
+func clearFixtureAccount(t *testing.T, db *sql.DB, id string) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `DELETE FROM sesame_accounts WHERE id = $1`, id); err != nil {
+		t.Fatalf("clear fixture account %s: %v", id, err)
+	}
+	t.Cleanup(func() {
+		if _, err := db.ExecContext(context.Background(), `DELETE FROM sesame_accounts WHERE id = $1`, id); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
 func TestCloseAndReopenSupportTicketLifecycle(t *testing.T) {
 	store, db := lifecycleTestStore(t)
 	ctx := context.Background()
+	clearFixtureAccount(t, db, "acct-close")
 	if _, err := db.ExecContext(ctx, `INSERT INTO sesame_accounts (id, email, password_hash) VALUES ('acct-close', 'close-user@example.invalid', 'test')`); err != nil {
 		t.Fatalf("create account: %v", err)
 	}
