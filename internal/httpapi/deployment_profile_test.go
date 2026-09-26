@@ -204,6 +204,12 @@ func TestOperatorProfileRefusesPublishingRoutesForASuperAdministrator(t *testing
 	if _, err := accountStore.DB().ExecContext(ctx, `TRUNCATE sesame_admin_sessions, sesame_admin_accounts RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("clear admin tables: %v", err)
 	}
+	if _, err := accountStore.DB().ExecContext(ctx, `
+		INSERT INTO sesame_feature_flags (key, value) VALUES ('updater_enabled', 'false'), ('public_download', 'false')
+		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+	`); err != nil {
+		t.Fatalf("seed artifact flags: %v", err)
+	}
 	adminStore, err := adminstore.Open(ctx, databaseURL, bytes.Repeat([]byte{5}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)
