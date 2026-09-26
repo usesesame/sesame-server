@@ -5,8 +5,8 @@
   import ExtensionStoresWorkspace from './lib/releases/ExtensionStoresWorkspace.svelte'
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
   import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
-  import { TICKET_CATEGORY_LABELS } from './lib/types'
-  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
+  import { TICKET_CATEGORY_LABELS, deliveryReasonLabel } from './lib/types'
+  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SupportMailState, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
   type AdminIdentity = { admin: AdminAccount; deploymentProfile?: 'operator' | 'project' }
@@ -55,6 +55,8 @@
   let ticketAssignedFilter = ''
   let ticketQuery = ''
   let selectedTicket: TicketDetail | null = null
+  let ticketMail: SupportMailState | null = null
+  let supportAnnouncement = ''
   let replyBody = ''
   let noteBody = ''
   const PAGE_SIZE = 100
@@ -106,8 +108,8 @@
     deploymentProfile = result.deploymentProfile === 'project' ? 'project' : 'operator'
   }
 
-  function showError(reason: unknown) { error = reason instanceof Error ? reason.message : 'The request failed.'; notice = '' }
-  function showNotice(message: string) { notice = message; error = '' }
+  function showError(reason: unknown) { error = reason instanceof Error ? reason.message : 'The request failed.'; notice = ''; if (page === 'support') supportAnnouncement = `Error: ${error}` }
+  function showNotice(message: string) { notice = message; error = ''; if (page === 'support') supportAnnouncement = `Notice: ${message}` }
 
   async function login() {
     busy = true; error = ''
@@ -175,8 +177,10 @@
   }
 
   async function loadTickets() {
+    supportAnnouncement = 'Loading support tickets.'
     const result = await request<{ tickets: TicketSummary[]; total: number }>(`/v1/admin/support?${ticketQueryParams()}`)
     tickets = result.tickets; ticketTotal = result.total
+    supportAnnouncement = result.total === 1 ? '1 support ticket loaded.' : `${result.total} support tickets loaded.`
   }
 
   function usersPages() { return Math.max(1, Math.ceil(userTotal / PAGE_SIZE)) }
@@ -219,7 +223,19 @@
   }
 
   async function inspectTicket(id: string) {
-    try { selectedTicket = (await request<{ ticket: TicketDetail }>(`/v1/admin/support/${id}`)).ticket } catch (reason) { showError(reason) }
+    supportAnnouncement = 'Loading ticket details.'
+    try {
+      const result = await request<{ ticket: TicketDetail; mail?: SupportMailState }>(`/v1/admin/support/${id}`)
+      selectedTicket = result.ticket
+      ticketMail = result.mail ?? null
+      supportAnnouncement = 'Ticket details loaded.'
+    } catch (reason) { showError(reason) }
+  }
+
+  function activateTicketRow(event: KeyboardEvent, id: string) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    void inspectTicket(id)
   }
 
   async function sendReply() {
@@ -418,6 +434,7 @@
         </div>
         <section class="panel"><h2>Operating boundary</h2><p>Administration manages account metadata, releases, plans, flags, and sessions. It cannot receive vault records, vault passwords, 2FA seeds, backup codes, or vault keys.</p></section>
       {:else if page === 'support'}
+        <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Support status">{supportAnnouncement}</p>
         <div class="toolbar">
           <input class="search" aria-label="Search tickets" placeholder="Search email or subject" bind:value={ticketQuery} oninput={onTicketSearch} />
           <select bind:value={ticketStatusFilter} onchange={loadTickets}><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option></select>
@@ -433,7 +450,7 @@
               <thead><tr><th>Subject</th><th>Requester</th><th>Category</th><th>Status</th><th>Priority</th><th>SLA</th><th>Updated</th></tr></thead>
               <tbody>
                 {#each tickets as ticket (ticket.id)}
-                  <tr tabindex="0" class:active={selectedTicket?.id === ticket.id} onclick={() => inspectTicket(ticket.id)} onkeydown={(event) => event.key === 'Enter' && inspectTicket(ticket.id)}>
+                  <tr role="button" tabindex="0" class:active={selectedTicket?.id === ticket.id} aria-label={`Open ticket ${ticket.subject} from ${ticket.email}`} onclick={() => inspectTicket(ticket.id)} onkeydown={(event) => activateTicketRow(event, ticket.id)}>
                     <td><strong>{ticket.subject}</strong><small>{ticket.messageCount} message{ticket.messageCount === 1 ? '' : 's'}</small></td>
                     <td>{ticket.email}</td>
                     <td><span class="badge badge-neutral">{TICKET_CATEGORY_LABELS[ticket.category]}</span></td>
@@ -450,6 +467,9 @@
           {#if selectedTicket}
             <aside class="detail support-detail">
               <div class="detail-head"><h2>{selectedTicket.subject}</h2><button aria-label="Close details" onclick={() => selectedTicket = null}>×</button></div>
+              {#if ticketMail}
+                <p class="support-mail-state"><span>Requester receipt email: {ticketMail.deliveryConfigured ? 'on' : 'off, mail is not configured'}</span><span>Staff notification email: {ticketMail.staffNotifyConfigured ? 'on' : 'off'}</span></p>
+              {/if}
               <dl>
                 <div><dt>Requester</dt><dd>{selectedTicket.email}</dd></div>
                 <div><dt>Assigned to</dt><dd>{assigneeEmail(selectedTicket.assignedAdminId) || 'Unassigned'}</dd></div>
@@ -485,7 +505,7 @@
               <div class="thread">
                 {#each selectedTicket.messages as message (message.id)}
                   <article class="message" data-role={message.authorRole}>
-                    <div class="message-meta"><strong>{message.authorRole === 'staff' ? message.adminEmail : selectedTicket.email}</strong><small>{date(message.createdAt)}{#if message.sentViaEmail} · email {message.emailDeliveryStatus || 'queueing'}{#if message.emailAttempts} · {message.emailAttempts} attempt{message.emailAttempts === 1 ? '' : 's'}{/if}{#if message.emailNextAttemptAt} · retry {date(message.emailNextAttemptAt)}{/if}{/if}</small></div>
+                    <div class="message-meta"><strong>{message.authorRole === 'staff' ? message.adminEmail : selectedTicket.email}</strong><small>{date(message.createdAt)}{#if message.authorRole === 'staff' && message.emailDeliveryReason} · {deliveryReasonLabel(message.emailDeliveryReason)}{#if message.emailAttempts && (message.emailDeliveryReason === 'pending' || message.emailDeliveryReason === 'failed')} · {message.emailAttempts} attempt{message.emailAttempts === 1 ? '' : 's'}{/if}{#if message.emailNextAttemptAt && message.emailDeliveryReason === 'pending'} · retry {date(message.emailNextAttemptAt)}{/if}{/if}</small></div>
                     <p>{message.body}</p>
                   </article>
                 {/each}
