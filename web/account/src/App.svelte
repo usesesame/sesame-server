@@ -59,7 +59,7 @@
     <div class="header-account-actions">
       {#if authState.state === 'authenticated' || (authState.state === 'offline' && account)}
         <span class="header-account-email" role="status">{account?.email}</span>
-      {:else if authState.state === 'error' || authState.state === 'offline'}
+      {:else if page !== 'account' && (authState.state === 'error' || authState.state === 'offline')}
         <span class="header-account-status" role="status">Account service unavailable</span>
       {:else if authState.state === 'anonymous' && page !== 'login'}
         <a class="button button-sm" href="/login">Sign in</a>
@@ -96,7 +96,7 @@
     />
   {:else}
     <section class="compact-page-hero">
-      <h1>Page not found.</h1>
+      <h1>Page not found</h1>
       <p class="intro">That address is not part of the account portal. <a href="/account">Go to your account</a>.</p>
     </section>
   {/if}
@@ -142,7 +142,7 @@
 
   .header-account-email {
     color: var(--text-muted);
-    font-size: 0.9rem;
+    font-size: var(--type-2);
     max-width: 22ch;
     overflow: hidden;
     text-overflow: ellipsis;
