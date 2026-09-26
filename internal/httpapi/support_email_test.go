@@ -1,8 +1,13 @@
 package httpapi
 
 import (
+	"container/list"
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"usesesame.app/backend/internal/accounts"
@@ -15,6 +20,17 @@ type recordingEmailSender struct {
 func (s *recordingEmailSender) SendAccountEmail(_ context.Context, message AccountEmail) error {
 	s.sent = append(s.sent, message)
 	return nil
+}
+
+type intakeStoreStub struct {
+	accounts.Store
+	accounts.AccountSecurityStore
+	requests []accounts.SupportRequest
+}
+
+func (s *intakeStoreStub) CreateSupportRequest(_ context.Context, input accounts.SupportRequest) (string, error) {
+	s.requests = append(s.requests, input)
+	return fmt.Sprintf("reference-%d", len(s.requests)), nil
 }
 
 type preferenceStoreStub struct {
@@ -33,6 +49,45 @@ func (s preferenceStoreStub) UpdateNotificationPreferences(context.Context, stri
 
 type plainStoreStub struct {
 	accounts.Store
+}
+
+func TestSupportIntakeReceiptBurstIsRejectedPerAddress(t *testing.T) {
+	sender := &recordingEmailSender{}
+	store := &intakeStoreStub{}
+	a := &api{
+		config: Config{
+			Accounts:      store,
+			EmailSender:   sender,
+			AdminIPPepper: "test-pepper",
+			WebBaseURL:    "https://account.example.invalid",
+		},
+		limits: &authLimiter{attempts: map[string]*limitEntry{}, recency: list.New()},
+	}
+	for index := 1; index <= 4; index++ {
+		body := fmt.Sprintf(`{"email":"burst@example.invalid","subject":"Fictional issue %d","message":"This is fictional report number %d."}`, index, index)
+		request := httptest.NewRequest(http.MethodPost, "/v1/support/requests", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		a.createSupportRequest(response, request)
+		if index <= 3 && response.Code != http.StatusAccepted {
+			t.Fatalf("request %d status = %d, want 202: %s", index, response.Code, response.Body.String())
+		}
+		if index == 4 && response.Code != http.StatusTooManyRequests {
+			t.Fatalf("burst request status = %d, want 429: %s", response.Code, response.Body.String())
+		}
+	}
+	if len(store.requests) != 3 {
+		t.Fatalf("stored requests = %d, want 3", len(store.requests))
+	}
+	receipts := 0
+	for _, message := range sender.sent {
+		if message.Kind == "support-receipt" {
+			receipts++
+		}
+	}
+	if receipts != 3 {
+		t.Fatalf("receipts = %d, want 3", receipts)
+	}
 }
 
 func TestSupportReplyEmailDecision(t *testing.T) {
