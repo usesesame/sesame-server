@@ -44,6 +44,9 @@ type AccountSecurityStore interface {
 	ReplyToSupportTicket(context.Context, string, string, string) (SupportTicketDetail, error)
 	CloseSupportTicket(context.Context, string, string, time.Time) (SupportTicketDetail, error)
 	ReopenSupportTicket(context.Context, string, string, time.Time) (SupportTicketDetail, error)
+	SupportTicketForAccessToken(context.Context, []byte) (SupportTicketDetail, error)
+	ReplyToSupportTicketWithAccessToken(context.Context, []byte, string) (SupportTicketDetail, error)
+	AttachSupportTicket(context.Context, string, string) (SupportTicketDetail, error)
 }
 
 var _ AccountSecurityStore = (*PostgresStore)(nil)
@@ -829,7 +832,12 @@ func (s *PostgresStore) SupportTicketForAccount(ctx context.Context, accountID, 
 }
 
 func (s *PostgresStore) CloseSupportTicket(ctx context.Context, accountID, ticketID string, now time.Time) (SupportTicketDetail, error) {
-	result, err := support.Close(ctx, s.db, ticketID, "", now, " AND account_id = $4 AND status <> 'closed'", accountID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	defer tx.Rollback()
+	result, err := support.Close(ctx, tx, ticketID, "", now, " AND account_id = $4 AND status <> 'closed'", accountID)
 	if err != nil {
 		return SupportTicketDetail{}, err
 	}
@@ -839,7 +847,7 @@ func (s *PostgresStore) CloseSupportTicket(ctx context.Context, accountID, ticke
 	}
 	if affected == 0 {
 		var status string
-		err := s.db.QueryRowContext(ctx, `SELECT status FROM sesame_support_requests WHERE id = $1 AND account_id = $2`, ticketID, accountID).Scan(&status)
+		err := tx.QueryRowContext(ctx, `SELECT status FROM sesame_support_requests WHERE id = $1 AND account_id = $2`, ticketID, accountID).Scan(&status)
 		if errors.Is(err, sql.ErrNoRows) {
 			return SupportTicketDetail{}, ErrNotFound
 		}
@@ -847,6 +855,9 @@ func (s *PostgresStore) CloseSupportTicket(ctx context.Context, accountID, ticke
 			return SupportTicketDetail{}, err
 		}
 		return SupportTicketDetail{}, ErrSupportTicketClosed
+	}
+	if err := tx.Commit(); err != nil {
+		return SupportTicketDetail{}, err
 	}
 	return s.SupportTicketForAccount(ctx, accountID, ticketID)
 }
@@ -913,6 +924,188 @@ func (s *PostgresStore) ReplyToSupportTicket(ctx context.Context, accountID, tic
 		return SupportTicketDetail{}, err
 	}
 	if err = tx.Commit(); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	return s.SupportTicketForAccount(ctx, accountID, ticketID)
+}
+
+// resolveSupportAccessLink locks the ticket first and then the link, the same
+// order the close and attach transactions take, so a concurrent close, attach,
+// or newer link leaves nothing live.
+func resolveSupportAccessLink(ctx context.Context, tx *sql.Tx, tokenHash []byte) (string, error) {
+	var ticketID string
+	err := tx.QueryRowContext(ctx, `SELECT ticket_id FROM sesame_support_access_links WHERE token_hash = $1`, tokenHash).Scan(&ticketID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	var ticketEmail, status string
+	var accountID sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT email, status, account_id FROM sesame_support_requests WHERE id = $1 FOR UPDATE
+	`, ticketID).Scan(&ticketEmail, &status, &accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if accountID.Valid || status == "closed" {
+		return "", ErrNotFound
+	}
+	var requesterEmail string
+	err = tx.QueryRowContext(ctx, `
+		SELECT requester_email FROM sesame_support_access_links
+		WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW()
+		FOR UPDATE
+	`, tokenHash).Scan(&requesterEmail)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if requesterEmail != ticketEmail {
+		return "", ErrNotFound
+	}
+	return ticketID, nil
+}
+
+func (s *PostgresStore) SupportTicketForAccessToken(ctx context.Context, tokenHash []byte) (SupportTicketDetail, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	defer tx.Rollback()
+	ticketID, err := resolveSupportAccessLink(ctx, tx, tokenHash)
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sesame_support_access_links SET last_used_at = NOW() WHERE token_hash = $1`, tokenHash); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	var ticket SupportTicketDetail
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, subject, status, category, app_version, diagnostic_code, browser_integration, request_id, created_at, updated_at,
+			(SELECT COUNT(*) FROM sesame_support_messages message WHERE message.ticket_id = sesame_support_requests.id)
+		FROM sesame_support_requests
+		WHERE id = $1
+	`, ticketID).Scan(&ticket.ID, &ticket.Subject, &ticket.Status, &ticket.Category, &ticket.AppVersion, &ticket.DiagnosticCode, &ticket.BrowserIntegration, &ticket.RequestID, &ticket.CreatedAt, &ticket.UpdatedAt, &ticket.MessageCount)
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	ticket.CanClose = false
+	ticket.CanReopen = false
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, author_role, body, created_at
+		FROM sesame_support_messages
+		WHERE ticket_id = $1
+		ORDER BY created_at
+	`, ticketID)
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	defer rows.Close()
+	ticket.Messages = make([]SupportTicketMessage, 0)
+	for rows.Next() {
+		var message SupportTicketMessage
+		if err := rows.Scan(&message.ID, &message.AuthorRole, &message.Body, &message.CreatedAt); err != nil {
+			return SupportTicketDetail{}, err
+		}
+		ticket.Messages = append(ticket.Messages, message)
+	}
+	if err := rows.Err(); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	return ticket, nil
+}
+
+func (s *PostgresStore) ReplyToSupportTicketWithAccessToken(ctx context.Context, tokenHash []byte, body string) (SupportTicketDetail, error) {
+	messageID, err := newID()
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	defer tx.Rollback()
+	ticketID, err := resolveSupportAccessLink(ctx, tx, tokenHash)
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sesame_support_messages (id, ticket_id, author_role, body)
+		VALUES ($1, $2, 'user', $3)
+	`, messageID, ticketID, body); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE sesame_support_requests
+		SET status = CASE WHEN assigned_admin_id IS NULL THEN 'open' ELSE 'in_progress' END,
+			updated_at = NOW()
+		WHERE id = $1
+	`, ticketID); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sesame_support_access_links SET last_used_at = NOW() WHERE token_hash = $1`, tokenHash); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	return s.SupportTicketForAccessToken(ctx, tokenHash)
+}
+
+func (s *PostgresStore) AttachSupportTicket(ctx context.Context, accountID, ticketID string) (SupportTicketDetail, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	defer tx.Rollback()
+	var ticketEmail string
+	var owner sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT LOWER(email), account_id FROM sesame_support_requests WHERE id = $1 FOR UPDATE
+	`, ticketID).Scan(&ticketEmail, &owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SupportTicketDetail{}, ErrNotFound
+	}
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if owner.Valid {
+		return SupportTicketDetail{}, ErrNotFound
+	}
+	var accountEmail string
+	var verified bool
+	err = tx.QueryRowContext(ctx, `
+		SELECT LOWER(email), email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1
+	`, accountID).Scan(&accountEmail, &verified)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SupportTicketDetail{}, ErrNotFound
+	}
+	if err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if !verified {
+		return SupportTicketDetail{}, ErrEmailUnverified
+	}
+	if ticketEmail != accountEmail {
+		return SupportTicketDetail{}, ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sesame_support_requests SET account_id = $2 WHERE id = $1`, ticketID, accountID); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if _, err := support.RevokeAccessLinks(ctx, tx, ticketID, time.Now().UTC()); err != nil {
+		return SupportTicketDetail{}, err
+	}
+	if err := tx.Commit(); err != nil {
 		return SupportTicketDetail{}, err
 	}
 	return s.SupportTicketForAccount(ctx, accountID, ticketID)

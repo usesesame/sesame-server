@@ -748,28 +748,55 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 			adminStoreError(response, err)
 			return
 		}
-		sendEmail, err := a.supportReplyEmailEnabled(request.Context(), prior.AccountID)
-		if err != nil {
-			slog.Error("Sesame support reply email preference lookup failed", "error", err)
-			writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
-			return
-		}
 		var email *adminstore.TicketReplyEmail
 		var enqueue adminstore.TicketReplyEmailHook
-		if sendEmail {
-			sender, ok := a.config.EmailSender.(TransactionalEmailSender)
-			if !ok {
-				slog.Error("Sesame support reply email requires a transactional email sender")
+		if prior.AccountID == "" {
+			if a.config.EmailSender != nil {
+				if _, ok := a.config.EmailSender.(TransactionalEmailSender); !ok {
+					slog.Error("Sesame support link email requires a transactional email sender")
+					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+					return
+				}
+				token, tokenHash, err := accounts.NewSessionToken()
+				if err != nil {
+					slog.Error("Sesame support link token could not be generated", "error", err)
+					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+					return
+				}
+				expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+				email = &adminstore.TicketReplyEmail{
+					To:              prior.Email,
+					Subject:         "Sesame support replied to your request",
+					Body:            "Open the link to read the reply and answer in the same support thread.",
+					ActionURL:       strings.TrimRight(a.config.WebBaseURL, "/") + "/support/request#token=" + url.QueryEscape(token),
+					ExpiresAt:       expiresAt,
+					AccessTokenHash: tokenHash,
+				}
+			}
+		} else {
+			sendEmail, err := a.supportReplyEmailEnabled(request.Context(), prior.AccountID)
+			if err != nil {
+				slog.Error("Sesame support reply email preference lookup failed", "error", err)
 				writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
 				return
 			}
-			email = &adminstore.TicketReplyEmail{
-				To:        prior.Email,
-				Subject:   "Sesame support replied to your request",
-				Body:      "A Sesame support specialist replied to your request. Sign in to the support portal to read the reply.",
-				ActionURL: strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
-				ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+			if sendEmail {
+				if _, ok := a.config.EmailSender.(TransactionalEmailSender); !ok {
+					slog.Error("Sesame support reply email requires a transactional email sender")
+					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+					return
+				}
+				email = &adminstore.TicketReplyEmail{
+					To:        prior.Email,
+					Subject:   "Sesame support replied to your request",
+					Body:      "A Sesame support specialist replied to your request. Sign in to the support portal to read the reply.",
+					ActionURL: strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
+					ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+				}
 			}
+		}
+		if email != nil {
+			sender := a.config.EmailSender.(TransactionalEmailSender)
 			enqueue = func(ctx context.Context, tx *sql.Tx, messageID string) error {
 				return sender.SendAccountEmailTx(ctx, tx, AccountEmail{
 					Kind: "support-reply", To: email.To,

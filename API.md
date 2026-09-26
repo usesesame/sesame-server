@@ -331,6 +331,26 @@ state remains briefly so the website can show a clear success result.
 - `POST /v1/account/support/{id}/close` closes the user's open request.
 - `POST /v1/account/support/{id}/reopen` reopens a request closed by the user
   within 30 days.
+- `POST /v1/account/support/{id}/attach` attaches a guest request to the
+  signed-in account when the account is verified and its address matches the
+  request address, then returns the ticket. A closed guest request may still be
+  attached. Attaching revokes every live guest link in the same transaction.
+- `POST /v1/support/access` with `{token}` returns `200 {ticket}` for a live
+  guest link and `POST /v1/support/access/reply` with `{token,message}` adds a
+  text-only follow-up and returns `201 {ticket}`. Neither route reads or sets a
+  session cookie, and both are origin- and CSRF-checked like the intake route.
+
+A staff reply to a guest request queues one email that carries only a link and
+a short instruction, never the reply body, subject, or reference. The link
+secret is 32 random bytes stored only as a SHA-256 hash; the raw value travels
+in the URL fragment and in JSON request bodies. A link is repeatable for 7 days,
+issuing a newer link revokes the older ones, and closing or attaching the
+request revokes every live link. Redemption resolves only the one request the
+token was issued for and requires the request to stay unattached, open, and at
+the same address. Unknown, expired, revoked, closed, attached, and
+address-mismatched links all return the same `400 support_link_invalid` body.
+Redemption is limited to 60 requests per client per minute; replies are limited
+to 12 per client per hour and 20 per link per hour.
 
 Account ticket list and detail responses carry `autoClosed`. It is `true` when
 the system closed the request after 14 days without activity; the 30-day reopen
@@ -377,7 +397,9 @@ allowlisted label, never an extension-installation claim.
 Account support reads are scoped by both ticket ID and account ID. Public
 reference numbers do not grant access. Internal notes, assignment, priority,
 admin identities, email-delivery state, and audit data are never returned by
-account endpoints.
+account endpoints. A guest link is a capability for one request only: it is
+bound to the requester address stored at issue time and stops working on close,
+attach, or a newer link.
 
 ## Sync (registered, disabled)
 

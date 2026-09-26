@@ -33,6 +33,15 @@ This file records the current boundary and the remaining release work.
   a link to the toggle in Security settings.
 - A request the system closed after 14 days without activity says it closed
   automatically. The 30-day reopen path is unchanged.
+- A staff reply to a guest request queues an email that carries only a link and
+  a short instruction. The link opens `/support/request` in the account portal,
+  reads that one request, and can add a text-only follow-up. It is repeatable
+  for 7 days, a newer link revokes the older ones, and closing or attaching the
+  request revokes every live link. The page keeps the token out of the address
+  bar and browser history, and no website session is required or created.
+- A guest can attach the request to a signed-in account whose verified address
+  matches the request address. Attaching moves the request to
+  `/v1/account/support/*` and revokes every live guest link.
 - Both sites repeat the no-secrets boundary before directing or submitting a
   request.
 
@@ -65,6 +74,10 @@ This file records the current boundary and the remaining release work.
   transaction as the reply, so a failed enqueue fails the reply. A preference
   lookup failure fails the reply instead of silently skipping the email. The
   email links to the portal and never contains the reply body.
+- A staff reply to a guest request queues the one-request link email in the
+  same transaction as the reply and the link row when SMTP is configured. The
+  email carries only the link and a short instruction. With mail delivery off,
+  the reply is still stored and marked undelivered, and no link is issued.
 - When `SESAME_SUPPORT_NOTIFY_EMAIL` is set, a new request and a signed-in
   follow-up queue one notice to that address. The notice carries the reference,
   category, and admin console link, never the subject or message. With no
@@ -93,7 +106,11 @@ This file records the current boundary and the remaining release work.
   applies that to existing rows, and adds the `support-receipt` and
   `support-staff-notify` outbox kinds. Migration
   `0040_support_operations.sql` adds the system-close marker and the saved-reply
-  table.
+  table. Migration
+  `0041_support_access_links.sql` adds the one-request link table: only the
+  SHA-256 token hash is stored, with the request id, the requester address, the
+  expiry, and revocation timestamps. Rows cascade with the request, and the
+  hourly purge removes expired and revoked links.
 - Ticket ownership is tied to the website account when the requester is signed in. A guest reference number is not an authentication credential.
 - Hourly maintenance deletes a closed request and its linked email outbox rows
   90 days after closure. Open, in-progress, and waiting requests are not deleted
@@ -106,13 +123,13 @@ This file records the current boundary and the remaining release work.
 Staff replies are visible in the signed-in account portal. Intake queues a
 receipt to the requester and, when a staff address is configured, a notice to
 that address. A staff reply queues a durable notification when the account's
-support-reply preference is on; the preference defaults on for new and
-existing accounts. The worker records pending, delivered, and failed states
-with bounded retries. The admin workspace receives a server-computed reason per
-staff message instead of the raw outbox status, so a guest request, a
-turned-off account, and an unconfigured sender are distinguishable. Portal
-visibility does not depend on email delivery, and no notification contains the
-subject or support message.
+support-reply preference is on, and the preference defaults on for new and
+existing accounts. For a guest request it queues the one-request link email
+instead. The worker records pending, delivered, and failed states with bounded
+retries. The admin workspace receives a server-computed reason per staff message
+instead of the raw outbox status, so a guest request, a turned-off account, and
+an unconfigured sender are distinguishable. Portal visibility does not depend
+on email delivery, and no notification contains the subject or support message.
 
 The public support flow is suitable for controlled beta testing, not a promise of continuous support. The response expectation shown to requesters is "We aim to reply within 3 business days." There is no attachment handling, live chat, phone support, automatic desktop-log upload, or vault recovery service.
 

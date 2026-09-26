@@ -227,6 +227,8 @@ func New(config Config) http.Handler {
 	service.route(mux, metadata, "GET /v1/auth/registration", service.registrationStatus)
 
 	service.route(mux, web, "POST /v1/support/requests", service.createSupportRequest)
+	service.route(mux, web, "POST /v1/support/access", service.redeemSupportAccess)
+	service.route(mux, web, "POST /v1/support/access/reply", service.replyToSupportAccess)
 	service.route(mux, web, "POST /v1/auth/register", service.register)
 	service.route(mux, privateWebRead, "GET /v1/auth/csrf", service.csrf)
 	service.route(mux, web, "POST /v1/auth/login", service.login)
@@ -255,6 +257,7 @@ func New(config Config) http.Handler {
 	service.route(mux, web, "POST /v1/account/support/{ticketID}/reply", service.accountSupportTicketAction("reply"))
 	service.route(mux, web, "POST /v1/account/support/{ticketID}/close", service.accountSupportTicketAction("close"))
 	service.route(mux, web, "POST /v1/account/support/{ticketID}/reopen", service.accountSupportTicketAction("reopen"))
+	service.route(mux, web, "POST /v1/account/support/{ticketID}/attach", service.accountSupportTicketAction("attach"))
 	service.route(mux, privateWebRead, "GET /v1/account/desktop-link", service.desktopLinkStatus)
 	service.route(mux, web, "POST /v1/account/desktop-link", service.regenerateDesktopLink)
 	service.route(mux, web, "DELETE /v1/account/desktop-link", service.cancelDesktopLink)

@@ -40,7 +40,21 @@ func Close(ctx context.Context, exec Executor, ticketID, closedBy string, now ti
 		UPDATE sesame_support_requests
 		SET status = 'closed', closed_at = $2, closed_by = $3, closed_by_system = FALSE, account_reopen_until = $2::timestamptz + INTERVAL '` + ReopenWindow + `', updated_at = $2
 		WHERE id = $1` + extraWhere
-	return exec.ExecContext(ctx, query, args...)
+	result, err := exec.ExecContext(ctx, query, args...)
+	if err != nil {
+		return result, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return result, err
+	}
+	if affected == 0 {
+		return result, nil
+	}
+	if _, err := RevokeAccessLinks(ctx, exec, ticketID, now); err != nil {
+		return result, err
+	}
+	return result, nil
 }
 
 // CloseAutomatically closes a waiting ticket that has seen no activity since
