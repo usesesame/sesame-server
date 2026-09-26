@@ -112,6 +112,8 @@
   let notificationPreferencesLoaded = false
   let notificationPreferencesSaving = false
   let notificationPreferencesError = ''
+  const supportReplyNoticeKey = 'sesame-support-reply-email-notice'
+  let supportReplyNoticeVisible = false
 
   let deleteOpen = false
   let deletePassword = ''
@@ -137,6 +139,7 @@
     poll = window.setInterval(() => {
       if (link?.state === 'pending') void refreshDesktopLink(false)
     }, 5000)
+    supportReplyNoticeVisible = supportReplyNoticeUnseen()
     void loadAccess()
   })
 
@@ -155,6 +158,23 @@
       downloads = await getAccountDownloads().catch(() => [])
     } catch { /* Account can still manage security if entitlement data is unavailable. */ }
     accessLoaded = true
+  }
+
+  function supportReplyNoticeUnseen() {
+    try {
+      return localStorage.getItem(supportReplyNoticeKey) !== 'seen'
+    } catch {
+      return true
+    }
+  }
+
+  function dismissSupportReplyNotice() {
+    supportReplyNoticeVisible = false
+    try {
+      localStorage.setItem(supportReplyNoticeKey, 'seen')
+    } catch {
+      return
+    }
   }
 
   async function startDownload(release: AccountDownload) {
@@ -472,7 +492,12 @@
           {#if notificationPreferencesError}<p class="auth-error" role="alert">{notificationPreferencesError}</p>{/if}
           <div class="notification-options" role="group" aria-label="Optional email notifications">
             <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.betaReleases} /><span>New beta releases</span></label>
-            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.supportReplies} /><span>Support replies</span></label>
+            <div class="notification-reply">
+              <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.supportReplies} /><span>Support replies</span></label>
+              {#if supportReplyNoticeVisible}
+                <p class="notification-notice" role="status"><span>Reply email is now on for this account.</span><button class="button button-soft button-sm" type="button" on:click={dismissSupportReplyNotice}>Got it</button></p>
+              {/if}
+            </div>
             <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.productAnnouncements} /><span>Product announcements</span></label>
           </div>
           <div class="notification-actions"><button class="button button-soft button-sm" type="button" on:click={saveNotificationPreferences} disabled={notificationPreferencesSaving}>{notificationPreferencesSaving ? 'Saving…' : 'Save preferences'}</button></div>

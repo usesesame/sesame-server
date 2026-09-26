@@ -6,7 +6,7 @@
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
   import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
   import { TICKET_CATEGORY_LABELS } from './lib/types'
-  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
+  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
   type AdminIdentity = { admin: AdminAccount; deploymentProfile?: 'operator' | 'project' }
@@ -41,6 +41,7 @@
   let auditFrom = ''
   let auditTo = ''
   let system: OperationalSnapshot | null = null
+  let systemMail: SystemMailConfig | null = null
   let systemFailure: '' | 'unavailable' | 'unauthorized' = ''
   let inviteEmail = ''
   let inviteRole: Role = 'support'
@@ -142,9 +143,15 @@
       if (next === 'audit') await loadAudit()
       if (next === 'system') {
         system = null
+        systemMail = null
         systemFailure = ''
         try {
-          system = await request<OperationalSnapshot>('/v1/admin/system/health')
+          const [health, mail] = await Promise.all([
+            request<OperationalSnapshot>('/v1/admin/system/health'),
+            request<SystemMailConfig>('/v1/admin/system/config'),
+          ])
+          system = health
+          systemMail = mail
         } catch (reason) {
           systemFailure = reason instanceof APIError && reason.status === 403 ? 'unauthorized' : 'unavailable'
         }
@@ -535,7 +542,7 @@
       {:else if page === 'audit'}
         <section class="panel audit-filters"><div><label>Action<input placeholder="user.suspend" bind:value={auditAction} /></label>{#if canAuditAll}<label>Admin ID<input placeholder="Optional" bind:value={auditAdmin} /></label>{/if}<label>From<input type="datetime-local" bind:value={auditFrom} /></label><label>To<input type="datetime-local" bind:value={auditTo} /></label></div><div class="toolbar"><button onclick={loadAudit}>Apply filters</button>{#if canAuditAll}<button onclick={exportAudit}>Export CSV</button>{/if}<span>{audit.length} results on this page</span></div></section><section class="table-panel"><table><thead><tr><th>Time</th><th>Administrator</th><th>Action</th><th>Target</th></tr></thead><tbody>{#each audit as entry (entry.id)}<tr><td>{date(entry.createdAt)}</td><td>{entry.adminEmail || 'Deleted admin'}</td><td><code>{entry.action}</code></td><td>{entry.targetType} {entry.targetId || ''}</td></tr>{/each}</tbody></table></section>
       {:else if page === 'system'}
-        <SystemWorkspace snapshot={system} failure={systemFailure} />
+        <SystemWorkspace snapshot={system} mail={systemMail} failure={systemFailure} />
       {/if}
     </main>
   </div>

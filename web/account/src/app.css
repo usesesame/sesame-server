@@ -218,6 +218,8 @@ p { overflow-wrap: break-word; }
 .account-form input:focus { box-shadow: var(--field-ring); }
 .account-form small { color: var(--text-faint); font-size: var(--type-2); line-height: 1.5; }
 .notification-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 10px; margin-top: 18px; }
+.notification-reply { display: grid; align-content: start; gap: 8px; }
+.notification-notice { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0; border-left: 3px solid var(--accent-link); padding: 6px 0 6px 11px; color: var(--text-muted); font-size: var(--type-2); line-height: 1.5; }
 .notification-option { display: flex; min-height: 48px; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; color: var(--text-heading); background: var(--surface-inset); font-size: var(--type-2); font-weight: var(--weight-bold); line-height: 1.35; cursor: pointer; transition: border-color .16s ease, background-color .16s ease; }
 .notification-option:hover { border-color: color-mix(in srgb, var(--accent-link) 55%, var(--border)); }
 .notification-option:has(input:focus-visible) { box-shadow: var(--field-ring); }
