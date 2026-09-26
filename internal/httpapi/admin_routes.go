@@ -198,7 +198,7 @@ func (a *api) adminFlags(response http.ResponseWriter, request *http.Request) {
 		}
 		return
 	}
-	flags, err := a.config.Admin.FeatureFlags(request.Context())
+	flags, err := a.visibleFeatureFlags(request.Context())
 	if err != nil {
 		adminStoreError(response, err)
 		return
@@ -213,7 +213,7 @@ func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
 	}
 	var input featureFlagRequest
 	key := request.PathValue("key")
-	if !decodeAdminJSON(response, request, &input) || !validFeatureFlag(key, input.Value) {
+	if !decodeAdminJSON(response, request, &input) || !a.validFeatureFlag(key, input.Value) {
 		writeError(response, http.StatusBadRequest, "invalid_feature_flag", "That feature flag value is not allowed.")
 		return
 	}
@@ -224,11 +224,37 @@ func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
 	response.WriteHeader(http.StatusNoContent)
 }
 
-func validFeatureFlag(key, value string) bool {
+var operatorHiddenFeatureFlags = map[string]struct{}{
+	"public_download": {},
+	"updater_enabled": {},
+}
+
+func (a *api) visibleFeatureFlags(ctx context.Context) ([]adminstore.FeatureFlag, error) {
+	flags, err := a.config.Admin.FeatureFlags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if a.projectProfile() {
+		return flags, nil
+	}
+	visible := make([]adminstore.FeatureFlag, 0, len(flags))
+	for _, flag := range flags {
+		if _, hidden := operatorHiddenFeatureFlags[flag.Key]; hidden {
+			continue
+		}
+		visible = append(visible, flag)
+	}
+	return visible, nil
+}
+
+func (a *api) validFeatureFlag(key, value string) bool {
 	switch key {
 	case "registration_mode":
 		return value == "closed" || value == "invite" || value == "public"
 	case "cloud_sync_available", "public_download", "desktop_linking_enabled", "downloads_enabled", "updater_enabled":
+		if _, hidden := operatorHiddenFeatureFlags[key]; hidden && !a.projectProfile() {
+			return false
+		}
 		return value == "true" || value == "false"
 	default:
 		return false
@@ -571,7 +597,7 @@ func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Requ
 	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
 		return
 	}
-	flags, err := a.config.Admin.FeatureFlags(request.Context())
+	flags, err := a.visibleFeatureFlags(request.Context())
 	if err != nil {
 		adminStoreError(response, err)
 		return
@@ -579,6 +605,7 @@ func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Requ
 	writeJSON(response, http.StatusOK, map[string]any{
 		"adminOrigin": a.config.AdminOrigin, "sessionTTLSeconds": int(a.config.AdminSessionTTL.Seconds()),
 		"trustedProxyCount": len(a.config.TrustedProxies), "featureFlags": flags,
+		"deploymentProfile":             a.config.DeploymentProfile,
 		"trustedProxiesRuntimeEditable": false,
 		"note":                          "Trusted proxy changes require a reviewed configuration change and restart.",
 	})

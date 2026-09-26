@@ -14,6 +14,9 @@ import (
 const desktopUpdateTicketTTL = 30 * time.Minute
 
 func (a *api) desktopUpdate(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	if !a.requireAccounts(response) {
 		return
 	}
@@ -174,6 +177,9 @@ func includedInRollout(releaseID, accountID string, percent int) bool {
 }
 
 func (a *api) redeemDesktopUpdateTicket(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	if !a.requireAccounts(response) {
 		return
 	}

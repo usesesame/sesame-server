@@ -41,6 +41,15 @@ for (const service of ['api', 'migrate', 'account', 'admin']) {
   if (production.services[service]?.build) throw new Error(`Production ${service} must not contain a build context.`)
   digestReference(production.services[service]?.image, `Production ${service}`)
 }
+if (development.services.api?.environment?.SESAME_DEPLOYMENT_PROFILE) {
+  throw new Error('The development stack must default to the operator deployment profile.')
+}
+if (production.services.api?.environment?.SESAME_DEPLOYMENT_PROFILE !== 'project') {
+  throw new Error('The production stack must run the project deployment profile.')
+}
+if (candidate.services['candidate-api']?.environment?.SESAME_DEPLOYMENT_PROFILE !== 'project') {
+  throw new Error('The candidate check must run the project deployment profile.')
+}
 if (production.services.api.image !== production.services.migrate.image) {
   throw new Error('API and migration jobs must use the same immutable image.')
 }

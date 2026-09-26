@@ -30,13 +30,13 @@ func (a *api) capabilities(response http.ResponseWriter, request *http.Request) 
 		LatestDesktopVersion:  a.config.LatestDesktopVersion,
 		Features: map[string]bool{
 			"desktopLinking": a.runtimeFlagBool(request.Context(), "desktop_linking_enabled", false),
-			"downloads":      a.runtimeFlagBool(request.Context(), "downloads_enabled", false),
-			"updater":        a.runtimeFlagBool(request.Context(), "updater_enabled", false),
+			"downloads":      a.projectCapability(request.Context(), "downloads_enabled"),
+			"updater":        a.projectCapability(request.Context(), "updater_enabled"),
 			"sync":           a.syncEnabled(request.Context()),
 		},
 		ServiceStatus: map[string]bool{
 			"accounts":  a.config.Accounts != nil,
-			"downloads": a.runtimeFlagBool(request.Context(), "downloads_enabled", false),
+			"downloads": a.projectCapability(request.Context(), "downloads_enabled"),
 			"desktop":   a.runtimeFlagBool(request.Context(), "desktop_linking_enabled", false),
 			"sync":      a.syncEnabled(request.Context()),
 		},

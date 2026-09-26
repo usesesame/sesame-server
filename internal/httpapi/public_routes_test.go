@@ -61,7 +61,7 @@ func TestLatestReleaseMessageMatchesTheArtifactEvidence(t *testing.T) {
 			t.Fatalf("create Linux artifact %s: %v", format, err)
 		}
 	}
-	handler := New(Config{Admin: adminStore})
+	handler := New(Config{Admin: adminStore, DeploymentProfile: DeploymentProfileProject})
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/releases/latest?platform=linux", nil)
 	response := httptest.NewRecorder()

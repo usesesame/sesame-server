@@ -570,9 +570,10 @@ func (a *api) accountBootstrap(response http.ResponseWriter, request *http.Reque
 		}
 	}
 	payload := map[string]any{
-		"account":  user,
-		"access":   access,
-		"licences": access.Licences,
+		"account":           user,
+		"access":            access,
+		"licences":          access.Licences,
+		"deploymentProfile": a.config.DeploymentProfile,
 		"capabilities": map[string]bool{
 			"desktopLinking": desktopLinking,
 			"passkeys":       a.config.Passkeys != nil,
@@ -603,6 +604,9 @@ func (a *api) accountBootstrap(response http.ResponseWriter, request *http.Reque
 }
 
 func (a *api) accountDownloads(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	if !a.capabilityEnabled(request.Context(), "downloads_enabled") {
 		writeError(response, http.StatusServiceUnavailable, "downloads_disabled", "Verified private-beta downloads are temporarily unavailable.")
 		return
@@ -628,6 +632,9 @@ func (a *api) accountDownloads(response http.ResponseWriter, request *http.Reque
 }
 
 func (a *api) accountDownloadTickets(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	if !a.capabilityEnabled(request.Context(), "downloads_enabled") {
 		writeError(response, http.StatusServiceUnavailable, "downloads_disabled", "Verified private-beta downloads are temporarily unavailable.")
 		return
@@ -731,6 +738,9 @@ func distributableWindowsRelease(release accounts.DownloadRelease) bool {
 }
 
 func (a *api) redeemDownloadTicket(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	if !a.requireAccounts(response) {
 		return
 	}
