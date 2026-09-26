@@ -43,21 +43,27 @@ func (w *Worker) Run(ctx context.Context) {
 func (w *Worker) pollOnce(ctx context.Context) {
 	items, err := w.outbox.Poll(ctx, w.batchSize)
 	if err != nil {
-		slog.Warn("email outbox poll failed", "error", err)
+		if ctx.Err() == nil {
+			slog.Warn("email outbox poll failed", "error", err)
+		}
 		return
 	}
 	for _, item := range items {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		default:
 		}
 		if err := w.deliver(ctx, item); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			slog.Warn("email outbox delivery failed", "id", item.ID, "kind", item.Kind, "error", err)
 			if markErr := w.outbox.MarkFailed(ctx, item.ID, err); markErr != nil {
 				slog.Warn("email outbox mark-failed failed", "id", item.ID, "error", markErr)
 			}
 			continue
+		}
+		if ctx.Err() != nil {
+			return
 		}
 		if markErr := w.outbox.MarkDelivered(ctx, item.ID); markErr != nil {
 			slog.Warn("email outbox mark-delivered failed", "id", item.ID, "error", markErr)
