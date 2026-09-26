@@ -5,6 +5,7 @@
   import AuthPage from './pages/AuthPage.svelte'
   import LegalPage from './pages/LegalPage.svelte'
   import SupportPage from './pages/SupportPage.svelte'
+  import SupportRequestPage from './pages/SupportRequestPage.svelte'
   import { loadAuthState, getAccountBootstrap, type Account, type AuthState } from './lib/auth'
   import { siteOrigin } from './lib/runtime-config'
 
@@ -12,20 +13,22 @@
   const LEGAL_PAGES = ['terms', 'privacy', 'security'] as const
   type FlowPage = (typeof FLOW_PAGES)[number]
   type LegalPageName = (typeof LEGAL_PAGES)[number]
-  type Page = 'account' | 'login' | 'register' | 'support' | FlowPage | LegalPageName | 'not-found'
+  type Page = 'account' | 'login' | 'register' | 'support' | 'support-request' | FlowPage | LegalPageName | 'not-found'
 
   export let initialPath = typeof window === 'undefined' ? '/account' : window.location.pathname
 
   const route = initialPath.replace(/\/+$/, '') || '/'
   const page: Page = route === '/' || route === '/account'
     ? 'account'
-    : (['login', 'register', 'support', ...FLOW_PAGES, ...LEGAL_PAGES] as string[]).includes(route.slice(1))
-      ? (route.slice(1) as Page)
-      : 'not-found'
+    : route === '/support/request'
+      ? 'support-request'
+      : (['login', 'register', 'support', ...FLOW_PAGES, ...LEGAL_PAGES] as string[]).includes(route.slice(1))
+        ? (route.slice(1) as Page)
+        : 'not-found'
   const isFlow = (value: Page): value is FlowPage => (FLOW_PAGES as readonly string[]).includes(value)
   const isLegal = (value: Page): value is LegalPageName => (LEGAL_PAGES as readonly string[]).includes(value)
 
-  const needsSessionCheck = page === 'account' || page === 'support' || page === 'login'
+  const needsSessionCheck = page === 'account' || page === 'support' || page === 'support-request' || page === 'login'
   let account: Account | null = null
   let authState: AuthState = needsSessionCheck ? { state: 'loading' } : { state: 'anonymous' }
   let supportUnread = 0
@@ -91,6 +94,8 @@
     />
   {:else if page === 'support'}
     <SupportPage {account} />
+  {:else if page === 'support-request'}
+    <SupportRequestPage {account} authLoading={authState.state === 'loading'} />
   {:else if isLegal(page)}
     <LegalPage document={page} />
   {:else if page === 'account'}

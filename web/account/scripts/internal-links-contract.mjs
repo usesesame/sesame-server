@@ -12,6 +12,7 @@ const knownRoutes = new Set([
   '/login',
   '/register',
   '/support',
+  '/support/request',
   '/forgot-password',
   '/reset-password',
   '/verify-email',

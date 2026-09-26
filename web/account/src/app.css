@@ -367,6 +367,18 @@ p { overflow-wrap: break-word; }
 .support-account-note p { margin: 5px 0 0; color: var(--text-muted); font-size: var(--type-3); line-height: 1.6; }
 .support-account-note a { color: var(--accent-link); font-weight: var(--weight-bold); }
 .support-receipt-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.support-request-section { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, .6fr); gap: 22px; align-items: start; padding-top: 58px; }
+.support-request-thread { min-width: 0; padding: clamp(18px, 2.6vw, 26px); }
+.support-request-thread .support-thread { padding: 0; background: transparent; }
+.support-thread-head h1 { margin: 0; color: var(--text-heading); font-size: var(--type-4); }
+.support-request-message { padding: clamp(24px, 4vw, 38px); }
+.support-request-message h1 { margin: 0 0 12px; color: var(--text-heading); font-size: var(--type-5); }
+.support-request-message p { color: var(--text-muted); line-height: 1.6; }
+.support-request-attach { padding: 26px; }
+.support-request-attach h2 { margin: 0 0 12px; color: var(--text-heading); font-size: var(--type-3); }
+.support-request-attach p { color: var(--text-muted); font-size: var(--type-3); line-height: 1.6; }
+.support-request-attach .button { margin-top: 6px; }
+.support-request-note { font-size: var(--type-2); }
 .support-faq { padding-top: 10px; }
 .support-faq .faq-block { margin-top: 0; }
 .site-footer { border-top: 1px solid var(--border); margin-top: 40px; }
