@@ -51,6 +51,7 @@ const authenticated = { state: 'authenticated', account } as const
 function bootstrap(overrides: Partial<AccountBootstrap> = {}): AccountBootstrap {
   return {
     account,
+    deploymentProfile: 'project',
     access: { betaAccess: true, emailVerified: true, downloadsAllowed: true, licences: [] },
     licences: [],
     capabilities: { desktopLinking: true, passkeys: true, browserHelper: false, notifications: true },

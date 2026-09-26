@@ -42,7 +42,7 @@ function plan(overrides: Partial<Plan> = {}): Plan {
 
 function mockApp(routes: (path: string) => unknown, overrides: Partial<AdminAccount> = {}) {
   api.request.mockImplementation(async (path: string) => {
-    if (path === '/v1/admin/auth/me') return { admin: admin(overrides) }
+    if (path === '/v1/admin/auth/me') return { admin: admin(overrides), deploymentProfile: 'project' }
     if (path === '/v1/admin/overview') return { overview: {} }
     return routes(path)
   })
