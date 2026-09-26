@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -81,6 +82,13 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 		if err != nil {
 			accountSupportError(response, err)
 			return
+		}
+		if a.config.EmailSender != nil {
+			if notice, ok := a.supportStaffNotice(ticket.ID, ticket.Category); ok {
+				if err := a.config.EmailSender.SendAccountEmail(request.Context(), notice); err != nil {
+					slog.Error("Sesame support follow-up notice could not be queued", "error", err)
+				}
+			}
 		}
 		writeJSON(response, http.StatusCreated, map[string]any{"ticket": ticket})
 		return

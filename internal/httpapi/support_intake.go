@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -91,6 +92,9 @@ func (a *api) createSupportRequest(response http.ResponseWriter, request *http.R
 			}
 		}
 	}
+	if a.config.EmailSender != nil && !a.allowIdentity(response, request, "support-receipt", email, 3, time.Hour) {
+		return
+	}
 	id, err := store.CreateSupportRequest(request.Context(), accounts.SupportRequest{
 		AccountID: accountID, Email: email, Subject: input.Subject, Message: input.Message, Category: input.Category,
 		AppVersion: input.AppVersion, DiagnosticCode: input.DiagnosticCode, BrowserIntegration: input.BrowserIntegration, RequestID: input.RequestID,
@@ -99,7 +103,45 @@ func (a *api) createSupportRequest(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support intake is temporarily unavailable.")
 		return
 	}
+	for _, message := range a.supportIntakeEmails(id, email, input.Category) {
+		if err := a.config.EmailSender.SendAccountEmail(request.Context(), message); err != nil {
+			slog.Error("Sesame support intake email could not be queued", "kind", message.Kind, "error", err)
+		}
+	}
 	writeJSON(response, http.StatusAccepted, map[string]any{"requestId": id, "status": "open"})
+}
+
+func (a *api) supportIntakeEmails(reference, email, category string) []AccountEmail {
+	if a.config.EmailSender == nil {
+		return nil
+	}
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	messages := []AccountEmail{{
+		Kind:      "support-receipt",
+		To:        email,
+		Subject:   "Sesame received your support request",
+		Body:      "Your support request reference is " + reference + ". Open the support portal for updates.",
+		ActionURL: strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
+		ExpiresAt: expiresAt,
+	}}
+	if notice, ok := a.supportStaffNotice(reference, category); ok {
+		messages = append(messages, notice)
+	}
+	return messages
+}
+
+func (a *api) supportStaffNotice(reference, category string) (AccountEmail, bool) {
+	if a.config.SupportNotifyEmail == "" {
+		return AccountEmail{}, false
+	}
+	return AccountEmail{
+		Kind:      "support-staff-notify",
+		To:        a.config.SupportNotifyEmail,
+		Subject:   "New Sesame support request",
+		Body:      "Support request " + reference + " arrived in the " + category + " category.",
+		ActionURL: strings.TrimRight(a.config.AdminOrigin, "/"),
+		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+	}, true
 }
 
 // A guard rail, not a guarantee: no filter can recognise every secret.

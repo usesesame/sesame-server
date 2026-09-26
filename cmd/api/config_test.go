@@ -35,3 +35,29 @@ func TestDeploymentProfileFromEnvironment(t *testing.T) {
 		t.Fatal("an unknown deployment profile must stop startup")
 	}
 }
+
+func TestSupportNotifyAddressValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{name: "empty", value: "", want: "", wantErr: false},
+		{name: "plain address", value: "support@example.invalid", want: "support@example.invalid", wantErr: false},
+		{name: "display name", value: "Sesame Support <support@example.invalid>", want: "Sesame Support <support@example.invalid>", wantErr: false},
+		{name: "trimmed", value: "  support@example.invalid  ", want: "support@example.invalid", wantErr: false},
+		{name: "not an address", value: "not-an-address", want: "", wantErr: true},
+		{name: "header injection", value: "support@example.invalid\r\nBcc: attacker@example.invalid", want: "", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := supportNotifyAddress(tc.value)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Fatalf("address = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

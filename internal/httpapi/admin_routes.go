@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -606,6 +607,8 @@ func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Requ
 		"adminOrigin": a.config.AdminOrigin, "sessionTTLSeconds": int(a.config.AdminSessionTTL.Seconds()),
 		"trustedProxyCount": len(a.config.TrustedProxies), "featureFlags": flags,
 		"deploymentProfile":             a.config.DeploymentProfile,
+		"supportNotifyEmailConfigured":  a.config.SupportNotifyEmail != "",
+		"emailDeliveryConfigured":       a.config.EmailSender != nil,
 		"trustedProxiesRuntimeEditable": false,
 		"note":                          "Trusted proxy changes require a reviewed configuration change and restart.",
 	})
@@ -744,22 +747,41 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 			adminStoreError(response, err)
 			return
 		}
-		sendEmail := a.supportReplyEmailEnabled(request.Context(), prior.AccountID)
-		ticket, err := a.config.Admin.ReplyTicket(request.Context(), actor, ticketID, body, sendEmail, a.adminIPHash(request))
+		sendEmail, err := a.supportReplyEmailEnabled(request.Context(), prior.AccountID)
+		if err != nil {
+			slog.Error("Sesame support reply email preference lookup failed", "error", err)
+			writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+			return
+		}
+		var email *adminstore.TicketReplyEmail
+		var enqueue adminstore.TicketReplyEmailHook
+		if sendEmail {
+			sender, ok := a.config.EmailSender.(TransactionalEmailSender)
+			if !ok {
+				slog.Error("Sesame support reply email requires a transactional email sender")
+				writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+				return
+			}
+			email = &adminstore.TicketReplyEmail{
+				To:        prior.Email,
+				Subject:   "Sesame support replied to your request",
+				Body:      "A Sesame support specialist replied to your request. Sign in to the support portal to read the reply.",
+				ActionURL: strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
+				ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+			}
+			enqueue = func(ctx context.Context, tx *sql.Tx, messageID string) error {
+				return sender.SendAccountEmailTx(ctx, tx, AccountEmail{
+					Kind: "support-reply", To: email.To,
+					Subject: email.Subject, Body: email.Body,
+					ActionURL: email.ActionURL, ExpiresAt: email.ExpiresAt,
+					SupportMessageID: messageID,
+				})
+			}
+		}
+		ticket, err := a.config.Admin.ReplyTicket(request.Context(), actor, ticketID, body, email, enqueue, a.adminIPHash(request))
 		if err != nil {
 			adminStoreError(response, err)
 			return
-		}
-		if sendEmail && len(ticket.Messages) > 0 && a.config.EmailSender != nil {
-			messageID := ticket.Messages[len(ticket.Messages)-1].ID
-			_ = a.config.EmailSender.SendAccountEmail(request.Context(), AccountEmail{
-				Kind: "support-reply", To: ticket.Email,
-				Subject:          "Sesame support replied to your request",
-				Body:             "A Sesame support specialist replied to your request. Sign in to the support portal to read the reply.",
-				ActionURL:        strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
-				SupportMessageID: messageID,
-				ExpiresAt:        time.Now().UTC().Add(7 * 24 * time.Hour),
-			})
 		}
 		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
 		return
@@ -878,14 +900,17 @@ func (a *api) adminSupportAssignees(response http.ResponseWriter, request *http.
 	writeJSON(response, http.StatusOK, map[string]any{"assignees": assignees})
 }
 
-func (a *api) supportReplyEmailEnabled(ctx context.Context, accountID string) bool {
+func (a *api) supportReplyEmailEnabled(ctx context.Context, accountID string) (bool, error) {
 	if accountID == "" || a.config.EmailSender == nil {
-		return false
+		return false, nil
 	}
 	store, ok := a.config.Accounts.(accounts.NotificationPreferencesStore)
 	if !ok {
-		return false
+		return false, errors.New("account store does not expose notification preferences")
 	}
 	preferences, err := store.NotificationPreferences(ctx, accountID)
-	return err == nil && preferences.SupportReplies
+	if err != nil {
+		return false, err
+	}
+	return preferences.SupportReplies, nil
 }

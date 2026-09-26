@@ -192,7 +192,8 @@ ceremony.
   recent security events.
 - `GET /v1/account/notifications` returns `{securityMandatory:true,preferences}`.
   `PATCH` the same path with `{betaReleases,supportReplies,productAnnouncements}`
-  returns `204`. Security mail cannot be switched off.
+  returns `204`. `supportReplies` defaults to on for every account and can be
+  switched off. Security mail cannot be switched off.
 - `POST /v1/account/delete` with `{password}` deletes the account. Requires
   recent authentication and re-verifies the password.
 
@@ -329,6 +330,16 @@ state remains briefly so the website can show a clear success result.
 - `POST /v1/account/support/{id}/close` closes the user's open request.
 - `POST /v1/account/support/{id}/reopen` reopens a request closed by the user
   within 30 days.
+
+Guest and signed-in intake returns the reference and, when SMTP is configured,
+queues a receipt to the requester that carries only the reference and the
+portal link. Intake is capped per client and per recipient address. When
+`SESAME_SUPPORT_NOTIFY_EMAIL` is set, a new request and a signed-in follow-up
+queue one notice to that address with the reference, category, and admin
+console link. Staff replies queue a notice only when the owning account's
+support-reply preference is on; that enqueue shares the reply transaction, so a
+failed enqueue fails the reply. No notification contains the subject or
+message.
 
 The intake accepts JSON only, rejects attachment fields and multipart bodies,
 and refuses secret-shaped content: `key: value` assignments, the prose form of

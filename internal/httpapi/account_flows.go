@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,10 @@ const (
 
 type EmailSender interface {
 	SendAccountEmail(context.Context, AccountEmail) error
+}
+
+type TransactionalEmailSender interface {
+	SendAccountEmailTx(context.Context, *sql.Tx, AccountEmail) error
 }
 
 type AccountEmail struct {

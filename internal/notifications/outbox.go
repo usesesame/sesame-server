@@ -22,6 +22,11 @@ type Outbox interface {
 	PurgeFailedOlderThan(ctx context.Context, age time.Duration) (int64, error)
 }
 
+// Queues a message inside a caller-owned transaction, so the row commits or rolls back with it.
+type TransactionalOutbox interface {
+	EnqueueTx(ctx context.Context, tx *sql.Tx, message httpapi.AccountEmail) (string, error)
+}
+
 type OutboxItem struct {
 	ID        string
 	Kind      string
@@ -79,8 +84,20 @@ func (o *PostgresOutbox) OperationalSummary(ctx context.Context) (httpapi.Operat
 }
 
 func (o *PostgresOutbox) Enqueue(ctx context.Context, message httpapi.AccountEmail) (string, error) {
+	return enqueueOutboxMessage(ctx, o.db, message)
+}
+
+func (o *PostgresOutbox) EnqueueTx(ctx context.Context, tx *sql.Tx, message httpapi.AccountEmail) (string, error) {
+	return enqueueOutboxMessage(ctx, tx, message)
+}
+
+type outboxInserter interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func enqueueOutboxMessage(ctx context.Context, db outboxInserter, message httpapi.AccountEmail) (string, error) {
 	var id string
-	err := o.db.QueryRowContext(ctx, `
+	err := db.QueryRowContext(ctx, `
 		INSERT INTO sesame_email_outbox (kind, to_email, action_url, expires_at, subject, body, support_message_id, status, next_attempt_at)
 		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), 'pending', now())
 		RETURNING id`,
@@ -225,5 +242,14 @@ func NewOutboxEmailSender(outbox Outbox) *OutboxEmailSender {
 
 func (s *OutboxEmailSender) SendAccountEmail(ctx context.Context, message httpapi.AccountEmail) error {
 	_, err := s.outbox.Enqueue(ctx, message)
+	return err
+}
+
+func (s *OutboxEmailSender) SendAccountEmailTx(ctx context.Context, tx *sql.Tx, message httpapi.AccountEmail) error {
+	transactional, ok := s.outbox.(TransactionalOutbox)
+	if !ok {
+		return errors.New("email outbox does not support transactional enqueue")
+	}
+	_, err := transactional.EnqueueTx(ctx, tx, message)
 	return err
 }

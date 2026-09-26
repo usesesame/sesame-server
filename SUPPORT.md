@@ -15,7 +15,8 @@ This file records the current boundary and the remaining release work.
 - Guests and signed-in users can create a request through
   `POST /v1/support/requests` from the account portal.
 - The API rejects attachment content types, unknown fields, oversized content, and common secret-shaped text before storing a request.
-- Intake is rate-limited and returns a reference number without exposing ticket contents publicly.
+- Intake is rate-limited per client and per recipient address and returns a reference number without exposing ticket contents publicly.
+- When SMTP is configured, intake queues a receipt to the requester carrying only the reference and the portal link.
 - A signed-in user can list and read only requests owned by that account under `/v1/account/support/*`.
 - Signed-in users can add a follow-up to an open request, close it, and reopen
   it for 30 days after closure.
@@ -37,9 +38,18 @@ This file records the current boundary and the remaining release work.
 - Internal notes are never exposed through the account portal.
 - Admin mutations use the same fail-closed audit transaction as the rest of the control plane. If the audit write fails, the support mutation fails.
 - Replies and notes pass the secret-shaped-content guard before storage.
-- A staff reply queues a short notification email only when the owning account
-  opted in to support-reply notifications and SMTP is configured. The email
-  links to the portal and never contains the reply body.
+- A staff reply queues a short notification email when the owning account's
+  support-reply preference is on and SMTP is configured. The preference is on
+  by default for new and existing accounts, and the account can turn it off
+  with the toggle in Security settings. The enqueue runs in the same
+  transaction as the reply, so a failed enqueue fails the reply. A preference
+  lookup failure fails the reply instead of silently skipping the email. The
+  email links to the portal and never contains the reply body.
+- When `SESAME_SUPPORT_NOTIFY_EMAIL` is set, a new request and a signed-in
+  follow-up queue one notice to that address. The notice carries the reference,
+  category, and admin console link, never the subject or message. With no
+  address set, nothing is queued and the System workspace reports staff
+  notification off.
 - Read-only and unrelated admin roles cannot mutate support data.
 
 ### Database
@@ -48,16 +58,21 @@ This file records the current boundary and the remaining release work.
 - Migration `0009_support_portal.sql` aligns new intake with the workspace and account portal.
 - Migration `0019_support_lifecycle.sql` adds unread state, the bounded reopen
   window, and durable email-delivery linkage. Migration
-  `0028_support_ticket_category.sql` adds the triage category.
+  `0028_support_ticket_category.sql` adds the triage category. Migration
+  `0039_support_email_delivery.sql` turns support-reply email on by default,
+  applies that to existing rows, and adds the `support-receipt` and
+  `support-staff-notify` outbox kinds.
 - Ticket ownership is tied to the website account when the requester is signed in. A guest reference number is not an authentication credential.
 
 ## Delivery status
 
-Staff replies are visible in the signed-in account portal. When the account
-has opted in and SMTP is configured, a durable outbox delivers a notification
-that a reply is waiting. The worker records pending, delivered, and failed
-states with bounded retries. Portal visibility does not depend on email
-delivery, and no notification contains the support message.
+Staff replies are visible in the signed-in account portal. Intake queues a
+receipt to the requester and, when a staff address is configured, a notice to
+that address. A staff reply queues a durable notification when the account's
+support-reply preference is on; the preference defaults on for new and
+existing accounts. The worker records pending, delivered, and failed states
+with bounded retries. Portal visibility does not depend on email delivery, and
+no notification contains the subject or support message.
 
 The public support flow is suitable for controlled beta testing, not a promise of continuous support. There is no attachment handling, live chat, phone support, automatic desktop-log upload, or vault recovery service.
 

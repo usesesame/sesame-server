@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"net/netip"
 	"net/url"
 	"os"
@@ -66,6 +67,11 @@ func main() {
 	artifactDelivery, artifactDeliveryErr := artifactDeliveryFromEnvironment()
 	if artifactDeliveryErr != nil {
 		slog.Error("Sesame API configuration is invalid", "error", artifactDeliveryErr)
+		os.Exit(1)
+	}
+	supportNotifyEmail, supportNotifyErr := supportNotifyAddress(os.Getenv("SESAME_SUPPORT_NOTIFY_EMAIL"))
+	if supportNotifyErr != nil {
+		slog.Error("Sesame API configuration is invalid", "error", supportNotifyErr)
 		os.Exit(1)
 	}
 	sessionSecure := envBool("SESAME_SESSION_SECURE", true)
@@ -171,6 +177,7 @@ func main() {
 		RegistrationMode:          env("SESAME_REGISTRATION_MODE", "invite"),
 		WebBaseURL:                webOrigin,
 		EmailSender:               emailSender,
+		SupportNotifyEmail:        supportNotifyEmail,
 		RecentAuthDuration:        10 * time.Minute,
 		TrustedProxies:            trustedProxies,
 		Passkeys:                  buildPasskeys(webOrigin, env("SESAME_RP_ID", ""), env("SESAME_RP_NAME", "Sesame")),
@@ -301,6 +308,18 @@ func capabilitySigningKey(value string) (ed25519.PrivateKey, error) {
 		return ed25519.PrivateKey(decoded), nil
 	}
 	return nil, errors.New("SESAME_CAPABILITY_SIGNING_KEY must contain a 32-byte seed or 64-byte private key")
+}
+
+func supportNotifyAddress(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	parsed, err := mail.ParseAddress(value)
+	if err != nil || parsed.Address == "" || strings.ContainsAny(value, "\r\n") {
+		return "", errors.New("SESAME_SUPPORT_NOTIFY_EMAIL must be one valid email address")
+	}
+	return value, nil
 }
 
 func buildEmailSender(ctx context.Context, db *sql.DB) (httpapi.EmailSender, notifications.Outbox, *notifications.Worker, error) {
