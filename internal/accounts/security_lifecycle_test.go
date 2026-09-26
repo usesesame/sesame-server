@@ -1,6 +1,7 @@
 package accounts
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"os"
@@ -82,5 +83,49 @@ func TestCloseAndReopenSupportTicketLifecycle(t *testing.T) {
 	}
 	if _, err := store.CloseSupportTicket(ctx, "acct-other", "ticket-acct", time.Now().UTC()); err == nil {
 		t.Fatal("a different account closed someone else's ticket")
+	}
+}
+
+func TestPurgeExpiredSupportAccessLinks(t *testing.T) {
+	store, db := lifecycleTestStore(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `INSERT INTO sesame_support_requests (id, email, subject, message) VALUES ('ticket-purge', 'purge@example.invalid', 'Subject', 'Body')`); err != nil {
+		t.Fatalf("create ticket: %v", err)
+	}
+	liveHash := bytes.Repeat([]byte{1}, 32)
+	expiredHash := bytes.Repeat([]byte{2}, 32)
+	revokedHash := bytes.Repeat([]byte{3}, 32)
+	for _, link := range []struct {
+		hash      []byte
+		expiresAt string
+		revoked   bool
+	}{
+		{hash: liveHash, expiresAt: "NOW() + INTERVAL '1 hour'"},
+		{hash: expiredHash, expiresAt: "NOW() - INTERVAL '1 hour'"},
+		{hash: revokedHash, expiresAt: "NOW() + INTERVAL '1 hour'", revoked: true},
+	} {
+		if _, err := db.ExecContext(ctx, `
+			INSERT INTO sesame_support_access_links (token_hash, ticket_id, requester_email, expires_at, revoked_at)
+			VALUES ($1, 'ticket-purge', 'purge@example.invalid', `+link.expiresAt+`, CASE WHEN $2 THEN NOW() ELSE NULL END)
+		`, link.hash, link.revoked); err != nil {
+			t.Fatalf("insert access link: %v", err)
+		}
+	}
+	if err := store.PurgeExpired(ctx); err != nil {
+		t.Fatalf("purge expired: %v", err)
+	}
+	var links int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sesame_support_access_links`).Scan(&links); err != nil {
+		t.Fatalf("count access links: %v", err)
+	}
+	if links != 1 {
+		t.Fatalf("access links after purge = %d, want only the live one", links)
+	}
+	var live bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM sesame_support_access_links WHERE token_hash = $1)`, liveHash).Scan(&live); err != nil {
+		t.Fatalf("read live link: %v", err)
+	}
+	if !live {
+		t.Fatal("the purge removed a live link")
 	}
 }

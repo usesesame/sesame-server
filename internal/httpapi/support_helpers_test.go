@@ -241,6 +241,7 @@ func ticketStatus(t *testing.T, response *httptest.ResponseRecorder) string {
 }
 
 type supportTicketView struct {
+	ID        string `json:"id"`
 	Status    string `json:"status"`
 	CanClose  bool   `json:"canClose"`
 	CanReopen bool   `json:"canReopen"`
