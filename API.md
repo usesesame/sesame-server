@@ -332,6 +332,14 @@ state remains briefly so the website can show a clear success result.
 - `POST /v1/account/support/{id}/reopen` reopens a request closed by the user
   within 30 days.
 
+Account ticket list and detail responses carry `autoClosed`. It is `true` when
+the system closed the request after 14 days without activity; the 30-day reopen
+window is unchanged, and no email is sent for that close. Scheduled maintenance
+deletes a closed request and its linked email outbox rows 90 days after
+closure. Open, in-progress, and waiting requests are never deleted by
+retention, and a waiting request with recent activity is never closed
+automatically.
+
 Guest and signed-in intake returns the reference and, when SMTP is configured,
 queues a receipt to the requester that carries only the reference and the
 portal link. Intake is capped per client and per recipient address. When
@@ -441,3 +449,10 @@ route decoding.
   `system:read`.
 - `GET /v1/admin/system/config` returns the feature-flag document for
   `system:read`.
+- `GET /v1/admin/saved-replies` lists the saved replies for `support:read`.
+  `POST /v1/admin/saved-replies` creates one, and
+  `PATCH`/`DELETE /v1/admin/saved-replies/{id}` updates or deletes one, for
+  `support:manage`. A title is capped at 120 characters and a body at 8,000,
+  both must be non-empty, and both pass the secret-shaped-content guard before
+  storage. Every mutation writes its audit entry in the same transaction.
+  Updates and deletes return `404 admin_record_not_found` for an unknown id.

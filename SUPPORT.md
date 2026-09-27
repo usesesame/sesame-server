@@ -23,12 +23,16 @@ This file records the current boundary and the remaining release work.
 - The Support links in the portal show the unread reply count, hidden at zero,
   and the sign-in page explains an expired session instead of showing an
   ordinary signed-out visit.
+- The support form states the response expectation: "We aim to reply within
+  3 business days."
 - The support form and a signed-in request page state whether a receipt and
   reply email will be sent. Guests are told a receipt is emailed when the
   deployment's public support metadata reports mail is configured, or that
   email is unavailable on this deployment and the reference is still shown
   after submit. Signed-in users see the account's support-reply preference with
   a link to the toggle in Security settings.
+- A request the system closed after 14 days without activity says it closed
+  automatically. The 30-day reopen path is unchanged.
 - Both sites repeat the no-secrets boundary before directing or submitting a
   request.
 
@@ -47,6 +51,13 @@ This file records the current boundary and the remaining release work.
 - Internal notes are never exposed through the account portal.
 - Admin mutations use the same fail-closed audit transaction as the rest of the control plane. If the audit write fails, the support mutation fails.
 - Replies and notes pass the secret-shaped-content guard before storage.
+- Administrators with support management permission maintain saved replies:
+  each has a title of at most 120 characters and a body of at most 8,000, and
+  each passes the secret-shaped-content guard when it is saved. The reply form
+  can insert a saved reply into the reply text, and the reply still passes the
+  guard when it is sent.
+- The queue shows each request's age, derived in the browser from the request's
+  created timestamp.
 - A staff reply queues a short notification email when the owning account's
   support-reply preference is on and SMTP is configured. The preference is on
   by default for new and existing accounts, and the account can turn it off
@@ -80,8 +91,15 @@ This file records the current boundary and the remaining release work.
   `0028_support_ticket_category.sql` adds the triage category. Migration
   `0039_support_email_delivery.sql` turns support-reply email on by default,
   applies that to existing rows, and adds the `support-receipt` and
-  `support-staff-notify` outbox kinds.
+  `support-staff-notify` outbox kinds. Migration
+  `0040_support_operations.sql` adds the system-close marker and the saved-reply
+  table.
 - Ticket ownership is tied to the website account when the requester is signed in. A guest reference number is not an authentication credential.
+- Hourly maintenance deletes a closed request and its linked email outbox rows
+  90 days after closure. Open, in-progress, and waiting requests are not deleted
+  by retention. A waiting request with no activity for 14 days is closed by the
+  system: it records no administrator, sends no email, and opens the same
+  30-day reopen window. The requester sees the automatic close in the portal.
 
 ## Delivery status
 
@@ -96,7 +114,7 @@ turned-off account, and an unconfigured sender are distinguishable. Portal
 visibility does not depend on email delivery, and no notification contains the
 subject or support message.
 
-The public support flow is suitable for controlled beta testing, not a promise of continuous support. There is no attachment handling, live chat, phone support, automatic desktop-log upload, or vault recovery service.
+The public support flow is suitable for controlled beta testing, not a promise of continuous support. The response expectation shown to requesters is "We aim to reply within 3 business days." There is no attachment handling, live chat, phone support, automatic desktop-log upload, or vault recovery service.
 
 ## Release checks still required
 
@@ -104,7 +122,7 @@ The public support flow is suitable for controlled beta testing, not a promise o
   upgrade fixture.
 - Add end-to-end tests with the real website, API, admin app, and PostgreSQL for guest intake, account ownership, follow-up, assignment, notes, status changes, and audit failure.
 - Verify rate limits and secret-shape rejection without logging rejected content.
-- Define retention, deletion, abuse handling, response expectations, and incident escalation before public launch.
+- Define abuse handling and incident escalation before public launch.
 - Exercise keyboard navigation, focus restoration, Narrator, 200% zoom, and narrow layouts in both support interfaces.
 
 ## Vault-blind rule
