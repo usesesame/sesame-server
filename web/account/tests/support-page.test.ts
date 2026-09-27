@@ -41,6 +41,7 @@ function ticketSummary(overrides: Partial<SupportTicketSummary> = {}): SupportTi
     unreadCount: 0,
     createdAt: '2026-08-30T09:00:00Z',
     updatedAt: '2026-08-31T10:00:00Z',
+    autoClosed: false,
     canClose: true,
     canReopen: false,
     ...overrides,
@@ -156,6 +157,21 @@ test('closes a request and offers the reopen path', async () => {
   expect(support.closeSupportTicket).toHaveBeenCalledWith('ticket-test')
   expect(await screen.findByText('This request is closed. You can reopen it for 30 days, then start a new request if the problem returned.')).toBeTruthy()
   expect(await screen.findByRole('button', { name: 'Reopen request' })).toBeTruthy()
+})
+
+test('says a request closed automatically after 14 days without a reply', async () => {
+  const closed = ticketDetail({ status: 'closed', autoClosed: true, canClose: false, canReopen: true })
+  support.getSupportTickets.mockResolvedValue([ticketSummary({ status: 'closed', autoClosed: true, canClose: false, canReopen: true })])
+  support.getSupportTicket.mockResolvedValue(closed)
+  render(SupportPage, { account })
+  await fireEvent.click(await screen.findByRole('button', { name: /Cannot sign in/ }))
+  expect(await screen.findByText('This request closed automatically after 14 days without a reply. You can reopen it for 30 days, then start a new request if the problem returned.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Reopen request' })).toBeTruthy()
+})
+
+test('shows the 3-business-day response expectation on the form', async () => {
+  render(SupportPage, { account: null })
+  expect(await screen.findByText('We aim to reply within 3 business days.')).toBeTruthy()
 })
 
 test('blocks secret-shaped replies and sends a clean follow-up', async () => {

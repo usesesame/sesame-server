@@ -144,3 +144,52 @@ func TestAccountSupportReopenWindowExpires(t *testing.T) {
 		t.Fatalf("expired reopen = %d %q", response.Code, errorCode(t, response))
 	}
 }
+
+func TestAccountSupportReportsAutomaticClosure(t *testing.T) {
+	env := newSupportTestEnv(t)
+	ownerToken := env.seedAccount(t, "acct-support-owner", supportTestOwnerEmail)
+	env.seedTicket(t, "ticket-support-auto", "acct-support-owner", supportTestOwnerEmail)
+	if _, err := env.db.ExecContext(context.Background(), `
+		UPDATE sesame_support_requests
+		SET status = 'closed', closed_at = NOW(), closed_by_system = TRUE, account_reopen_until = NOW() + INTERVAL '30 days'
+		WHERE id = 'ticket-support-auto'
+	`); err != nil {
+		t.Fatalf("system close ticket: %v", err)
+	}
+
+	response := env.request(http.MethodGet, "/v1/account/support", nil, supportSession(ownerToken))
+	if response.Code != http.StatusOK {
+		t.Fatalf("owner list = %d: %s", response.Code, response.Body.String())
+	}
+	var list struct {
+		Tickets []struct {
+			ID         string `json:"id"`
+			AutoClosed bool   `json:"autoClosed"`
+			CanReopen  bool   `json:"canReopen"`
+		} `json:"tickets"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode ticket list: %v", err)
+	}
+	if len(list.Tickets) != 1 || !list.Tickets[0].AutoClosed || !list.Tickets[0].CanReopen {
+		t.Fatalf("account ticket list = %+v, want the automatically closed reopenable ticket", list.Tickets)
+	}
+
+	response = env.request(http.MethodGet, "/v1/account/support/ticket-support-auto", nil, supportSession(ownerToken))
+	if response.Code != http.StatusOK {
+		t.Fatalf("owner detail = %d: %s", response.Code, response.Body.String())
+	}
+	var detail struct {
+		Ticket struct {
+			Status     string `json:"status"`
+			AutoClosed bool   `json:"autoClosed"`
+			CanReopen  bool   `json:"canReopen"`
+		} `json:"ticket"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode ticket detail: %v", err)
+	}
+	if detail.Ticket.Status != "closed" || !detail.Ticket.AutoClosed || !detail.Ticket.CanReopen {
+		t.Fatalf("account ticket detail = %+v, want closed automatically with the reopen path", detail.Ticket)
+	}
+}
