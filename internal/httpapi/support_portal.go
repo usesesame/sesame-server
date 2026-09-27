@@ -84,7 +84,7 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 			return
 		}
 		if a.config.EmailSender != nil {
-			if notice, ok := a.supportStaffNotice(ticket.ID, ticket.Category); ok {
+			if notice, ok := a.supportStaffFollowUpNotice(ticket.ID, ticket.Category); ok {
 				if err := a.config.EmailSender.SendAccountEmail(request.Context(), notice); err != nil {
 					slog.Error("Sesame support follow-up notice could not be queued", "error", err)
 				}

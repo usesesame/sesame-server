@@ -144,6 +144,20 @@ func (a *api) supportStaffNotice(reference, category string) (AccountEmail, bool
 	}, true
 }
 
+func (a *api) supportStaffFollowUpNotice(reference, category string) (AccountEmail, bool) {
+	if a.config.SupportNotifyEmail == "" {
+		return AccountEmail{}, false
+	}
+	return AccountEmail{
+		Kind:      "support-staff-notify",
+		To:        a.config.SupportNotifyEmail,
+		Subject:   "A requester replied on a Sesame support request",
+		Body:      "Support request " + reference + " received a requester follow-up in the " + category + " category.",
+		ActionURL: strings.TrimRight(a.config.AdminOrigin, "/"),
+		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+	}, true
+}
+
 // A guard rail, not a guarantee: no filter can recognise every secret.
 func containsSecretShapedText(value string) bool {
 	lower := strings.ToLower(value)

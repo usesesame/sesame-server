@@ -116,6 +116,13 @@ func (a *api) replyToSupportAccess(response http.ResponseWriter, request *http.R
 		return
 	}
 	slog.Info("Sesame support link replied", "request", ticket.ID, "outcome", "replied")
+	if a.config.EmailSender != nil {
+		if notice, ok := a.supportStaffFollowUpNotice(ticket.ID, ticket.Category); ok {
+			if err := a.config.EmailSender.SendAccountEmail(request.Context(), notice); err != nil {
+				slog.Error("Sesame support follow-up notice could not be queued", "error", err)
+			}
+		}
+	}
 	writeJSON(response, http.StatusCreated, map[string]any{"ticket": ticket})
 }
 
