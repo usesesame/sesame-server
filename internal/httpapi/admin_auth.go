@@ -85,6 +85,10 @@ func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/assign", a.adminSupportTicketAction("assign"))
 	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/status", a.adminSupportTicketAction("status"))
 	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/priority", a.adminSupportTicketAction("priority"))
+	a.route(mux, admin, "GET /v1/admin/saved-replies", a.adminSupportSavedReplies)
+	a.route(mux, admin, "POST /v1/admin/saved-replies", a.adminSupportSavedReplyAction("create"))
+	a.route(mux, admin, "PATCH /v1/admin/saved-replies/{replyID}", a.adminSupportSavedReplyAction("update"))
+	a.route(mux, admin, "DELETE /v1/admin/saved-replies/{replyID}", a.adminSupportSavedReplyAction("delete"))
 }
 
 func (a *api) requireAdminStore(response http.ResponseWriter) (*adminstore.Store, bool) {

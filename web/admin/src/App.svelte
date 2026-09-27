@@ -6,7 +6,7 @@
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
   import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
   import { TICKET_CATEGORY_LABELS, deliveryReasonLabel } from './lib/types'
-  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SupportMailState, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
+  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SavedReply, SupportMailState, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
   type AdminIdentity = { admin: AdminAccount; deploymentProfile?: 'operator' | 'project' }
@@ -59,6 +59,11 @@
   let supportAnnouncement = ''
   let replyBody = ''
   let noteBody = ''
+  let savedReplies: SavedReply[] = []
+  let savedReplyTitle = ''
+  let savedReplyBody = ''
+  let editingSavedReplyID = ''
+  let savedReplyBusy = false
   const PAGE_SIZE = 100
   let usersPage = 1
   let ticketsPage = 1
@@ -134,7 +139,7 @@
     try {
       if (next === 'overview') overview = (await request<{ overview: Overview }>('/v1/admin/overview')).overview
       if (next === 'users') await loadUsers()
-      if (next === 'support') { await loadTickets(); void loadAssignees() }
+      if (next === 'support') { await loadTickets(); void loadAssignees(); void loadSavedReplies() }
       if (next === 'flags') flags = (await request<{ flags: Flag[] }>('/v1/admin/flags')).flags
       if (next === 'plans') plans = (await request<{ plans: Plan[] }>('/v1/admin/plans')).plans
       if (next === 'releases') {
@@ -268,6 +273,53 @@
     try { await mutate(`/v1/admin/support/${selectedTicket.id}/priority`, 'POST', { priority }); await loadTickets(); await inspectTicket(selectedTicket.id); showNotice(`Priority changed to ${priority}.`) } catch (reason) { showError(reason) }
   }
 
+  async function loadSavedReplies() {
+    try { savedReplies = (await request<{ savedReplies: SavedReply[] }>('/v1/admin/saved-replies')).savedReplies ?? [] } catch (reason) { showError(reason) }
+  }
+
+  function useSavedReply(id: string) {
+    const saved = savedReplies.find((reply) => reply.id === id)
+    if (saved) replyBody = saved.body
+  }
+
+  function editSavedReply(reply: SavedReply) {
+    editingSavedReplyID = reply.id
+    savedReplyTitle = reply.title
+    savedReplyBody = reply.body
+  }
+
+  function clearSavedReplyForm() {
+    editingSavedReplyID = ''
+    savedReplyTitle = ''
+    savedReplyBody = ''
+  }
+
+  async function saveSavedReply() {
+    if (!savedReplyTitle.trim() || !savedReplyBody.trim()) return
+    savedReplyBusy = true
+    try {
+      if (editingSavedReplyID) {
+        await mutate(`/v1/admin/saved-replies/${editingSavedReplyID}`, 'PATCH', { title: savedReplyTitle, body: savedReplyBody })
+        showNotice('Saved reply updated.')
+      } else {
+        await mutate('/v1/admin/saved-replies', 'POST', { title: savedReplyTitle, body: savedReplyBody })
+        showNotice('Saved reply created.')
+      }
+      clearSavedReplyForm()
+      await loadSavedReplies()
+    } catch (reason) { showError(reason) } finally { savedReplyBusy = false }
+  }
+
+  async function deleteSavedReply(reply: SavedReply) {
+    if (!confirm(`Delete the saved reply "${reply.title}"?`)) return
+    try {
+      await mutate(`/v1/admin/saved-replies/${reply.id}`, 'DELETE')
+      if (editingSavedReplyID === reply.id) clearSavedReplyForm()
+      await loadSavedReplies()
+      showNotice('Saved reply deleted.')
+    } catch (reason) { showError(reason) }
+  }
+
   async function inspectUser(id: string) {
     try { selectedUser = (await request<{ user: User }>(`/v1/admin/users/${id}`)).user } catch (reason) { showError(reason) }
   }
@@ -378,6 +430,15 @@
   }
 
   function date(value?: string) { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Never' }
+
+  function age(value: string) {
+    const minutes = Math.floor((Date.now() - new Date(value).getTime()) / 60000)
+    if (!Number.isFinite(minutes) || minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h`
+    return `${Math.floor(hours / 24)}d`
+  }
 </script>
 
 {#if loading}
@@ -444,10 +505,31 @@
           <span>{ticketTotal} tickets{#if ticketsPages() > 1} · page {ticketsPage} of {ticketsPages()}{/if}</span>
           {#if ticketsPages() > 1}<button class="page-button" onclick={prevTicketsPage} disabled={ticketsPage <= 1}>Prev</button><button class="page-button" onclick={nextTicketsPage} disabled={ticketsPage >= ticketsPages()}>Next</button>{/if}
         </div>
+        {#if canSupport}
+          <details class="panel saved-replies">
+            <summary>Saved replies ({savedReplies.length})</summary>
+            <div class="saved-reply-list">
+              {#each savedReplies as saved (saved.id)}
+                <div class="saved-reply-row">
+                  <div><strong>{saved.title}</strong><small>{saved.body}</small></div>
+                  <button onclick={() => editSavedReply(saved)}>Edit</button>
+                  <button class="danger" onclick={() => deleteSavedReply(saved)}>Delete</button>
+                </div>
+              {/each}
+              {#if savedReplies.length === 0}<p class="empty">No saved replies yet.</p>{/if}
+            </div>
+            <label>Saved reply title<input bind:value={savedReplyTitle} maxlength="120" /></label>
+            <label>Saved reply body<textarea bind:value={savedReplyBody} maxlength="8000"></textarea></label>
+            <div class="reply-actions">
+              <button class="primary" onclick={saveSavedReply} disabled={savedReplyBusy || !savedReplyTitle.trim() || !savedReplyBody.trim()}>{editingSavedReplyID ? 'Save changes' : 'Create saved reply'}</button>
+              {#if editingSavedReplyID}<button onclick={clearSavedReplyForm}>Cancel</button>{/if}
+            </div>
+          </details>
+        {/if}
         <div class="split-view support-split" class:has-detail={selectedTicket}>
           <section class="table-panel">
             <table>
-              <thead><tr><th>Subject</th><th>Requester</th><th>Category</th><th>Status</th><th>Priority</th><th>SLA</th><th>Updated</th></tr></thead>
+              <thead><tr><th>Subject</th><th>Requester</th><th>Category</th><th>Status</th><th>Priority</th><th>SLA</th><th>Age</th><th>Updated</th></tr></thead>
               <tbody>
                 {#each tickets as ticket (ticket.id)}
                   <tr role="button" tabindex="0" class:active={selectedTicket?.id === ticket.id} aria-label={`Open ticket ${ticket.subject} from ${ticket.email}`} onclick={() => inspectTicket(ticket.id)} onkeydown={(event) => activateTicketRow(event, ticket.id)}>
@@ -457,6 +539,7 @@
                     <td><span class="badge" data-status={ticket.status}>{ticket.status.replace('_', ' ')}</span></td>
                     <td><span class="badge" data-priority={ticket.priority}>{ticket.priority}</span></td>
                     <td><span class:overdue={ticket.slaBreached}>{ticket.firstResponseAt ? 'Met' : ticket.slaBreached ? 'Overdue' : `Due ${date(ticket.slaDueAt)}`}</span></td>
+                    <td>{age(ticket.createdAt)}</td>
                     <td>{date(ticket.updatedAt)}</td>
                   </tr>
                 {/each}
@@ -512,6 +595,12 @@
               </div>
               {#if canSupport && selectedTicket.status !== 'closed'}
                 <div class="reply-composer">
+                  {#if savedReplies.length > 0}
+                    <select aria-label="Insert a saved reply" onchange={(event) => { useSavedReply(event.currentTarget.value); event.currentTarget.value = '' }}>
+                      <option value="">Insert saved reply…</option>
+                      {#each savedReplies as saved (saved.id)}<option value={saved.id}>{saved.title}</option>{/each}
+                    </select>
+                  {/if}
                   <textarea aria-label="Reply to user" bind:value={replyBody} placeholder="Reply to the user. Do not include passwords, codes, or vault data." maxlength="8000"></textarea>
                   <div class="reply-actions">
                     <span class="field-help">Visible in the signed-in support portal. An email is queued only when the account opted in to support replies.</span>

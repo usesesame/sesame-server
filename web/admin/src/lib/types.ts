@@ -72,6 +72,10 @@ export type TicketNote = {
   id: string; adminEmail: string; body: string; createdAt: string
 }
 
+export type SavedReply = {
+  id: string; title: string; body: string; createdByAdminId?: string; createdAt: string; updatedAt: string
+}
+
 export type TicketDetail = TicketSummary & {
   accountId?: string; linkedDevices?: Device[]; messages: TicketMessage[]; notes: TicketNote[]
 }

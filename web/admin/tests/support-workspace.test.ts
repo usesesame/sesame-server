@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { AdminAccount, EmailDeliveryReason, TicketDetail, TicketSummary } from '../src/lib/types'
+import type { AdminAccount, EmailDeliveryReason, SavedReply, TicketDetail, TicketSummary } from '../src/lib/types'
 
 const api = vi.hoisted(() => ({ request: vi.fn(), mutate: vi.fn() }))
 
@@ -365,4 +365,94 @@ test('shows the queue failure to the operator and announces it', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
   expect((await screen.findByRole('alert')).textContent).toContain('The support queue is unavailable.')
   expect(screen.getByRole('status', { name: 'Support status' }).textContent).toBe('Error: The support queue is unavailable.')
+})
+
+test('shows the request age derived from the created timestamp', async () => {
+  const hoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString()
+  const daysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString()
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/support/assignees')) return { assignees: [] }
+    if (path.startsWith('/v1/admin/support?')) {
+      return {
+        tickets: [
+          ticketSummary({ id: 'ticket-hours', subject: 'Recent request', createdAt: hoursAgo }),
+          ticketSummary({ id: 'ticket-days', subject: 'Older request', createdAt: daysAgo }),
+        ],
+        total: 2,
+      }
+    }
+    return {}
+  })
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
+  const rows = await screen.findAllByRole('button', { name: /^Open ticket/ })
+  expect(within(rows[0]).getByText('3h')).toBeTruthy()
+  expect(within(rows[1]).getByText('5d')).toBeTruthy()
+})
+
+test('inserts a saved reply into the reply composer', async () => {
+  const savedReply: SavedReply = {
+    id: 'saved-1',
+    title: 'Password reset guidance',
+    body: 'Open Security settings and use your recovery kit. Support cannot reset a vault.',
+    createdAt: '2026-08-01T00:00:00Z',
+    updatedAt: '2026-08-01T00:00:00Z',
+  }
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/support/assignees')) return { assignees: [] }
+    if (path.startsWith('/v1/admin/support?')) return { tickets: [ticketSummary()], total: 1 }
+    if (path === '/v1/admin/support/ticket-test') return { ticket: ticketDetail() }
+    if (path === '/v1/admin/saved-replies') return { savedReplies: [savedReply] }
+    return {}
+  })
+  api.mutate.mockResolvedValue({ ticket: ticketDetail() })
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
+  await fireEvent.click(await screen.findByText('Cannot sign in'))
+  const picker = await screen.findByLabelText('Insert a saved reply')
+  await fireEvent.change(picker, { target: { value: 'saved-1' } })
+  expect((screen.getByLabelText('Reply to user') as HTMLTextAreaElement).value).toBe('Open Security settings and use your recovery kit. Support cannot reset a vault.')
+  await fireEvent.click(screen.getByRole('button', { name: 'Post reply' }))
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/support/ticket-test/reply', 'POST', { body: 'Open Security settings and use your recovery kit. Support cannot reset a vault.' })
+})
+
+test('creates, edits, and deletes saved replies', async () => {
+  let replies: SavedReply[] = []
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/support/assignees')) return { assignees: [] }
+    if (path.startsWith('/v1/admin/support?')) return { tickets: [], total: 0 }
+    if (path === '/v1/admin/saved-replies') return { savedReplies: replies }
+    return {}
+  })
+  api.mutate.mockImplementation(async (path: string, method: string, body?: { title: string; body: string }) => {
+    if (path === '/v1/admin/saved-replies' && method === 'POST') {
+      replies = [{ id: 'saved-new', title: body!.title, body: body!.body, createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-01T00:00:00Z' }]
+    }
+    if (path === '/v1/admin/saved-replies/saved-new' && method === 'PATCH') {
+      replies = [{ ...replies[0], title: body!.title, body: body!.body }]
+    }
+    if (path === '/v1/admin/saved-replies/saved-new' && method === 'DELETE') replies = []
+    return {}
+  })
+  vi.stubGlobal('confirm', () => true)
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
+  await fireEvent.input(screen.getByLabelText('Saved reply title'), { target: { value: 'Refund policy' } })
+  await fireEvent.input(screen.getByLabelText('Saved reply body'), { target: { value: 'Refunds follow the published policy.' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Create saved reply' }))
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/saved-replies', 'POST', { title: 'Refund policy', body: 'Refunds follow the published policy.' })
+  expect(await screen.findByText('Saved reply created.')).toBeTruthy()
+  expect(await screen.findByText('Refund policy')).toBeTruthy()
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+  expect((screen.getByLabelText('Saved reply title') as HTMLInputElement).value).toBe('Refund policy')
+  await fireEvent.input(screen.getByLabelText('Saved reply title'), { target: { value: 'Refund policy (updated)' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/saved-replies/saved-new', 'PATCH', { title: 'Refund policy (updated)', body: 'Refunds follow the published policy.' })
+  expect(await screen.findByText('Saved reply updated.')).toBeTruthy()
+
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/saved-replies/saved-new', 'DELETE')
+  expect(await screen.findByText('Saved reply deleted.')).toBeTruthy()
+  expect(await screen.findByText('No saved replies yet.')).toBeTruthy()
 })

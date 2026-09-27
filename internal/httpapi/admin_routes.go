@@ -873,6 +873,105 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 	a.notFound(response, request)
 }
 
+type savedReplyRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+const (
+	savedReplyTitleMax = 120
+	savedReplyBodyMax  = 8000
+)
+
+func (a *api) adminSupportSavedReplies(response http.ResponseWriter, request *http.Request) {
+	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportRead); !ok {
+		return
+	}
+	replies, err := a.config.Admin.SavedReplies(request.Context())
+	if err != nil {
+		adminStoreError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"savedReplies": replies})
+}
+
+func (a *api) adminSupportSavedReplyAction(action string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		request.SetPathValue("action", action)
+		a.adminSupportSavedReplyRoute(response, request)
+	}
+}
+
+func (a *api) adminSupportSavedReplyRoute(response http.ResponseWriter, request *http.Request) {
+	action := request.PathValue("action")
+	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportManage)
+	if !ok {
+		return
+	}
+	if action == "create" {
+		var input savedReplyRequest
+		if !decodeAdminJSON(response, request, &input) {
+			return
+		}
+		title, body, ok := validSavedReply(response, input.Title, input.Body)
+		if !ok {
+			return
+		}
+		reply, err := a.config.Admin.CreateSavedReply(request.Context(), actor, title, body, a.adminIPHash(request))
+		if err != nil {
+			adminStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusCreated, map[string]any{"savedReply": reply})
+		return
+	}
+	replyID := request.PathValue("replyID")
+	if replyID == "" || len(replyID) > 128 {
+		a.notFound(response, request)
+		return
+	}
+	if action == "update" {
+		var input savedReplyRequest
+		if !decodeAdminJSON(response, request, &input) {
+			return
+		}
+		title, body, ok := validSavedReply(response, input.Title, input.Body)
+		if !ok {
+			return
+		}
+		reply, err := a.config.Admin.UpdateSavedReply(request.Context(), actor, replyID, title, body, a.adminIPHash(request))
+		if err != nil {
+			adminStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, map[string]any{"savedReply": reply})
+		return
+	}
+	if action == "delete" {
+		if err := a.config.Admin.DeleteSavedReply(request.Context(), actor, replyID, a.adminIPHash(request)); err != nil {
+			adminStoreError(response, err)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+		return
+	}
+	a.notFound(response, request)
+}
+
+func validSavedReply(response http.ResponseWriter, rawTitle, rawBody string) (string, string, bool) {
+	title := strings.TrimSpace(rawTitle)
+	body := strings.TrimSpace(rawBody)
+	if len(title) < 1 || len(title) > savedReplyTitleMax || len(body) < 1 || len(body) > savedReplyBodyMax {
+		writeError(response, http.StatusBadRequest, "invalid_saved_reply", "The saved reply needs a title under 121 characters and a body under 8,001 characters.")
+		return "", "", false
+	}
+	if containsSecretShapedText(title + "\n" + body) {
+		writeError(response, http.StatusBadRequest, "secret_shaped_content", "Remove passwords, codes, keys, tokens, and vault data before saving this reply.")
+		return "", "", false
+	}
+	return title, body, true
+}
+
 // Only id and email, and only for roles AssignTicket would accept as a target.
 func (a *api) adminSupportAssignees(response http.ResponseWriter, request *http.Request) {
 	actor, ok := a.adminForRequest(response, request)
