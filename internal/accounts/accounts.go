@@ -465,7 +465,7 @@ func (s *PostgresStore) ConsumeRateLimit(ctx context.Context, key string, limit 
 }
 
 func (s *PostgresStore) PurgeExpired(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
+	if _, err := s.db.ExecContext(ctx, `
 		DELETE FROM sesame_sessions WHERE expires_at <= NOW();
 		DELETE FROM sesame_desktop_link_codes WHERE created_at <= NOW() - INTERVAL '1 day';
 		DELETE FROM sesame_desktop_connections WHERE expires_at <= NOW();
@@ -476,8 +476,10 @@ func (s *PostgresStore) PurgeExpired(ctx context.Context) error {
 		DELETE FROM sesame_rate_limits WHERE updated_at <= NOW() - INTERVAL '1 day';
 		DELETE FROM sesame_admin_sessions WHERE expires_at <= NOW();
 		DELETE FROM sesame_admin_setup_tokens WHERE expires_at <= NOW() OR used_at IS NOT NULL;
-	`)
-	return err
+	`); err != nil {
+		return err
+	}
+	return purgeSupportHistory(ctx, s.db)
 }
 
 func (s *PostgresStore) Ping(ctx context.Context) error {
