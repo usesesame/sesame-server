@@ -210,7 +210,7 @@ func TestAccountCloseAndReopenTransitions(t *testing.T) {
 func TestAdminCloseAndWaitingTransitions(t *testing.T) {
 	db := lifecycleTestDatabase(t)
 	ctx := context.Background()
-	seedLifecycleAdmin(t, db, lifecycleAdmin, "support@example.invalid")
+	seedLifecycleAdmin(t, db, lifecycleAdmin, "support-lifecycle@example.invalid")
 	seedLifecycleTicket(t, db, "support-lifecycle-b", "", "guest@example.invalid")
 	now := time.Now().UTC().Truncate(time.Millisecond)
 

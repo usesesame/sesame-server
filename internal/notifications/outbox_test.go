@@ -37,7 +37,17 @@ func testOutbox(t *testing.T) (*PostgresOutbox, *sql.DB) {
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
 	db := accountStore.DB()
+	lockDatabaseTest(t, db)
+	if _, err := db.ExecContext(ctx, `TRUNCATE sesame_email_outbox`); err != nil {
+		t.Fatalf("clear email outbox: %v", err)
+	}
+	return NewPostgresOutbox(db), db
+}
+
+func lockDatabaseTest(t *testing.T, db *sql.DB) {
+	t.Helper()
 	const lockID int64 = 762374923
+	ctx := context.Background()
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		t.Fatalf("reserve test database connection: %v", err)
@@ -50,10 +60,6 @@ func testOutbox(t *testing.T) (*PostgresOutbox, *sql.DB) {
 		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockID)
 		_ = conn.Close()
 	})
-	if _, err := db.ExecContext(ctx, `TRUNCATE sesame_email_outbox`); err != nil {
-		t.Fatalf("clear email outbox: %v", err)
-	}
-	return NewPostgresOutbox(db), db
 }
 
 func enqueueTestMessage(t *testing.T, outbox *PostgresOutbox, expiresAt time.Time) string {
