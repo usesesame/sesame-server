@@ -38,6 +38,7 @@ func TestWorkerRunStopsBeforeThePoolCloses(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	db := store.DB()
+	lockDatabaseTest(t, db)
 	if _, err := db.ExecContext(context.Background(), `TRUNCATE sesame_email_outbox`); err != nil {
 		t.Fatalf("clear outbox: %v", err)
 	}
