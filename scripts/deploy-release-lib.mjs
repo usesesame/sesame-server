@@ -1,6 +1,9 @@
-import { createHash } from 'node:crypto'
-import { createGunzip } from 'node:zlib'
-import { Readable } from 'node:stream'
+import { createHash, randomBytes } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
+import { link, unlink } from 'node:fs/promises'
+import { createGunzip, createGzip } from 'node:zlib'
+import { Readable, Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { dirname, join } from 'node:path'
 import { digestReference, releaseIdentity } from './release-contract.mjs'
 
@@ -13,7 +16,7 @@ const IMAGE_FIELDS = [
 const PENDING_FILE = 'pending.json'
 const STATE_FILE = 'deployed.json'
 const STAGING_ENV = 'deploy-candidate.env'
-const BACKUP_MARKER = '-- PostgreSQL database dump'
+export const BACKUP_MARKER = '-- PostgreSQL database dump'
 
 export function parseRelease(bytes) {
   const text = Buffer.from(bytes).toString('utf8')
@@ -105,6 +108,46 @@ export async function assertUsableBackup(gzipBytes) {
   const prefix = await decompressedPrefix(gzipBytes, 64 * 1024)
   if (!prefix.includes(BACKUP_MARKER)) throw new Error('The pre-deployment backup does not contain a PostgreSQL dump.')
   return createHash('sha256').update(gzipBytes).digest('hex')
+}
+
+export async function writeCompressedBackup(source, destination, confirmSource = async () => {}) {
+  const staging = `${destination}.part-${randomBytes(12).toString('hex')}`
+  const digest = createHash('sha256')
+  let prefix = Buffer.alloc(0)
+  let bytes = 0
+  try {
+    await pipeline(
+      source,
+      new Transform({
+        transform(chunk, encoding, callback) {
+          if (prefix.length < 64 * 1024) {
+            prefix = Buffer.concat([prefix, chunk.subarray(0, 64 * 1024 - prefix.length)])
+          }
+          callback(null, chunk)
+        },
+      }),
+      createGzip(),
+      new Transform({
+        transform(chunk, encoding, callback) {
+          digest.update(chunk)
+          bytes += chunk.length
+          callback(null, chunk)
+        },
+      }),
+      createWriteStream(staging, { flags: 'wx', mode: 0o600 }),
+    )
+    await confirmSource()
+    if (bytes < 1024) throw new Error('The pre-deployment backup is not a usable gzip dump.')
+    if (!prefix.includes(BACKUP_MARKER)) throw new Error('The pre-deployment backup does not contain a PostgreSQL dump.')
+    await link(staging, destination)
+    return { sha256: digest.digest('hex'), bytes }
+  } finally {
+    try {
+      await unlink(staging)
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+    }
+  }
 }
 
 async function decompressedPrefix(gzipBytes, limit) {
@@ -252,12 +295,10 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
   }
 
   if (!record.backup || !(await io.exists(record.backup.file))) {
-    const gzipBytes = await io.takeBackup()
-    const sha256 = await assertUsableBackup(gzipBytes)
     const file = join(root, 'backups', `sesame-${release.version}-${stamp(io.now())}.sql.gz`)
     await io.mkdirp(dirname(file))
-    await io.writeBinary(file, gzipBytes)
-    record.backup = { file, sha256, bytes: gzipBytes.length }
+    const backup = await io.takeBackup(file)
+    record.backup = { file, sha256: backup.sha256, bytes: backup.bytes }
     await savePending(io, root, record)
   }
 

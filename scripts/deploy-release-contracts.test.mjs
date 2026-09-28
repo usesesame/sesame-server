@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, rm, stat } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import { randomBytes } from 'node:crypto'
+import { Readable } from 'node:stream'
+import { gunzipSync } from 'node:zlib'
 import test from 'node:test'
 import { fileIO } from './deploy-io.mjs'
 import {
@@ -19,6 +21,7 @@ import {
   rehearsalEnvFile,
   rewriteEnvImages,
   rollbackRelease,
+  writeCompressedBackup,
 } from './deploy-release-lib.mjs'
 
 const COMMIT = 'a'.repeat(40)
@@ -92,7 +95,12 @@ function fakeIO(overrides = {}) {
       const digest = reference.split('@')[1]
       return { repoDigests: [`${reference.split('@')[0]}@${digest}`], labels: { 'org.opencontainers.image.version': '1.1.0', 'org.opencontainers.image.revision': COMMIT } }
     },
-    async takeBackup() { calls.backup += 1; return gzipSync(backupPayload()) },
+    async takeBackup(path) {
+      calls.backup += 1
+      const compressed = gzipSync(backupPayload())
+      files.set(path, compressed)
+      return { sha256: createHash('sha256').update(compressed).digest('hex'), bytes: compressed.length }
+    },
     async rehearse() { calls.rehearse += 1; return { ok: true } },
     async runMigrations() { calls.migrations += 1; return { ok: true } },
     async candidateHealth() { calls.candidate += 1; return { ok: true, version: '1.1.0', commit: COMMIT } },
@@ -200,6 +208,49 @@ test('accepts only a usable gzip dump as the pre-deployment backup', async () =>
   await assert.rejects(() => assertUsableBackup(Buffer.from('plain text')))
   await assert.rejects(() => assertUsableBackup(gzipSync(Buffer.from('too small'))))
   await assert.rejects(() => assertUsableBackup(gzipSync(Buffer.from('deflate garbage without the dump marker'.repeat(64)))))
+})
+
+test('streams a backup to a private file with a matching digest', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'sesame-stream-backup-'))
+  try {
+    const file = join(directory, 'backup.sql.gz')
+    const payload = backupPayload()
+    const backup = await writeCompressedBackup(Readable.from([payload.subarray(0, 19), payload.subarray(19)]), file)
+    const compressed = await readFile(file)
+    assert.deepEqual(gunzipSync(compressed), payload)
+    assert.equal(backup.bytes, compressed.length)
+    assert.equal(backup.sha256, createHash('sha256').update(compressed).digest('hex'))
+    assert.equal((await stat(file)).mode & 0o777, 0o600)
+    assert.deepEqual(await readdir(directory), ['backup.sql.gz'])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('refuses malformed and interrupted streamed backups without publishing a file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'sesame-stream-backup-fail-'))
+  const file = join(directory, 'backup.sql.gz')
+  try {
+    await assert.rejects(() => writeCompressedBackup(Readable.from([randomBytes(4096)]), file), /does not contain a PostgreSQL dump/)
+    assert.deepEqual(await readdir(directory), [])
+
+    async function* interrupted() {
+      yield backupPayload().subarray(0, 1024)
+      throw new Error('dump interrupted')
+    }
+    await assert.rejects(() => writeCompressedBackup(Readable.from(interrupted()), file), /dump interrupted/)
+    assert.deepEqual(await readdir(directory), [])
+
+    await assert.rejects(() => writeCompressedBackup(Readable.from([backupPayload()]), file, async () => { throw new Error('dump exited with an error') }), /dump exited with an error/)
+    assert.deepEqual(await readdir(directory), [])
+
+    await writeFile(file, 'previous backup')
+    await assert.rejects(() => writeCompressedBackup(Readable.from([backupPayload()]), file), { code: 'EEXIST' })
+    assert.equal(await readFile(file, 'utf8'), 'previous backup')
+    assert.deepEqual(await readdir(directory), ['backup.sql.gz'])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test('classifies deployments', () => {

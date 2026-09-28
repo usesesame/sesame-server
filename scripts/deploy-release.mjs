@@ -1,11 +1,10 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { gzipSync } from 'node:zlib'
 import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fileIO } from './deploy-io.mjs'
-import { classifyDeployment, deployRelease, parseRelease, readDeployedState, rehearsalEnvFile, rollbackRelease } from './deploy-release-lib.mjs'
+import { classifyDeployment, deployRelease, parseRelease, readDeployedState, rehearsalEnvFile, rollbackRelease, writeCompressedBackup } from './deploy-release-lib.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const stateRoot = join(repoRoot, 'deploy', 'state')
@@ -29,11 +28,7 @@ const io = {
     const image = JSON.parse(result.stdout)
     return { repoDigests: image.RepoDigests ?? [], labels: image.Config?.Labels ?? {} }
   },
-  takeBackup: () => {
-    const result = spawnSync('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', 'pg_dump', '-U', 'sesame', 'sesame'], { encoding: 'buffer', maxBuffer: 1024 * 1024 * 1024 })
-    if (result.status !== 0 || !result.stdout?.length) throw new Error(`The pre-deployment pg_dump failed${result.stderr ? `: ${lastLine(result.stderr.toString('utf8'))}` : '.'}`)
-    return gzipSync(result.stdout)
-  },
+  takeBackup: (destination) => takeStreamingBackup(destination),
   rehearse: ({ backupFile, candidateRef, previousRef }) => rehearseMigrations({ backupFile, candidateRef, previousRef }),
   runMigrations: (stagingEnvPath) => {
     const result = spawnSync('docker', ['compose', '--file', prodCompose, '--env-file', stagingEnvPath, 'run', '--rm', 'migrate'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
@@ -88,6 +83,24 @@ async function main(args) {
     return
   }
   throw new Error('Usage: deploy-release.mjs <plan|deploy|rollback|status> [server-release.json] [version] [--wait-timeout seconds]')
+}
+
+async function takeStreamingBackup(destination) {
+  const child = spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', 'pg_dump', '-U', 'sesame', 'sesame'], { stdio: ['ignore', 'pipe', 'pipe'] })
+  let stderr = ''
+  child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-8192) })
+  let spawnError = null
+  child.on('error', (error) => { spawnError = error })
+  const completed = new Promise((resolveDone) => child.on('close', (code) => resolveDone(code)))
+  try {
+    return await writeCompressedBackup(child.stdout, destination, async () => {
+      const code = await completed
+      if (spawnError || code !== 0) throw new Error(`The pre-deployment pg_dump failed${stderr ? `: ${lastLine(stderr)}` : '.'}`)
+    })
+  } catch (error) {
+    child.kill()
+    throw error
+  }
 }
 
 async function plan(releasePath) {
