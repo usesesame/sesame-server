@@ -710,7 +710,8 @@ func (a *api) adminSupportTicketView(response http.ResponseWriter, request *http
 		adminStoreError(response, err)
 		return
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
+	a.enrichSupportDelivery(request.Context(), &ticket)
+	writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket, "mail": a.supportMailState()})
 }
 
 func (a *api) adminSupportTicketAction(action string) http.HandlerFunc {
@@ -783,6 +784,7 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 			adminStoreError(response, err)
 			return
 		}
+		a.enrichSupportDelivery(request.Context(), &ticket)
 		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
 		return
 	}

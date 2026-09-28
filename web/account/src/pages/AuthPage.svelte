@@ -6,6 +6,7 @@
   import { siteOrigin } from '../lib/runtime-config'
 
   export let mode: 'login' | 'register'
+  export let sessionExpired = false
   export let onAuthenticated: (account: Account) => void
 
   let email = ''
@@ -96,6 +97,7 @@
     <form class="auth-form card" on:submit|preventDefault={submit} aria-busy={registrationLoading || submitting}>
       <h2>{isRegistering ? 'Activate your invitation' : 'Website account'}</h2>
       <p>{isRegistering ? 'Create an account only if you have been invited to test a private-beta build.' : 'Use the password or passkey for this website account, not your vault password.'}</p>
+      {#if sessionExpired}<p class="auth-notice" role="status">Your session expired. Sign in again to continue.</p>{/if}
       {#if registrationLoading}
         <p class="auth-loading"><span class="auth-spinner" aria-hidden="true"></span>Checking invitation access…</p>
       {:else}

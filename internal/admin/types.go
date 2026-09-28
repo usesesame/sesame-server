@@ -382,6 +382,7 @@ type TicketMessage struct {
 	Body                string     `json:"body"`
 	SentViaEmail        bool       `json:"sentViaEmail"`
 	EmailDeliveryStatus string     `json:"emailDeliveryStatus,omitempty"`
+	EmailDeliveryReason string     `json:"emailDeliveryReason,omitempty"`
 	EmailAttempts       int        `json:"emailAttempts,omitempty"`
 	EmailNextAttemptAt  *time.Time `json:"emailNextAttemptAt,omitempty"`
 	CreatedAt           time.Time  `json:"createdAt"`

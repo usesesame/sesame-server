@@ -81,6 +81,7 @@ afterEach(() => {
   passkey.passkeysSupported.mockReturnValue(false)
   capabilities.capabilities.mockReset()
   vi.unstubAllGlobals()
+  window.history.replaceState({}, '', '/account')
 })
 
 test('loads and saves the optional notification preferences', async () => {
@@ -105,6 +106,14 @@ test('shows a preference loading failure', async () => {
   render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
   await fireEvent.click(screen.getByRole('tab', { name: 'Security' }))
   expect((await screen.findByRole('alert')).textContent).toContain('The account service is temporarily unavailable.')
+})
+
+test('opens the security tab from the support preference link', async () => {
+  mockAccess()
+  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: true, supportReplies: true, productAnnouncements: false })
+  window.history.replaceState({}, '', '/account#security')
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  expect(await screen.findByRole('checkbox', { name: 'Support replies' })).toBeTruthy()
 })
 
 test('summarises access and signs out from the overview', async () => {

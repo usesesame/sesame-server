@@ -5,7 +5,7 @@
   import AuthPage from './pages/AuthPage.svelte'
   import LegalPage from './pages/LegalPage.svelte'
   import SupportPage from './pages/SupportPage.svelte'
-  import { loadAuthState, type Account, type AuthState } from './lib/auth'
+  import { loadAuthState, getAccountBootstrap, type Account, type AuthState } from './lib/auth'
   import { siteOrigin } from './lib/runtime-config'
 
   const FLOW_PAGES = ['forgot-password', 'reset-password', 'verify-email', 'confirm-email-change'] as const
@@ -25,9 +25,11 @@
   const isFlow = (value: Page): value is FlowPage => (FLOW_PAGES as readonly string[]).includes(value)
   const isLegal = (value: Page): value is LegalPageName => (LEGAL_PAGES as readonly string[]).includes(value)
 
-  const needsSessionCheck = page === 'account' || page === 'support'
+  const needsSessionCheck = page === 'account' || page === 'support' || page === 'login'
   let account: Account | null = null
   let authState: AuthState = needsSessionCheck ? { state: 'loading' } : { state: 'anonymous' }
+  let supportUnread = 0
+  let sessionExpired = false
   const siteHost = new URL(siteOrigin).host
 
   onMount(() => {
@@ -39,6 +41,12 @@
         : state.state === 'offline'
           ? state.account || null
           : null
+      sessionExpired = state.state === 'anonymous' && state.expired === true
+      if (state.state === 'authenticated' || (state.state === 'offline' && state.account)) {
+        void getAccountBootstrap()
+          .then((bootstrap) => { supportUnread = bootstrap.notificationCounts.support })
+          .catch(() => { supportUnread = 0 })
+      }
     })
   })
 </script>
@@ -53,7 +61,7 @@
     </a>
     <nav aria-label="Portal navigation">
       <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
-      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support</a>
+      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support{#if supportUnread > 0}<span class="nav-count" aria-label={`${supportUnread} unread support ${supportUnread === 1 ? 'reply' : 'replies'}`}>{supportUnread}</span>{/if}</a>
       <a href={siteOrigin}>{siteHost}</a>
     </nav>
     <div class="header-account-actions">
@@ -72,7 +80,7 @@
 
 <main id="top">
   {#if page === 'login' || page === 'register'}
-    <AuthPage mode={page} onAuthenticated={(nextAccount) => (account = nextAccount)} />
+    <AuthPage mode={page} sessionExpired={page === 'login' && sessionExpired} onAuthenticated={(nextAccount) => { account = nextAccount; sessionExpired = false }} />
   {:else if isFlow(page)}
     <AccountFlowPage
       mode={page}
@@ -114,7 +122,7 @@
     <nav class="footer-col" aria-label="Portal">
       <strong>Portal</strong>
       <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
-      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support</a>
+      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support{#if supportUnread > 0}<span class="nav-count" aria-label={`${supportUnread} unread support ${supportUnread === 1 ? 'reply' : 'replies'}`}>{supportUnread}</span>{/if}</a>
     </nav>
     <nav class="footer-col" aria-label="Legal">
       <strong>Legal</strong>

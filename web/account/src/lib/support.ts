@@ -29,6 +29,20 @@ export type SupportRequest = {
 
 export type SupportReceipt = { requestId: string; status: 'open' }
 
+export type SupportMetadata = {
+  status: string
+  url: string
+  intake: string
+  attachmentsAccepted: boolean
+  receiptEmail: boolean
+}
+
+export async function getSupportMetadata(): Promise<SupportMetadata> {
+  const response = await apiRequest(API_ROUTES.support)
+  if (!response.ok) throw await responseError(response)
+  return await response.json() as SupportMetadata
+}
+
 export type SupportTicketStatus = 'open' | 'in_progress' | 'waiting' | 'closed'
 
 export type SupportTicketSummary = {

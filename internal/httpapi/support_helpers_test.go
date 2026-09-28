@@ -33,7 +33,7 @@ type supportTestEnv struct {
 	ipCounter    int64
 }
 
-func newSupportTestEnv(t *testing.T) *supportTestEnv {
+func newSupportTestEnv(t *testing.T, options ...func(*Config)) *supportTestEnv {
 	t.Helper()
 	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -60,14 +60,18 @@ func newSupportTestEnv(t *testing.T) *supportTestEnv {
 	}
 	t.Cleanup(func() { _ = adminStore.Close() })
 	seed := time.Now().UnixNano()
+	config := Config{
+		Accounts:      accountStore,
+		Admin:         adminStore,
+		AllowedOrigin: supportTestOrigin,
+		AdminOrigin:   supportTestAdminOrigin,
+		WebBaseURL:    supportTestOrigin,
+	}
+	for _, option := range options {
+		option(&config)
+	}
 	env := &supportTestEnv{
-		handler: New(Config{
-			Accounts:      accountStore,
-			Admin:         adminStore,
-			AllowedOrigin: supportTestOrigin,
-			AdminOrigin:   supportTestAdminOrigin,
-			WebBaseURL:    supportTestOrigin,
-		}),
+		handler:      New(config),
 		accountStore: accountStore,
 		adminStore:   adminStore,
 		db:           db,

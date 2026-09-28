@@ -143,6 +143,7 @@ func (a *api) support(response http.ResponseWriter, request *http.Request) {
 		"url":                 strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
 		"intake":              "/v1/support/requests",
 		"attachmentsAccepted": false,
+		"receiptEmail":        a.config.EmailSender != nil,
 		"message":             "Describe what happened without sending vault files, passwords, TOTP seeds, backup codes, recovery notes, or tokens.",
 	})
 }

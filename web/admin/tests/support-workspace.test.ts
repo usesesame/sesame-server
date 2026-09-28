@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { AdminAccount, TicketDetail, TicketSummary } from '../src/lib/types'
+import type { AdminAccount, EmailDeliveryReason, TicketDetail, TicketSummary } from '../src/lib/types'
 
 const api = vi.hoisted(() => ({ request: vi.fn(), mutate: vi.fn() }))
 
@@ -53,7 +53,7 @@ function ticketDetail(overrides: Partial<TicketDetail> = {}): TicketDetail {
     ...ticketSummary(),
     messages: [
       { id: 'message-test', authorRole: 'user', body: 'I cannot sign in after the update.', sentViaEmail: false, createdAt: '2026-08-30T09:00:00Z' },
-      { id: 'message-staff', authorRole: 'staff', adminEmail: 'ops@example.invalid', body: 'A fix is on the way.', sentViaEmail: true, emailDeliveryStatus: 'delivered', createdAt: '2026-08-31T10:30:00Z' },
+      { id: 'message-staff', authorRole: 'staff', adminEmail: 'ops@example.invalid', body: 'A fix is on the way.', sentViaEmail: true, emailDeliveryStatus: 'delivered', emailDeliveryReason: 'delivered', createdAt: '2026-08-31T10:30:00Z' },
     ],
     notes: [{ id: 'note-test', adminEmail: 'ops@example.invalid', body: 'Follow up with the import logs.', createdAt: '2026-08-31T10:45:00Z' }],
     ...overrides,
@@ -171,6 +171,7 @@ test('posts a staff reply and keeps the returned ticket', async () => {
   await fireEvent.click(screen.getByRole('button', { name: 'Post reply' }))
   expect(api.mutate).toHaveBeenCalledWith('/v1/admin/support/ticket-test/reply', 'POST', { body: 'We reset the session for this account.' })
   expect(await screen.findByText('Reply added to the user\'s support portal.')).toBeTruthy()
+  expect(screen.getByRole('status', { name: 'Support status' }).textContent).toBe('Notice: Reply added to the user\'s support portal.')
   expect((screen.getByLabelText('Reply to user') as HTMLTextAreaElement).value).toBe('')
 })
 
@@ -265,7 +266,96 @@ test('readonly staff can read a ticket without staff controls', async () => {
   expect(screen.queryByRole('button', { name: 'Post reply' })).toBeNull()
 })
 
-test('shows the queue failure to the operator', async () => {
+test('explains every staff reply delivery reason without the raw outbox status', async () => {
+  const reasons: Array<[EmailDeliveryReason, string]> = [
+    ['delivered', 'Reply email delivered'],
+    ['pending', 'Reply email waiting to send'],
+    ['failed', 'Reply email failed'],
+    ['guest', 'Guest request, no reply email'],
+    ['mail-off', 'Mail is not configured, so no reply email was sent'],
+    ['opted-out', 'Reply email turned off by the account'],
+    ['not-queued', 'Reply email not queued'],
+  ]
+  const detail = ticketDetail({
+    messages: [
+      { id: 'message-user', authorRole: 'user', body: 'I cannot sign in after the update.', sentViaEmail: false, createdAt: '2026-08-30T09:00:00Z' },
+      ...reasons.map(([reason]) => ({
+        id: `message-${reason}`, authorRole: 'staff' as const, adminEmail: 'ops@example.invalid',
+        body: `Fictional reply for ${reason}.`, sentViaEmail: true, emailDeliveryReason: reason, createdAt: '2026-08-31T10:30:00Z',
+      })),
+    ],
+  })
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/support/assignees')) return { assignees: [] }
+    if (path.startsWith('/v1/admin/support?')) return { tickets: [ticketSummary()], total: 1 }
+    if (path === '/v1/admin/support/ticket-test') return { ticket: detail }
+    return {}
+  })
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
+  await fireEvent.click(await screen.findByText('Cannot sign in'))
+  for (const [, label] of reasons) {
+    expect(await screen.findByText(new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeTruthy()
+  }
+  for (const status of ['delivered', 'pending', 'processing', 'failed']) {
+    expect(screen.queryByText(new RegExp(`· email ${status}\\b`))).toBeNull()
+  }
+})
+
+test('shows mail and staff notification state in the ticket header', async () => {
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/support/assignees')) return { assignees: [] }
+    if (path.startsWith('/v1/admin/support?')) return { tickets: [ticketSummary()], total: 1 }
+    if (path === '/v1/admin/support/ticket-test') return { ticket: ticketDetail(), mail: { deliveryConfigured: false, staffNotifyConfigured: true } }
+    return {}
+  })
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
+  await fireEvent.click(await screen.findByText('Cannot sign in'))
+  expect(await screen.findByText('Requester receipt email: off, mail is not configured')).toBeTruthy()
+  expect(screen.getByText('Staff notification email: on')).toBeTruthy()
+})
+
+test('gives ticket rows button semantics and activates them from the keyboard', async () => {
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/support/assignees')) return { assignees: [] }
+    if (path.startsWith('/v1/admin/support?')) return { tickets: [ticketSummary()], total: 1 }
+    if (path === '/v1/admin/support/ticket-test') return { ticket: ticketDetail() }
+    return {}
+  })
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
+  const row = await screen.findByRole('button', { name: 'Open ticket Cannot sign in from tester@example.invalid' })
+  expect(row.getAttribute('tabindex')).toBe('0')
+  const detailRequests = () => api.request.mock.calls.filter(([path]) => path === '/v1/admin/support/ticket-test').length
+  await fireEvent.keyDown(row, { key: 'Enter' })
+  expect(detailRequests()).toBe(1)
+  expect(await screen.findByText('I cannot sign in after the update.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Close details' }))
+  await fireEvent.keyDown(screen.getByRole('button', { name: 'Open ticket Cannot sign in from tester@example.invalid' }), { key: ' ' })
+  expect(detailRequests()).toBe(2)
+  expect(await screen.findByText('I cannot sign in after the update.')).toBeTruthy()
+})
+
+test('announces ticket loading and loaded states to assistive technology', async () => {
+  let resolveDetail: (value: unknown) => void = () => undefined
+  const detailPromise = new Promise((resolve) => { resolveDetail = resolve })
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/support/assignees')) return { assignees: [] }
+    if (path.startsWith('/v1/admin/support?')) return { tickets: [ticketSummary()], total: 1 }
+    if (path === '/v1/admin/support/ticket-test') return detailPromise
+    return {}
+  })
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
+  await fireEvent.click(await screen.findByText('Cannot sign in'))
+  expect(screen.getByRole('status', { name: 'Support status' }).textContent).toBe('Loading ticket details.')
+  resolveDetail({ ticket: ticketDetail() })
+  expect(await screen.findByText('I cannot sign in after the update.')).toBeTruthy()
+  expect(screen.getByRole('status', { name: 'Support status' }).textContent).toBe('Ticket details loaded.')
+})
+
+test('shows the queue failure to the operator and announces it', async () => {
   mockApp((path) => {
     if (path.startsWith('/v1/admin/support/assignees')) return { assignees: [] }
     if (path.startsWith('/v1/admin/support?')) throw new APIError('The support queue is unavailable.', 503)
@@ -274,4 +364,5 @@ test('shows the queue failure to the operator', async () => {
   render(App)
   await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
   expect((await screen.findByRole('alert')).textContent).toContain('The support queue is unavailable.')
+  expect(screen.getByRole('status', { name: 'Support status' }).textContent).toBe('Error: The support queue is unavailable.')
 })

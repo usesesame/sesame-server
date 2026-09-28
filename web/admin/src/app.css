@@ -206,6 +206,9 @@ tr.active { background: var(--tint); }
 
 .support-split.has-detail { grid-template-columns: minmax(0, 1fr) clamp(420px, 34vw, 620px); }
 .support-detail { display: flex; flex-direction: column; max-height: calc(100vh - 40px); overflow-y: auto; }
+.support-mail-state { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 10px 0 0; color: var(--text-muted); font-size: var(--type-2); }
+tbody tr[role="button"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); border: 0; white-space: nowrap; }
 
 .thread { display: flex; flex-direction: column; gap: 14px; max-height: min(48vh, 520px); overflow-y: auto; padding-right: 2px; }
 .message { max-width: 88%; margin: 0; border: 0; border-radius: var(--radius-md); padding: 12px 15px; background: var(--surface-inset); font-size: var(--type-3); }

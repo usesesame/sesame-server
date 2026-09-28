@@ -28,6 +28,7 @@ export type ExtensionPublication = { id: string; store: 'chrome' | 'edge' | 'fir
 export type TicketStatus = 'open' | 'in_progress' | 'waiting' | 'closed'
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'
 export type TicketCategory = 'general' | 'account' | 'import' | 'sync' | 'browser_helper' | 'billing' | 'bug'
+export type EmailDeliveryReason = 'delivered' | 'pending' | 'failed' | 'guest' | 'mail-off' | 'opted-out' | 'not-queued'
 
 export const TICKET_CATEGORY_LABELS: Record<TicketCategory, string> = {
   general: 'General',
@@ -39,6 +40,20 @@ export const TICKET_CATEGORY_LABELS: Record<TicketCategory, string> = {
   bug: 'Bug report',
 }
 
+export const TICKET_DELIVERY_REASON_LABELS: Record<EmailDeliveryReason, string> = {
+  delivered: 'Reply email delivered',
+  pending: 'Reply email waiting to send',
+  failed: 'Reply email failed',
+  guest: 'Guest request, no reply email',
+  'mail-off': 'Mail is not configured, so no reply email was sent',
+  'opted-out': 'Reply email turned off by the account',
+  'not-queued': 'Reply email not queued',
+}
+
+export function deliveryReasonLabel(reason?: string): string {
+  return reason ? TICKET_DELIVERY_REASON_LABELS[reason as EmailDeliveryReason] ?? 'Reply email state unknown' : ''
+}
+
 export type TicketSummary = {
   id: string; email: string; subject: string; status: TicketStatus
   priority: TicketPriority; category: TicketCategory; appVersion: string; diagnosticCode: string; browserIntegration: string; requestId: string
@@ -48,8 +63,10 @@ export type TicketSummary = {
 
 export type TicketMessage = {
   id: string; authorRole: 'user' | 'staff'; adminEmail?: string
-  body: string; sentViaEmail: boolean; emailDeliveryStatus?: string; emailAttempts?: number; emailNextAttemptAt?: string; createdAt: string
+  body: string; sentViaEmail: boolean; emailDeliveryStatus?: string; emailDeliveryReason?: EmailDeliveryReason; emailAttempts?: number; emailNextAttemptAt?: string; createdAt: string
 }
+
+export type SupportMailState = { deliveryConfigured: boolean; staffNotifyConfigured: boolean }
 
 export type TicketNote = {
   id: string; adminEmail: string; body: string; createdAt: string

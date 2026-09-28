@@ -20,6 +20,15 @@ This file records the current boundary and the remaining release work.
 - A signed-in user can list and read only requests owned by that account under `/v1/account/support/*`.
 - Signed-in users can add a follow-up to an open request, close it, and reopen
   it for 30 days after closure.
+- The Support links in the portal show the unread reply count, hidden at zero,
+  and the sign-in page explains an expired session instead of showing an
+  ordinary signed-out visit.
+- The support form and a signed-in request page state whether a receipt and
+  reply email will be sent. Guests are told a receipt is emailed when the
+  deployment's public support metadata reports mail is configured, or that
+  email is unavailable on this deployment and the reference is still shown
+  after submit. Signed-in users see the account's support-reply preference with
+  a link to the toggle in Security settings.
 - Both sites repeat the no-secrets boundary before directing or submitting a
   request.
 
@@ -50,6 +59,16 @@ This file records the current boundary and the remaining release work.
   category, and admin console link, never the subject or message. With no
   address set, nothing is queued and the System workspace reports staff
   notification off.
+- Each staff message shows why reply email was or was not sent: delivered,
+  waiting to send, failed, guest request, reply email turned off by the
+  account, or mail not configured on the deployment. The raw outbox status is
+  not shown.
+- The ticket header reports whether requester receipts and staff notification
+  email are configured, using the mail state returned with the ticket detail
+  and without requiring `system:read`.
+- Ticket rows behave as keyboard buttons: Enter or Space opens the ticket,
+  focus is visible on the row, and the workspace announces loading, notices,
+  and errors through an `aria-live` region.
 - Read-only and unrelated admin roles cannot mutate support data.
 
 ### Database
@@ -71,8 +90,11 @@ receipt to the requester and, when a staff address is configured, a notice to
 that address. A staff reply queues a durable notification when the account's
 support-reply preference is on; the preference defaults on for new and
 existing accounts. The worker records pending, delivered, and failed states
-with bounded retries. Portal visibility does not depend on email delivery, and
-no notification contains the subject or support message.
+with bounded retries. The admin workspace receives a server-computed reason per
+staff message instead of the raw outbox status, so a guest request, a
+turned-off account, and an unconfigured sender are distinguishable. Portal
+visibility does not depend on email delivery, and no notification contains the
+subject or support message.
 
 The public support flow is suitable for controlled beta testing, not a promise of continuous support. There is no attachment handling, live chat, phone support, automatic desktop-log upload, or vault recovery service.
 

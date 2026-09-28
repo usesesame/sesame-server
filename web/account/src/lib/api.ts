@@ -46,6 +46,7 @@ export const API_ROUTES = {
   downloads: '/v1/account/downloads',
 	downloadTickets: '/v1/account/download-tickets',
   supportRequests: '/v1/support/requests',
+  support: '/v1/support',
 	accountSupport: '/v1/account/support',
 } as const
 

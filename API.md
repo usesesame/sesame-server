@@ -106,8 +106,9 @@ body.
   additionally requires verified Authenticode evidence.
 - `GET /v1/security/boundaries` returns machine-readable confirmation that the API
   accepts and stores no vault data or credentials.
-- `GET /v1/support` returns public support availability and a safe-submission
-  warning.
+- `GET /v1/support` returns public support availability, a safe-submission
+  warning, and `receiptEmail`, a boolean stating whether intake receipts are
+  emailed on this deployment. It never returns a staff address.
 
 ## Registration and email
 
@@ -340,6 +341,17 @@ console link. Staff replies queue a notice only when the owning account's
 support-reply preference is on; that enqueue shares the reply transaction, so a
 failed enqueue fails the reply. No notification contains the subject or
 message.
+
+The admin ticket detail and reply responses carry a server-computed
+`emailDeliveryReason` on each staff message: `delivered`, `pending`, `failed`,
+`guest` (the request has no account), `mail-off` (no SMTP sender),
+`opted-out` (the account turned reply email off), or `not-queued` (no outbox
+row, including a preference lookup failure). A lookup failure never reports
+`opted-out`. User messages carry no reason. The ticket detail response also
+carries `mail: {deliveryConfigured, staffNotifyConfigured}` so support staff can
+see the deployment's mail state without `system:read`. The list response and
+account responses are unchanged, and neither field exposes an address or a
+secret.
 
 The intake accepts JSON only, rejects attachment fields and multipart bodies,
 and refuses secret-shaped content: `key: value` assignments, the prose form of
