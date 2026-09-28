@@ -14,10 +14,10 @@
 // them on the next run.
 
 import { createPrivateKey, createPublicKey, randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseEnvText, renderEnvFile, unmanagedEnvLines } from './setup-lib.mjs'
+import { parseEnvText, renderEnvFile, unmanagedEnvLines, writeEnvFileAtomic } from './setup-lib.mjs'
 
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const composeDirectory = resolve(serverRoot, 'deploy', 'compose')
@@ -76,8 +76,7 @@ settings.set('SESAME_CAPABILITY_PUBLIC_KEY', capabilityPublicKey(capabilitySigni
 
 mkdirSync(composeDirectory, { recursive: true })
 const preserved = unmanagedEnvLines(existingText, settings.keys())
-writeFileSync(envPath, renderEnvFile({ settings, preservedLines: preserved }), { encoding: 'utf8', mode: 0o600 })
-chmodSync(envPath, 0o600)
+writeEnvFileAtomic(envPath, renderEnvFile({ settings, preservedLines: preserved }), 0o600)
 
 console.log(`Wrote ${toComposePath(envPath)}`)
 console.log(created.length > 0
