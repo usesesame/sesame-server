@@ -243,7 +243,7 @@ import { siteOrigin } from '../lib/runtime-config'
                 {:else if selectedTicket.canReopen}<button class="button button-soft button-sm" type="button" disabled={lifecycleWorking} on:click={() => changeTicketLifecycle('reopen')}>{lifecycleWorking ? 'Updating...' : 'Reopen request'}</button>{/if}
               </div>
               {#if selectedTicket.status === 'closed'}
-                <p class="support-closed-note">This request is closed. You can reopen it for 30 days, then start a new request if the problem returned.</p>
+                <p class="support-closed-note">{selectedTicket.autoClosed ? 'This request closed automatically after 14 days without a reply. You can reopen it for 30 days, then start a new request if the problem returned.' : 'This request is closed. You can reopen it for 30 days, then start a new request if the problem returned.'}</p>
               {:else}
                 <form class="support-reply" on:submit|preventDefault={sendReply}>
                   <label>Add a follow-up<textarea bind:value={reply} required minlength="2" maxlength="4000" rows="4" aria-describedby="support-reply-safety"></textarea></label>
@@ -267,6 +267,7 @@ import { siteOrigin } from '../lib/runtime-config'
       <div class="support-receipt" role="status"><h2>Request {receipt}</h2><p>Added to the queue. {account ? 'The request is now in your support history. You can follow replies above.' : 'Keep this reference for any follow-up. Guest request contents are not exposed through the public website.'}</p><div class="support-receipt-actions">{#if account}<button class="button" type="button" on:click={() => selectTicket(receipt)}>View request</button>{/if}<button class="button button-soft" type="button" on:click={() => (receipt = '')}>Send another report</button></div></div>
     {:else}
       <div class="support-form-head"><div><p class="eyebrow">Contact</p><h2>Send a request</h2></div><span>No attachments</span></div>
+      <p class="support-response-expectation">We aim to reply within 3 business days.</p>
       <form class="support-form" on:submit|preventDefault={submit}>
         <label>Email<input type="email" bind:value={email} autocomplete="email" required maxlength="254" readonly={!!account} /></label>
         <label>Topic<select bind:value={category}>{#each SUPPORT_CATEGORIES as option (option.value)}<option value={option.value}>{option.label}</option>{/each}</select></label>

@@ -59,6 +59,7 @@ export type SupportTicketSummary = {
   createdAt: string
   updatedAt: string
   closedAt?: string
+  autoClosed: boolean
   canClose: boolean
   canReopen: boolean
 }

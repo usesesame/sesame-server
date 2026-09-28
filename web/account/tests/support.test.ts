@@ -22,6 +22,7 @@ function ticketSummary(overrides: Partial<SupportTicketSummary> = {}): SupportTi
     unreadCount: 0,
     createdAt: '2026-08-30T09:00:00Z',
     updatedAt: '2026-08-31T10:00:00Z',
+    autoClosed: false,
     canClose: true,
     canReopen: false,
     ...overrides,

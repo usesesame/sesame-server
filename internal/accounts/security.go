@@ -188,6 +188,7 @@ type SupportTicketSummary struct {
 	CreatedAt          time.Time  `json:"createdAt"`
 	UpdatedAt          time.Time  `json:"updatedAt"`
 	ClosedAt           *time.Time `json:"closedAt,omitempty"`
+	AutoClosed         bool       `json:"autoClosed"`
 	CanClose           bool       `json:"canClose"`
 	CanReopen          bool       `json:"canReopen"`
 }
@@ -748,7 +749,7 @@ func (s *PostgresStore) CreateSupportRequest(ctx context.Context, input SupportR
 func (s *PostgresStore) SupportTicketsForAccount(ctx context.Context, accountID string) ([]SupportTicketSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT ticket.id, ticket.subject, ticket.status, ticket.category, ticket.app_version, ticket.diagnostic_code, ticket.browser_integration, ticket.request_id,
-			ticket.created_at, ticket.updated_at, ticket.closed_at, ticket.account_reopen_until,
+			ticket.created_at, ticket.updated_at, ticket.closed_at, ticket.closed_by_system, ticket.account_reopen_until,
 			(SELECT COUNT(*) FROM sesame_support_messages message WHERE message.ticket_id = ticket.id),
 			(SELECT COUNT(*) FROM sesame_support_messages message
 			 WHERE message.ticket_id = ticket.id AND message.author_role = 'staff'
@@ -765,7 +766,7 @@ func (s *PostgresStore) SupportTicketsForAccount(ctx context.Context, accountID 
 	for rows.Next() {
 		var ticket SupportTicketSummary
 		var closedAt, reopenUntil sql.NullTime
-		if err := rows.Scan(&ticket.ID, &ticket.Subject, &ticket.Status, &ticket.Category, &ticket.AppVersion, &ticket.DiagnosticCode, &ticket.BrowserIntegration, &ticket.RequestID, &ticket.CreatedAt, &ticket.UpdatedAt, &closedAt, &reopenUntil, &ticket.MessageCount, &ticket.UnreadCount); err != nil {
+		if err := rows.Scan(&ticket.ID, &ticket.Subject, &ticket.Status, &ticket.Category, &ticket.AppVersion, &ticket.DiagnosticCode, &ticket.BrowserIntegration, &ticket.RequestID, &ticket.CreatedAt, &ticket.UpdatedAt, &closedAt, &ticket.AutoClosed, &reopenUntil, &ticket.MessageCount, &ticket.UnreadCount); err != nil {
 			return nil, err
 		}
 		if closedAt.Valid {
@@ -783,13 +784,13 @@ func (s *PostgresStore) SupportTicketForAccount(ctx context.Context, accountID, 
 	var ticket SupportTicketDetail
 	var closedAt, reopenUntil sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, subject, status, category, app_version, diagnostic_code, browser_integration, request_id, created_at, updated_at, closed_at, account_reopen_until,
+		SELECT id, subject, status, category, app_version, diagnostic_code, browser_integration, request_id, created_at, updated_at, closed_at, closed_by_system, account_reopen_until,
 			(SELECT COUNT(*) FROM sesame_support_messages message WHERE message.ticket_id = sesame_support_requests.id),
 			(SELECT COUNT(*) FROM sesame_support_messages message WHERE message.ticket_id = sesame_support_requests.id
 			 AND message.author_role = 'staff' AND message.created_at > sesame_support_requests.account_last_read_at)
 		FROM sesame_support_requests
 		WHERE id = $1 AND account_id = $2
-	`, ticketID, accountID).Scan(&ticket.ID, &ticket.Subject, &ticket.Status, &ticket.Category, &ticket.AppVersion, &ticket.DiagnosticCode, &ticket.BrowserIntegration, &ticket.RequestID, &ticket.CreatedAt, &ticket.UpdatedAt, &closedAt, &reopenUntil, &ticket.MessageCount, &ticket.UnreadCount)
+	`, ticketID, accountID).Scan(&ticket.ID, &ticket.Subject, &ticket.Status, &ticket.Category, &ticket.AppVersion, &ticket.DiagnosticCode, &ticket.BrowserIntegration, &ticket.RequestID, &ticket.CreatedAt, &ticket.UpdatedAt, &closedAt, &ticket.AutoClosed, &reopenUntil, &ticket.MessageCount, &ticket.UnreadCount)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SupportTicketDetail{}, ErrNotFound
 	}

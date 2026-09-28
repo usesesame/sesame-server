@@ -300,6 +300,7 @@ p { overflow-wrap: break-word; }
 .support-form-head h2,
 .support-receipt h2 { margin: 0; font-size: var(--type-5); }
 .support-form-head > span { border-radius: var(--radius-pill); padding: 6px 9px; color: var(--accent-link); background: var(--tint); font-size: var(--type-1); font-weight: var(--weight-bold); }
+.support-response-expectation { margin: 12px 0 0; color: var(--text-heading); font-size: var(--type-3); font-weight: var(--weight-bold); }
 .support-form { display: grid; gap: 16px; margin-top: 24px; }
 .support-form label { display: grid; gap: 8px; color: var(--text-heading); font-size: var(--type-2); font-weight: var(--weight-bold); }
 .support-form label > span { color: var(--text-faint); font-weight: var(--weight-regular); }

@@ -395,6 +395,15 @@ type TicketNote struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
+type SavedReply struct {
+	ID               string    `json:"id"`
+	Title            string    `json:"title"`
+	Body             string    `json:"body"`
+	CreatedByAdminID *string   `json:"createdByAdminId,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
 type TicketDetail struct {
 	TicketSummary
 	AccountID     string          `json:"accountId,omitempty"`
