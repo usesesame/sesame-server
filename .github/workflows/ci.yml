@@ -77,6 +77,8 @@ jobs:
 
       - run: npm run ci
 
+      - run: npm test
+
       # `ci` stops at the type check, so without this a bundling failure would
       # first appear on the deployed server.
       - run: npm run build
