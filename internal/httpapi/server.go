@@ -62,6 +62,7 @@ type Config struct {
 	RegistrationMode          string
 	WebBaseURL                string
 	EmailSender               EmailSender
+	SupportNotifyEmail        string
 	RecentAuthDuration        time.Duration
 	// Nil disables the passkey endpoints. It never touches the local vault.
 	Passkeys *webauthn.WebAuthn

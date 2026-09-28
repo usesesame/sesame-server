@@ -51,6 +51,8 @@ services:
       SESAME_SMTP_USERNAME: ${SESAME_SMTP_USERNAME:-}
       SESAME_SMTP_PASSWORD: ${SESAME_SMTP_PASSWORD:-}
       SESAME_SMTP_FROM: ${SESAME_SMTP_FROM:-}
+      # Optional. New requests and requester follow-ups send a short notice here.
+      SESAME_SUPPORT_NOTIFY_EMAIL: ${SESAME_SUPPORT_NOTIFY_EMAIL:-}
       # Release candidates are signed by the desktop repository's CI and
       # submitted over the API. Empty values leave the endpoint closed.
       SESAME_RELEASE_CANDIDATE_PUBLIC_KEY: ${SESAME_RELEASE_CANDIDATE_PUBLIC_KEY:-}

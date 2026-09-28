@@ -22,6 +22,8 @@ export type OperationalSnapshot = {
   maintenance: { status: OperationalStatus; lastRunAt?: string }
 }
 
+export type SystemMailConfig = { supportNotifyEmailConfigured: boolean; emailDeliveryConfigured: boolean }
+
 export type ExtensionPublication = { id: string; store: 'chrome' | 'edge' | 'firefox'; version: string; packageSha256: string; packageBytes: number; filename: string; status: 'built' | 'uploaded' | 'submitted' | 'approved' | 'published' | 'withdrawn'; evidence: Record<string, Record<string, unknown>>; stateRevision: number; createdAt: string; updatedAt: string; audit: AuditEntry[] }
 export type TicketStatus = 'open' | 'in_progress' | 'waiting' | 'closed'
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'

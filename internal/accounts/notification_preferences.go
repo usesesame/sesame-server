@@ -3,6 +3,7 @@ package accounts
 import "context"
 
 // Opt-in categories only; security notifications are deliberately absent because they are mandatory.
+// Support replies default on and an account may turn them off.
 type NotificationPreferences struct {
 	BetaReleases         bool `json:"betaReleases"`
 	SupportReplies       bool `json:"supportReplies"`

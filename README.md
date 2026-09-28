@@ -80,6 +80,10 @@ service.
 `SESAME_ENV=development` and no SMTP credentials. Every other SMTP
 configuration requires STARTTLS.
 
+`SESAME_SUPPORT_NOTIFY_EMAIL` optionally names the inbox that receives a short
+notice for each new support request and signed-in follow-up. The notice carries
+the reference and category, never the subject or message.
+
 `invite` mode accepts either a row in `sesame_beta_eligibility` with status
 `eligible`, or a live single-use value in `sesame_beta_invites`. Invite values
 are SHA-256 hashed before storage. `closed` mode rejects registration even if a
