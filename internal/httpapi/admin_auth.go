@@ -47,8 +47,8 @@ func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	a.route(mux, admin, "GET /v1/admin/users", a.adminUsers)
 	a.route(mux, admin, "GET /v1/admin/users/{accountID}", a.adminUserView)
 	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}", a.adminUserDelete)
-	a.route(mux, admin, "POST /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", true))
-	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", false))
+	a.projectRoute(mux, admin, "POST /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", true))
+	a.projectRoute(mux, admin, "DELETE /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", false))
 	a.route(mux, admin, "POST /v1/admin/users/{accountID}/beta", a.adminUserAction("beta", true))
 	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/beta", a.adminUserAction("beta", false))
 	a.route(mux, admin, "POST /v1/admin/users/{accountID}/suspend", a.adminUserAction("suspend", true))
@@ -57,16 +57,16 @@ func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/devices/{deviceID}", a.adminUserAction("devices", false))
 	a.route(mux, admin, "GET /v1/admin/flags", a.adminFlags)
 	a.route(mux, admin, "PATCH /v1/admin/flags/{key}", a.adminFlag)
-	a.route(mux, admin, "GET /v1/admin/releases", a.adminReleases)
-	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/publish", a.adminReleasePublish)
-	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/rollout", a.adminReleaseRollout)
-	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/emergency-stop", a.adminReleaseEmergencyStop)
-	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/withdraw", a.adminReleaseWithdraw)
-	a.route(mux, admin, "GET /v1/admin/extension-publications", a.adminExtensionPublications)
-	a.route(mux, admin, "POST /v1/admin/extension-publications", a.adminExtensionPublicationAccept)
-	a.route(mux, admin, "POST /v1/admin/extension-publications/{publicationID}/transition", a.adminExtensionPublicationTransition)
-	a.route(mux, admin, "GET /v1/admin/plans", a.adminPlans)
-	a.route(mux, admin, "PATCH /v1/admin/plans/{planID}", a.adminPlan)
+	a.projectRoute(mux, admin, "GET /v1/admin/releases", a.adminReleases)
+	a.projectRoute(mux, admin, "POST /v1/admin/releases/{releaseID}/publish", a.adminReleasePublish)
+	a.projectRoute(mux, admin, "POST /v1/admin/releases/{releaseID}/rollout", a.adminReleaseRollout)
+	a.projectRoute(mux, admin, "POST /v1/admin/releases/{releaseID}/emergency-stop", a.adminReleaseEmergencyStop)
+	a.projectRoute(mux, admin, "POST /v1/admin/releases/{releaseID}/withdraw", a.adminReleaseWithdraw)
+	a.projectRoute(mux, admin, "GET /v1/admin/extension-publications", a.adminExtensionPublications)
+	a.projectRoute(mux, admin, "POST /v1/admin/extension-publications", a.adminExtensionPublicationAccept)
+	a.projectRoute(mux, admin, "POST /v1/admin/extension-publications/{publicationID}/transition", a.adminExtensionPublicationTransition)
+	a.projectRoute(mux, admin, "GET /v1/admin/plans", a.adminPlans)
+	a.projectRoute(mux, admin, "PATCH /v1/admin/plans/{planID}", a.adminPlan)
 	a.route(mux, admin, "GET /v1/admin/admins", a.adminAccounts)
 	a.route(mux, admin, "POST /v1/admin/admins", a.inviteAdminAccount)
 	a.route(mux, admin, "DELETE /v1/admin/admins/{adminID}", a.deleteAdminAccount)
@@ -186,7 +186,7 @@ func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
 	}
 	a.setAdminSessionCookie(response, token)
 	admin.Permissions = adminstore.EffectivePermissions(admin.Role)
-	writeJSON(response, http.StatusOK, map[string]any{"admin": admin})
+	writeJSON(response, http.StatusOK, map[string]any{"admin": admin, "deploymentProfile": a.config.DeploymentProfile})
 }
 
 func (a *api) adminSetupBegin(response http.ResponseWriter, request *http.Request) {
@@ -250,7 +250,7 @@ func (a *api) adminSetupComplete(response http.ResponseWriter, request *http.Req
 	}
 	a.setAdminSessionCookie(response, token)
 	account.Permissions = adminstore.EffectivePermissions(account.Role)
-	writeJSON(response, http.StatusOK, map[string]any{"admin": account})
+	writeJSON(response, http.StatusOK, map[string]any{"admin": account, "deploymentProfile": a.config.DeploymentProfile})
 }
 
 func (a *api) adminForRequest(response http.ResponseWriter, request *http.Request) (adminstore.Account, bool) {
@@ -287,7 +287,7 @@ func (a *api) requireAdminPermission(response http.ResponseWriter, request *http
 func (a *api) adminMe(response http.ResponseWriter, request *http.Request) {
 	account, ok := a.adminForRequest(response, request)
 	if ok {
-		writeJSON(response, http.StatusOK, map[string]any{"admin": account})
+		writeJSON(response, http.StatusOK, map[string]any{"admin": account, "deploymentProfile": a.config.DeploymentProfile})
 	}
 }
 

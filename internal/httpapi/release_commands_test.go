@@ -42,7 +42,7 @@ func TestReleaseCommandRoutes(t *testing.T) {
 	if _, err := accountStore.DB().ExecContext(ctx, `INSERT INTO sesame_releases (id, channel, platform, architecture, version, download_url, artifact_object_key, sha256, signature, signing_key_id, supported_windows, release_notes_url, rollback_notice, status, rollout_percent, update_enabled, kill_switch, published_at) VALUES ('release-test', 'beta', 'windows', 'x86_64', '0.2.3', 'https://downloads.example.invalid/Sesame.exe', 'releases/0.2.3/Sesame.exe', repeat('a', 64), repeat('s', 64), 'test-key', 'Windows 10', 'https://example.invalid/releases/0.2.3', '', 'published', 100, TRUE, FALSE, NOW())`); err != nil {
 		t.Fatalf("create release: %v", err)
 	}
-	handler := New(Config{Admin: adminStore, AdminOrigin: "https://admin.example.invalid"})
+	handler := New(Config{Admin: adminStore, AdminOrigin: "https://admin.example.invalid", DeploymentProfile: DeploymentProfileProject})
 
 	t.Run("checks revisions", func(t *testing.T) {
 		response := releaseCommandRequest(t, handler, adminStore, adminstore.Account{ID: "ops-test", Email: "ops@example.invalid", Role: adminstore.RoleOps}, "/v1/admin/releases/release-test/rollout", map[string]any{"expectedManifestRevision": 1, "rolloutPercent": 25})

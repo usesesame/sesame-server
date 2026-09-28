@@ -43,6 +43,11 @@ func main() {
 		slog.Error("Sesame API configuration is invalid", "error", configErr)
 		os.Exit(1)
 	}
+	deploymentProfile, deploymentProfileErr := deploymentProfileFromEnvironment()
+	if deploymentProfileErr != nil {
+		slog.Error("Sesame API configuration is invalid", "error", deploymentProfileErr)
+		os.Exit(1)
+	}
 	capabilityKey, capabilityKeyErr := capabilitySigningKey(os.Getenv("SESAME_CAPABILITY_SIGNING_KEY"))
 	if capabilityKeyErr != nil {
 		slog.Error("Sesame API configuration is invalid", "error", capabilityKeyErr)
@@ -156,6 +161,7 @@ func main() {
 	config := httpapi.Config{
 		Version:                   buildinfo.Version,
 		Commit:                    buildinfo.Commit,
+		DeploymentProfile:         deploymentProfile,
 		AllowedOrigin:             webOrigin,
 		PublicSiteOrigin:          strings.TrimSuffix(strings.TrimSpace(os.Getenv("SESAME_PUBLIC_SITE_ORIGIN")), "/"),
 		SessionSecure:             sessionSecure,
@@ -237,6 +243,10 @@ func waitForBackgroundJobs(ctx context.Context, jobs *sync.WaitGroup) bool {
 	case <-ctx.Done():
 		return false
 	}
+}
+
+func deploymentProfileFromEnvironment() (httpapi.DeploymentProfile, error) {
+	return httpapi.ParseDeploymentProfile(strings.TrimSpace(os.Getenv("SESAME_DEPLOYMENT_PROFILE")))
 }
 
 func artifactDeliveryFromEnvironment() (httpapi.ArtifactDelivery, error) {

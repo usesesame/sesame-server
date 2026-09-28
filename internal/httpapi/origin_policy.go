@@ -64,6 +64,13 @@ func (a *api) route(mux *http.ServeMux, policy routePolicy, pattern string, hand
 	mux.HandleFunc(pattern, handler)
 }
 
+func (a *api) projectRoute(mux *http.ServeMux, policy routePolicy, pattern string, handler http.HandlerFunc) {
+	if !a.projectProfile() {
+		return
+	}
+	a.route(mux, policy, pattern, handler)
+}
+
 func (a *api) finishRoutes(mux *http.ServeMux) {
 	for bare, policies := range a.routes.preflight {
 		merged := routePolicy{audience: strictestAudience(policies), requireWebOrigin: everyRequireWebOrigin(policies)}

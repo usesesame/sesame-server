@@ -26,9 +26,10 @@ const (
 )
 
 type Config struct {
-	Version       string
-	Commit        string
-	AllowedOrigin string
+	Version           string
+	Commit            string
+	DeploymentProfile DeploymentProfile
+	AllowedOrigin     string
 	// The marketing site: it may read published metadata only, never act on a session.
 	PublicSiteOrigin string
 	SessionSecure    bool
@@ -169,6 +170,9 @@ type api struct {
 }
 
 func New(config Config) http.Handler {
+	if config.DeploymentProfile != DeploymentProfileProject {
+		config.DeploymentProfile = DeploymentProfileOperator
+	}
 	if config.ReleaseRegistry == nil && config.Admin != nil {
 		config.ReleaseRegistry = config.Admin
 	}
@@ -275,7 +279,7 @@ func New(config Config) http.Handler {
 	service.route(mux, desktop, "DELETE /v1/desktop/connection", service.revokeDesktopConnection)
 
 	pipeline := routePolicy{audience: audienceReleasePipeline}
-	service.route(mux, pipeline, "POST /v1/release-candidates", service.releaseCandidateIngest)
+	service.projectRoute(mux, pipeline, "POST /v1/release-candidates", service.releaseCandidateIngest)
 
 	service.registerSyncRoutes(mux)
 	service.registerAdminRoutes(mux)

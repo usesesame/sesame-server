@@ -1,11 +1,12 @@
 # Sesame account API
 
 This document is the complete closed request and response schema contract for
-the Go API. The generated [OpenAPI inventory](./openapi/openapi.json) is the
-source of truth for route and method enumeration, authentication and CSRF
-classes, availability, and Go handler ownership. Regenerate it with
-`npm run openapi:generate` from this directory; server CI compares it byte for
-byte.
+the Go API. The generated OpenAPI inventories are the source of truth for route
+and method enumeration, authentication and CSRF classes, availability, and Go
+handler ownership: [project](./openapi/openapi.json) for Sesame's own publishing
+deployment and [operator](./openapi/openapi.operator.json) for a self-hosted
+operator deployment. Regenerate both with `npm run openapi:generate` from this
+directory; server CI compares them byte for byte.
 
 The API is vault-blind. These contracts must never carry a vault file,
 encrypted vault blob, vault password, TOTP seed, backup code, recovery note, or
@@ -32,6 +33,38 @@ limiter key. Exceeding a budget returns `429 too_many_attempts` with
 `Retry-After`, except for password recovery, which keeps answering `202` so the
 status code cannot reveal whether an address holds an account or recent
 activity.
+
+## Deployment profiles
+
+`SESAME_DEPLOYMENT_PROFILE` selects what the API serves. Unset or `operator` is
+the default self-hosted deployment. `project` is only for Sesame's own
+publishing deployments. Any other value stops startup instead of guessing.
+
+Under `operator`:
+
+- The release, extension-publication, and plan administration routes, the
+  owner-ring user action, and `POST /v1/release-candidates` are not registered.
+  Every role, including `super`, receives `404 not_found`.
+- `GET /v1/plans` returns `{plans:[]}`.
+- `GET /v1/product/status` returns
+  `{webSignInAvailable,desktopConnectionAvailable,registrationMode,cloudSyncAvailable,updated}`.
+  It carries no product phase, platform list, account purpose, or download
+  state.
+- `GET /v1/releases/latest`, `GET /v1/desktop/updates`,
+  `GET /v1/desktop/update-tickets/{ticket}`, `GET /v1/account/downloads`,
+  `POST /v1/account/download-tickets`, and `GET /v1/downloads/{ticket}` return
+  `503 release_artifacts_unavailable`. An operator artifact path is not
+  defined yet.
+- `updater_enabled` and `public_download` are absent from
+  `GET /v1/admin/flags` and the feature flags of
+  `GET /v1/admin/system/config`, and `PATCH /v1/admin/flags/{key}` rejects
+  them. The signed capability document reports `downloads` and `updater` false.
+- `GET /v1/admin/system/config` reports `deploymentProfile`.
+
+Under `project`, the full release, publication, plan, and download surface is
+registered and behaves as described below. The admin console hides Releases,
+Product plans, and the owner-ring action outside `project`, and the account
+portal hides its download surfaces.
 
 ## Signed capability contract
 

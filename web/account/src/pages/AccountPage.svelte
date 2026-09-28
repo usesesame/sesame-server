@@ -49,7 +49,11 @@
     { id: 'activity', label: 'Activity' },
     { id: 'downloads', label: 'Downloads' },
   ]
+  let deploymentProfile: 'operator' | 'project' = 'operator'
   let tab: Tab = 'overview'
+  $: downloadsVisible = deploymentProfile === 'project'
+  $: visibleTabs = downloadsVisible ? tabs : tabs.filter((item) => item.id !== 'downloads')
+  $: if (!downloadsVisible && tab === 'downloads') tab = 'overview'
   const siteHost = new URL(siteOrigin).host
   let now = Date.now()
   let clock: number | undefined
@@ -144,6 +148,7 @@
   async function loadAccess() {
     try {
       const [bootstrap, configuration] = await Promise.all([getAccountBootstrap(), capabilities()])
+      deploymentProfile = bootstrap.deploymentProfile === 'project' ? 'project' : 'operator'
       access = bootstrap.access
       capabilityConfig = configuration
       supportUnread = bootstrap.notificationCounts.support
@@ -180,6 +185,7 @@
   }
 
   function selectTab(next: Tab) {
+    if (next === 'downloads' && !downloadsVisible) return
     tab = next
     error = ''; notice = ''
     if (next === 'security' && canUsePasskey && !passkeysLoaded) void loadPasskeys()
@@ -193,9 +199,9 @@
   function tabKeydown(event: KeyboardEvent, index: number) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-    selectTab(tabs[next].id)
-    document.getElementById(`account-tab-${tabs[next].id}`)?.focus()
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? visibleTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + visibleTabs.length) % visibleTabs.length
+    selectTab(visibleTabs[next].id)
+    document.getElementById(`account-tab-${visibleTabs[next].id}`)?.focus()
   }
 
   async function confirmSensitive(password: string) {
@@ -418,7 +424,7 @@
 
   {#if account}
     <div class="account-tabs" role="tablist" aria-label="Account sections">
-      {#each tabs as item, index (item.id)}
+      {#each visibleTabs as item, index (item.id)}
         <button id={`account-tab-${item.id}`} role="tab" type="button" class:active={tab === item.id} aria-selected={tab === item.id} aria-controls="account-panel" tabindex={tab === item.id ? 0 : -1} on:keydown={(event) => tabKeydown(event, index)} on:click={() => selectTab(item.id)}>{item.label}</button>
       {/each}
     </div>
@@ -435,7 +441,7 @@
         </div>
         <div class="account-purpose-grid">
           <article><span>Beta access</span><strong>{betaGranted ? account.emailVerified ? 'Eligible' : 'Granted, verify email' : 'Not granted'}</strong><p>{betaGranted && !account.emailVerified ? 'Verify your email to activate beta services and desktop linking.' : 'Controls invited builds and feedback access.'}</p></article>
-          <article><span>Private-beta downloads</span><strong>{access?.downloadsAllowed ? 'Available' : 'No eligible build'}</strong><p>Builds your beta access covers.</p></article>
+          {#if downloadsVisible}<article><span>Private-beta downloads</span><strong>{access?.downloadsAllowed ? 'Available' : 'No eligible build'}</strong><p>Builds your beta access covers.</p></article>{/if}
           <article><span>Licences</span><strong>{access?.licences.length || 0}</strong><p>Purchases will live here when sales open.</p></article>
           <article><span>Support</span><strong>{supportUnread > 0 ? `${supportUnread} unread` : 'Up to date'}</strong><p><a href="/support">View your support requests and replies.</a></p></article>
           <article><span>Local vault</span><strong>Not stored here</strong></article>
@@ -548,7 +554,7 @@
           {#if activity.length > 0}<div class="device-list">{#each activity as event (event.id)}<div class="device-row"><div class="device-details"><strong>{event.type.replaceAll('_', ' ')}</strong><span>{event.label || 'Sesame account'}</span><small>{formatDate(event.createdAt)}</small></div></div>{/each}</div>{:else if activityLoaded}<p class="device-empty">No retained security activity.</p>{/if}
         </div>
 
-      {:else}
+      {:else if tab === 'downloads'}
         <div class="panel-section">
           <p class="account-label">Eligible downloads</p>
           <p class="panel-hint">Only account-gated builds with verified Tauri updater signatures and Sigstore publisher evidence appear here. Early-access installers are not Windows publisher-signed, so Windows may show an unknown-publisher warning.</p>
