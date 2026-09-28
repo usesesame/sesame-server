@@ -1,4 +1,28 @@
+import { randomBytes } from 'node:crypto'
+import { chmodSync, closeSync, fsyncSync, openSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+
 const ASSIGNMENT = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/
+
+export function writeEnvFileAtomic(path, body, mode = 0o600) {
+  const staging = `${path}.staging-${randomBytes(12).toString('hex')}`
+  try {
+    const descriptor = openSync(staging, 'wx', mode)
+    try {
+      writeFileSync(descriptor, body)
+      fsyncSync(descriptor)
+    } finally {
+      closeSync(descriptor)
+    }
+    chmodSync(staging, mode)
+    renameSync(staging, path)
+  } catch (error) {
+    try {
+      unlinkSync(staging)
+    } catch {
+    }
+    throw error
+  }
+}
 
 export function parseEnvText(text) {
   const values = new Map()

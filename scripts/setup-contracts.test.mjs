@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -76,4 +76,28 @@ test('the first-account invite runs through the admin CLI and the setup wrapper'
 
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
   assert.equal(pkg.scripts['account:invite'], 'node ./scripts/admin-bootstrap.mjs invite')
+})
+
+test('an interrupted setup leaves the previous secrets in place', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'sesame-setup-interrupt-'))
+  try {
+    await mkdir(join(directory, 'scripts'), { recursive: true })
+    await copyFile(join(root, 'scripts', 'setup.mjs'), join(directory, 'scripts', 'setup.mjs'))
+    await copyFile(join(root, 'scripts', 'setup-lib.mjs'), join(directory, 'scripts', 'setup-lib.mjs'))
+    const composeDirectory = join(directory, 'deploy', 'compose')
+    const envPath = join(composeDirectory, '.env')
+
+    const first = spawnSync('node', [join(directory, 'scripts', 'setup.mjs')], { encoding: 'utf8' })
+    assert.equal(first.status, 0, first.stderr)
+    const initial = await readFile(envPath, 'utf8')
+
+    await chmod(composeDirectory, 0o500)
+    const interrupted = spawnSync('node', [join(directory, 'scripts', 'setup.mjs')], { encoding: 'utf8' })
+    await chmod(composeDirectory, 0o700)
+
+    assert.notEqual(interrupted.status, 0, 'setup must fail when it cannot write the env file')
+    assert.equal(await readFile(envPath, 'utf8'), initial)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
