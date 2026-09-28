@@ -1150,6 +1150,53 @@
         "x-sesame-registration-pattern": "/v1/account/support/{ticketID}"
       }
     },
+    "/v1/account/support/{ticketID}/attach": {
+      "post": {
+        "operationId": "postV1AccountSupportTicketIDAttach",
+        "summary": "POST account support ticket action",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/account/support/{ticketID}/attach"
+      }
+    },
     "/v1/account/support/{ticketID}/close": {
       "post": {
         "operationId": "postV1AccountSupportTicketIDClose",
@@ -4622,6 +4669,76 @@
         "x-sesame-registration-pattern": "/v1/support"
       }
     },
+    "/v1/support/access": {
+      "post": {
+        "operationId": "postV1SupportAccess",
+        "summary": "POST redeem support access",
+        "tags": [
+          "public"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "redeemSupportAccess",
+        "x-sesame-registration-pattern": "/v1/support/access"
+      }
+    },
+    "/v1/support/access/reply": {
+      "post": {
+        "operationId": "postV1SupportAccessReply",
+        "summary": "POST reply to support access",
+        "tags": [
+          "public"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "replyToSupportAccess",
+        "x-sesame-registration-pattern": "/v1/support/access/reply"
+      }
+    },
     "/v1/support/requests": {
       "post": {
         "operationId": "postV1SupportRequests",
@@ -5193,5 +5310,5 @@
     "internal/httpapi/sync_routes.go"
   ],
   "x-sesame-deployment-profile": "project",
-  "x-sesame-operation-count": 125
+  "x-sesame-operation-count": 128
 }

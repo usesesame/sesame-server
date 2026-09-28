@@ -155,7 +155,9 @@ function authFor(path, method) {
     }
     return ['browser-csrf', [{ browserCsrfCookie: [], browserCsrfHeader: [] }]]
   }
-  if (path === '/v1/support/requests') return ['browser-csrf', [{ browserCsrfCookie: [], browserCsrfHeader: [] }]]
+  if (path === '/v1/support/requests' || path.startsWith('/v1/support/access')) {
+    return ['browser-csrf', [{ browserCsrfCookie: [], browserCsrfHeader: [] }]]
+  }
   return ['public', []]
 }
 

@@ -113,6 +113,34 @@ export async function getSupportTicket(id: string): Promise<SupportTicketDetail>
   return (await response.json() as { ticket: SupportTicketDetail }).ticket
 }
 
+export async function openSupportAccess(token: string): Promise<SupportTicketDetail> {
+  const response = await apiRequest(API_ROUTES.supportAccess, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  if (!response.ok) throw await responseError(response)
+  return (await response.json() as { ticket: SupportTicketDetail }).ticket
+}
+
+export async function replyToSupportAccess(token: string, message: string): Promise<SupportTicketDetail> {
+  const signal = findSecretShapedText(message)
+  if (signal) throw new Error(`Remove ${signal} before sending. Sesame support cannot receive secrets.`)
+  const response = await apiRequest(API_ROUTES.supportAccessReply, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, message }),
+  })
+  if (!response.ok) throw await responseError(response)
+  return (await response.json() as { ticket: SupportTicketDetail }).ticket
+}
+
+export async function attachSupportTicket(id: string): Promise<SupportTicketDetail> {
+  const response = await apiRequest(`${API_ROUTES.accountSupport}/${encodeURIComponent(id)}/attach`, { method: 'POST' })
+  if (!response.ok) throw await responseError(response)
+  return (await response.json() as { ticket: SupportTicketDetail }).ticket
+}
+
 export async function replyToSupportTicket(id: string, message: string): Promise<SupportTicketDetail> {
   const signal = findSecretShapedText(message)
   if (signal) throw new Error(`Remove ${signal} before sending. Sesame support cannot receive secrets.`)

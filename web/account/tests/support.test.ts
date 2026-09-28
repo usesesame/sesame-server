@@ -155,3 +155,35 @@ test('closes and reopens a ticket through the lifecycle routes', async () => {
   expect(fetchMock.mock.calls[2][0]).toBe('https://api.test.invalid/v1/account/support/ticket-test/reopen')
   expect(fetchMock.mock.calls[2][1].method).toBe('POST')
 })
+
+test('redeems a guest link with the CSRF header and no session requirement', async () => {
+  fetchMock.mockImplementation(async (url: string) => url.endsWith('/v1/auth/csrf')
+    ? jsonResponse({ token: 'csrf-test' })
+    : jsonResponse({ ticket: ticketDetail() }))
+  const { openSupportAccess } = await import('../src/lib/support')
+  await expect(openSupportAccess('guest-token-test')).resolves.toEqual(ticketDetail())
+  const [url, init] = fetchMock.mock.calls[1]
+  expect(url).toBe('https://api.test.invalid/v1/support/access')
+  expect(init.method).toBe('POST')
+  expect(JSON.parse(init.body)).toEqual({ token: 'guest-token-test' })
+  expect(new Headers(init.headers).get('X-Sesame-CSRF')).toBe('csrf-test')
+})
+
+test('replies through a guest link and attaches it to the account', async () => {
+  fetchMock.mockImplementation(async (url: string) => url.endsWith('/v1/auth/csrf')
+    ? jsonResponse({ token: 'csrf-test' })
+    : jsonResponse({ ticket: ticketDetail() }))
+  const { attachSupportTicket, replyToSupportAccess } = await import('../src/lib/support')
+  await expect(replyToSupportAccess('guest-token-test', 'A fictional follow-up.')).resolves.toEqual(ticketDetail())
+  await expect(attachSupportTicket('ticket-test')).resolves.toEqual(ticketDetail())
+  expect(fetchMock.mock.calls[1][0]).toBe('https://api.test.invalid/v1/support/access/reply')
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ token: 'guest-token-test', message: 'A fictional follow-up.' })
+  expect(fetchMock.mock.calls[2][0]).toBe('https://api.test.invalid/v1/account/support/ticket-test/attach')
+  expect(fetchMock.mock.calls[2][1].method).toBe('POST')
+})
+
+test('rejects a secret-shaped guest reply before any request', async () => {
+  const { replyToSupportAccess } = await import('../src/lib/support')
+  await expect(replyToSupportAccess('guest-token-test', 'password: hunter2')).rejects.toThrow('Remove a password-shaped value before sending.')
+  expect(fetchMock).not.toHaveBeenCalled()
+})

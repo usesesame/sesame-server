@@ -34,6 +34,7 @@ var (
 	ErrRecentAuthRequired         = errors.New("recent authentication is required")
 	ErrSupportTicketClosed        = errors.New("support ticket is closed")
 	ErrSupportTicketReopenExpired = errors.New("support ticket can no longer be reopened")
+	ErrEmailUnverified            = errors.New("account email is not verified")
 	ErrIdempotencyConflict        = errors.New("idempotency key does not match this request")
 	ErrDownloadTicketUsed         = errors.New("download ticket has already been redeemed")
 )
@@ -476,6 +477,7 @@ func (s *PostgresStore) PurgeExpired(ctx context.Context) error {
 		DELETE FROM sesame_rate_limits WHERE updated_at <= NOW() - INTERVAL '1 day';
 		DELETE FROM sesame_admin_sessions WHERE expires_at <= NOW();
 		DELETE FROM sesame_admin_setup_tokens WHERE expires_at <= NOW() OR used_at IS NOT NULL;
+		DELETE FROM sesame_support_access_links WHERE expires_at <= NOW() OR revoked_at IS NOT NULL;
 	`); err != nil {
 		return err
 	}
