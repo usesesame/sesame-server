@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,6 +27,8 @@ import (
 	"usesesame.app/backend/internal/httpapi"
 	"usesesame.app/backend/internal/notifications"
 )
+
+const shutdownTimeout = 8 * time.Second
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -140,8 +143,13 @@ func main() {
 		slog.Error("Sesame API email configuration is invalid", "error", err)
 		os.Exit(1)
 	}
+	var backgroundJobs sync.WaitGroup
 	if worker != nil {
-		go worker.Run(ctx)
+		backgroundJobs.Add(1)
+		go func() {
+			defer backgroundJobs.Done()
+			worker.Run(ctx)
+		}()
 	}
 	operationalOutbox, _ := outbox.(httpapi.OperationalOutbox)
 	maintenance := httpapi.NewMaintenanceState()
@@ -180,7 +188,11 @@ func main() {
 		Maintenance:               maintenance,
 	}
 	runMaintenanceOnce(ctx, store, outbox, maintenance)
-	go runMaintenance(ctx, store, outbox, maintenance)
+	backgroundJobs.Add(1)
+	go func() {
+		defer backgroundJobs.Done()
+		runMaintenance(ctx, store, outbox, maintenance)
+	}()
 	server := &http.Server{
 		Addr:              env("SESAME_API_ADDR", "127.0.0.1:8787"),
 		Handler:           httpapi.New(config),
@@ -190,12 +202,17 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdown); err != nil {
 			slog.Error("API shutdown failed", "error", err)
+		}
+		if !waitForBackgroundJobs(shutdown, &backgroundJobs) {
+			slog.Error("Sesame API background jobs did not stop before the shutdown deadline")
 		}
 	}()
 
@@ -203,6 +220,22 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		slog.Error("Sesame API stopped", "error", err)
 		os.Exit(1)
+	}
+	stop()
+	<-shutdownDone
+}
+
+func waitForBackgroundJobs(ctx context.Context, jobs *sync.WaitGroup) bool {
+	done := make(chan struct{})
+	go func() {
+		jobs.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
