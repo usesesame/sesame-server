@@ -15,7 +15,7 @@
         "ci": "npm run design:tokens:check && npm run lint && npm run check"
     },
     "dependencies": {
-        "svelte": "^5.57.0"
+        "svelte": "^5.57.1"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
