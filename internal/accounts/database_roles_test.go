@@ -27,6 +27,37 @@ func insufficientPrivilege(err error) bool {
 	return errors.As(err, &postgresError) && postgresError.Code == "42501"
 }
 
+func seedAuditChainTables(ctx context.Context, db *sql.DB) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS sesame_admin_audit_chain_head (
+			singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+			head_seq BIGINT NOT NULL,
+			head_hash BYTEA NOT NULL,
+			CONSTRAINT sesame_admin_audit_chain_head_hash_length CHECK (octet_length(head_hash) = 32)
+		)`,
+		`INSERT INTO sesame_admin_audit_chain_head (singleton, head_seq, head_hash)
+		 VALUES (TRUE, 0, decode(repeat('00', 32), 'hex'))
+		 ON CONFLICT (singleton) DO NOTHING`,
+		`CREATE TABLE IF NOT EXISTS sesame_admin_audit_checkpoints (
+			id BIGSERIAL PRIMARY KEY,
+			cover_seq BIGINT NOT NULL UNIQUE,
+			chain_hash BYTEA NOT NULL,
+			key_id TEXT NOT NULL,
+			signed_at TIMESTAMPTZ NOT NULL,
+			signature BYTEA NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			CONSTRAINT sesame_admin_audit_checkpoints_chain_hash_length CHECK (octet_length(chain_hash) = 32),
+			CONSTRAINT sesame_admin_audit_checkpoints_signature_length CHECK (octet_length(signature) = 64)
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func TestApplicationRoleCannotRewriteTheAuditLog(t *testing.T) {
 	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -45,7 +76,13 @@ func TestApplicationRoleCannotRewriteTheAuditLog(t *testing.T) {
 		t.Fatalf("migrate with the application role present: %v", err)
 	}
 	if err := store.ReconcileRuntimeRole(ctx); err != nil {
-		t.Fatalf("reconcile the application role: %v", err)
+		t.Fatalf("reconcile the application role on the migrated database: %v", err)
+	}
+	if err := seedAuditChainTables(ctx, store.db); err != nil {
+		t.Fatalf("seed the audit chain tables: %v", err)
+	}
+	if err := store.ReconcileRuntimeRole(ctx); err != nil {
+		t.Fatalf("reconcile the application role after seeding the audit chain tables: %v", err)
 	}
 	conn, err := store.db.Conn(ctx)
 	if err != nil {
@@ -59,6 +96,7 @@ func TestApplicationRoleCannotRewriteTheAuditLog(t *testing.T) {
 		_, _ = store.db.ExecContext(context.Background(), `ALTER TABLE sesame_admin_audit_log DISABLE TRIGGER USER`)
 		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM sesame_admin_audit_log WHERE admin_email = 'fixture@example.test'`)
 		_, _ = store.db.ExecContext(context.Background(), `ALTER TABLE sesame_admin_audit_log ENABLE TRIGGER USER`)
+		_, _ = store.db.ExecContext(context.Background(), `DELETE FROM sesame_admin_audit_checkpoints WHERE key_id = 'fixture-key'`)
 	})
 	if _, err := conn.ExecContext(ctx, `SET ROLE `+runtimeRoleName); err != nil {
 		t.Fatalf("assume the application role: %v", err)
@@ -73,12 +111,23 @@ func TestApplicationRoleCannotRewriteTheAuditLog(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("audit row count = %d, want 1", count)
 	}
+	if _, err := conn.ExecContext(ctx, `
+		INSERT INTO sesame_admin_audit_checkpoints (cover_seq, chain_hash, key_id, signed_at, signature)
+		VALUES (0, decode(repeat('ab', 32), 'hex'), 'fixture-key', NOW(), decode(repeat('cd', 64), 'hex'))
+		ON CONFLICT (cover_seq) DO NOTHING`); err != nil {
+		t.Fatalf("the application role must still insert checkpoints: %v", err)
+	}
 	for _, statement := range []string{
 		`UPDATE sesame_admin_audit_log SET action = 'rewritten' WHERE admin_email = 'fixture@example.test'`,
 		`DELETE FROM sesame_admin_audit_log WHERE admin_email = 'fixture@example.test'`,
 		`TRUNCATE sesame_admin_audit_log`,
 		`TRUNCATE sesame_sync_audit`,
 		`DROP TABLE sesame_admin_audit_log`,
+		`UPDATE sesame_admin_audit_chain_head SET head_seq = 99 WHERE singleton`,
+		`DELETE FROM sesame_admin_audit_chain_head WHERE singleton`,
+		`TRUNCATE sesame_admin_audit_chain_head`,
+		`UPDATE sesame_admin_audit_checkpoints SET key_id = 'rewritten' WHERE key_id = 'fixture-key'`,
+		`DELETE FROM sesame_admin_audit_checkpoints WHERE key_id = 'fixture-key'`,
 	} {
 		if _, err := conn.ExecContext(ctx, statement); err == nil {
 			t.Fatalf("the application role ran %q", statement)

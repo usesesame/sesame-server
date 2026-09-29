@@ -128,6 +128,15 @@ func reconcileRuntimeRole(ctx context.Context, conn *sql.Conn) error {
 		`REVOKE CREATE ON SCHEMA public FROM ` + runtimeRoleName,
 		`REVOKE UPDATE, DELETE, TRUNCATE ON TABLE sesame_admin_audit_log FROM ` + runtimeRoleName,
 		`REVOKE UPDATE, DELETE, TRUNCATE ON TABLE sesame_sync_audit FROM ` + runtimeRoleName,
+		`DO $$
+		BEGIN
+			IF to_regclass('public.sesame_admin_audit_chain_head') IS NOT NULL THEN
+				REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE sesame_admin_audit_chain_head FROM ` + runtimeRoleName + `;
+			END IF;
+			IF to_regclass('public.sesame_admin_audit_checkpoints') IS NOT NULL THEN
+				REVOKE UPDATE, DELETE ON TABLE sesame_admin_audit_checkpoints FROM ` + runtimeRoleName + `;
+			END IF;
+		END $$`,
 		`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ` + runtimeRoleName,
 		`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ` + runtimeRoleName,
 	}
