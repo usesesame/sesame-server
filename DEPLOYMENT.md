@@ -91,6 +91,16 @@ refuses to start if a required value is missing or if an HTTPS origin is
 paired with insecure cookies. A misconfiguration fails closed instead of
 serving insecurely.
 
+Every application container runs with a read-only root filesystem, all Linux
+capabilities dropped, `no-new-privileges`, and fixed process and memory
+limits. Only `/tmp` is writable in the Go containers. The account and admin
+portals also mount the nginx cache and pid directories, and run as the
+image's `nginx` user (UID 101). PostgreSQL keeps a writable data volume and
+the capabilities its entrypoint needs to own the data directory. An existing
+deployment picks the container settings up when
+`docker compose -f deploy/compose/compose.prod.yaml --env-file deploy/compose/.env.production up -d`
+recreates the changed containers; no extra step is required.
+
 Check it:
 
 ```bash
@@ -266,6 +276,10 @@ separately, somewhere other than this host.
 - **Trusted proxy ranges** are a reviewed configuration change, since they
   decide how a client address is trusted before authentication. The
   dashboard shows the active count and cannot edit it at runtime.
+- **Container limits** live in `deploy/compose/compose.prod.yaml`. If a
+  service is killed for exceeding its memory limit, `docker inspect` reports
+  `OOMKilled` for that container; raise its `mem_limit` and run `up -d`
+  again. Keep the limits and the read-only root filesystem in place.
 - The API never accepts a vault. That boundary needs its own threat model
   and is outside anything here.
 
