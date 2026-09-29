@@ -146,7 +146,7 @@ func TestPasskeyVerificationWithDatabaseSessions(t *testing.T) {
 	}
 }
 
-func TestPasskeyLoginRefusesCloneWarningWithDatabaseSessions(t *testing.T) {
+func TestPasskeyLoginCloneWarningWithDatabaseSessions(t *testing.T) {
 	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("SESAME_TEST_DATABASE_URL is required")
@@ -161,106 +161,138 @@ func TestPasskeyLoginRefusesCloneWarningWithDatabaseSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle := make([]byte, 16)
-	if _, err := rand.Read(handle); err != nil {
-		t.Fatal(err)
-	}
-	accountID := hex.EncodeToString(handle)
-	if _, err := store.DB().ExecContext(ctx, `INSERT INTO sesame_accounts (id, email, password_hash) VALUES ($1, $2, $3)`, accountID, accountID+"@example.invalid", "fictional-unused-hash"); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if _, err := store.DB().ExecContext(ctx, `DELETE FROM sesame_accounts WHERE id = $1`, accountID); err != nil {
-			t.Error(err)
-		}
-	})
-	c := newPasskeyTestClient(t)
-	c.handler = New(Config{AllowedOrigin: passkeyTestOrigin, Accounts: store, Passkeys: wa})
-	c.store.credential.ID = handle
-	c.store.credential.Authenticator.SignCount = 4
-	credential, err := json.Marshal(c.store.credential)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := store.AddCredential(ctx, accountID, handle, credential, "Fictional passkey"); err != nil {
-		t.Fatal(err)
-	}
-	begin := c.request("/v1/auth/passkey/login/begin", nil)
-	if begin.Code != http.StatusOK {
-		t.Fatalf("begin status %d", begin.Code)
-	}
-	cookie := c.cookies["sesame_wan"]
-	if cookie == nil {
-		t.Fatal("ceremony cookie missing")
-	}
-	ceremonyID, err := base64.RawURLEncoding.DecodeString(cookie.Value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if _, err := store.DB().ExecContext(ctx, `DELETE FROM sesame_webauthn_sessions WHERE id = $1`, ceremonyID); err != nil {
-			t.Error(err)
-		}
-	})
-	var data []byte
-	if err := store.DB().QueryRowContext(ctx, `SELECT data FROM sesame_webauthn_sessions WHERE id = $1`, ceremonyID).Scan(&data); err != nil {
-		t.Fatal(err)
-	}
-	var session webauthn.SessionData
-	if err := json.Unmarshal(data, &session); err != nil {
-		t.Fatal(err)
-	}
-	c.challenge = session.Challenge
-	var body map[string]any
-	if err := json.Unmarshal(c.body(false, 5, passkeyTestOrigin, false), &body); err != nil {
-		t.Fatal(err)
-	}
-	body["response"].(map[string]any)["userHandle"] = base64.RawURLEncoding.EncodeToString(handle)
-	encoded, err := json.Marshal(body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := c.request("/v1/auth/passkey/login/finish", encoded)
-	if response.Code != http.StatusUnauthorized {
-		t.Fatalf("finish status %d, want %d", response.Code, http.StatusUnauthorized)
-	}
-	var errorBody struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &errorBody); err != nil {
-		t.Fatal(err)
-	}
-	if errorBody.Error.Code != "passkey_clone_warning" {
-		t.Fatalf("error code = %q, want passkey_clone_warning", errorBody.Error.Code)
-	}
-	var sessions int
-	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM sesame_sessions WHERE account_id = $1`, accountID).Scan(&sessions); err != nil {
-		t.Fatal(err)
-	}
-	if sessions != 0 {
-		t.Fatalf("stored %d account sessions, want 0", sessions)
-	}
-	if c.cookies["sesame_session"] != nil {
-		t.Fatal("refused login set a session cookie")
-	}
-	var events int
-	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM sesame_account_events WHERE account_id = $1 AND event_type = 'passkey_clone_warning'`, accountID).Scan(&events); err != nil {
-		t.Fatal(err)
-	}
-	if events != 1 {
-		t.Fatalf("clone warning events = %d, want 1", events)
-	}
-	var stored webauthn.Credential
-	var raw []byte
-	if err := store.DB().QueryRowContext(ctx, `SELECT credential FROM sesame_webauthn_credentials WHERE credential_id = $1`, handle).Scan(&raw); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(raw, &stored); err != nil {
-		t.Fatal(err)
-	}
-	if stored.Authenticator.SignCount != 4 {
-		t.Fatalf("stored sign count = %d, want 4", stored.Authenticator.SignCount)
+	for _, testCase := range []struct {
+		name              string
+		storedCount       uint32
+		storedWarning     bool
+		assertionCount    uint32
+		status            int
+		errorCode         string
+		wantStoredCount   uint32
+		wantStoredWarning bool
+	}{
+		{"zero count authenticator", 0, false, 0, http.StatusOK, "", 0, false},
+		{"stored count regresses to zero", 3, false, 0, http.StatusUnauthorized, "passkey_clone_warning", 3, false},
+		{"stored count regresses", 4, false, 1, http.StatusUnauthorized, "passkey_clone_warning", 4, false},
+		{"stale clone warning clears", 2, true, 3, http.StatusOK, "", 3, false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			handle := make([]byte, 16)
+			if _, err := rand.Read(handle); err != nil {
+				t.Fatal(err)
+			}
+			accountID := hex.EncodeToString(handle)
+			if _, err := store.DB().ExecContext(ctx, `INSERT INTO sesame_accounts (id, email, password_hash) VALUES ($1, $2, $3)`, accountID, accountID+"@example.invalid", "fictional-unused-hash"); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if _, err := store.DB().ExecContext(ctx, `DELETE FROM sesame_accounts WHERE id = $1`, accountID); err != nil {
+					t.Error(err)
+				}
+			})
+			c := newPasskeyTestClient(t)
+			c.handler = New(Config{AllowedOrigin: passkeyTestOrigin, Accounts: store, Passkeys: wa})
+			c.store.credential.ID = handle
+			c.store.credential.Authenticator.SignCount = testCase.storedCount
+			c.store.credential.Authenticator.CloneWarning = testCase.storedWarning
+			credential, err := json.Marshal(c.store.credential)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := store.AddCredential(ctx, accountID, handle, credential, "Fictional passkey"); err != nil {
+				t.Fatal(err)
+			}
+			begin := c.request("/v1/auth/passkey/login/begin", nil)
+			if begin.Code != http.StatusOK {
+				t.Fatalf("begin status %d", begin.Code)
+			}
+			cookie := c.cookies["sesame_wan"]
+			if cookie == nil {
+				t.Fatal("ceremony cookie missing")
+			}
+			ceremonyID, err := base64.RawURLEncoding.DecodeString(cookie.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if _, err := store.DB().ExecContext(ctx, `DELETE FROM sesame_webauthn_sessions WHERE id = $1`, ceremonyID); err != nil {
+					t.Error(err)
+				}
+			})
+			var data []byte
+			if err := store.DB().QueryRowContext(ctx, `SELECT data FROM sesame_webauthn_sessions WHERE id = $1`, ceremonyID).Scan(&data); err != nil {
+				t.Fatal(err)
+			}
+			var session webauthn.SessionData
+			if err := json.Unmarshal(data, &session); err != nil {
+				t.Fatal(err)
+			}
+			c.challenge = session.Challenge
+			var body map[string]any
+			if err := json.Unmarshal(c.bodyWithCounter(false, 5, passkeyTestOrigin, false, testCase.assertionCount), &body); err != nil {
+				t.Fatal(err)
+			}
+			body["response"].(map[string]any)["userHandle"] = base64.RawURLEncoding.EncodeToString(handle)
+			encoded, err := json.Marshal(body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := c.request("/v1/auth/passkey/login/finish", encoded)
+			if response.Code != testCase.status {
+				t.Fatalf("finish status %d, want %d", response.Code, testCase.status)
+			}
+			var sessions int
+			if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM sesame_sessions WHERE account_id = $1`, accountID).Scan(&sessions); err != nil {
+				t.Fatal(err)
+			}
+			wantSessions := 0
+			if testCase.status == http.StatusOK {
+				wantSessions = 1
+			}
+			if sessions != wantSessions {
+				t.Fatalf("stored %d account sessions, want %d", sessions, wantSessions)
+			}
+			if testCase.status == http.StatusOK {
+				if c.cookies["sesame_session"] == nil {
+					t.Fatal("accepted login set no session cookie")
+				}
+			} else {
+				if c.cookies["sesame_session"] != nil {
+					t.Fatal("refused login set a session cookie")
+				}
+				var errorBody struct {
+					Error struct {
+						Code string `json:"code"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal(response.Body.Bytes(), &errorBody); err != nil {
+					t.Fatal(err)
+				}
+				if errorBody.Error.Code != testCase.errorCode {
+					t.Fatalf("error code = %q, want %q", errorBody.Error.Code, testCase.errorCode)
+				}
+				var events int
+				if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM sesame_account_events WHERE account_id = $1 AND event_type = 'passkey_clone_warning'`, accountID).Scan(&events); err != nil {
+					t.Fatal(err)
+				}
+				if events != 1 {
+					t.Fatalf("clone warning events = %d, want 1", events)
+				}
+			}
+			var stored webauthn.Credential
+			var raw []byte
+			if err := store.DB().QueryRowContext(ctx, `SELECT credential FROM sesame_webauthn_credentials WHERE credential_id = $1`, handle).Scan(&raw); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(raw, &stored); err != nil {
+				t.Fatal(err)
+			}
+			if stored.Authenticator.SignCount != testCase.wantStoredCount {
+				t.Fatalf("stored sign count = %d, want %d", stored.Authenticator.SignCount, testCase.wantStoredCount)
+			}
+			if stored.Authenticator.CloneWarning != testCase.wantStoredWarning {
+				t.Fatalf("stored clone warning = %v, want %v", stored.Authenticator.CloneWarning, testCase.wantStoredWarning)
+			}
+		})
 	}
 }

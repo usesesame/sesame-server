@@ -156,6 +156,9 @@ func (a *api) passkeyLoginFinish(response http.ResponseWriter, request *http.Req
 		if err != nil {
 			return nil, err
 		}
+		for index := range credentials {
+			credentials[index].Authenticator.CloneWarning = false
+		}
 		waUser, err := accounts.NewWebAuthnUser(user, credentials)
 		if err != nil {
 			return nil, err
