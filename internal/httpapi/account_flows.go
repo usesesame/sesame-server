@@ -183,6 +183,7 @@ func (a *api) requestPasswordRecovery(response http.ResponseWriter, request *htt
 		response.WriteHeader(http.StatusAccepted)
 		return
 	}
+	a.verifyDummyPassword()
 	token, tokenHash, err := accounts.NewSessionToken()
 	expiresAt := time.Now().Add(passwordRecoveryTTL)
 	if err != nil {

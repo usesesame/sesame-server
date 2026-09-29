@@ -54,9 +54,6 @@ var _ AccountSecurityStore = (*PostgresStore)(nil)
 type Registration struct {
 	Email                 string
 	PasswordHash          string
-	SessionTokenHash      []byte
-	SessionExpiresAt      time.Time
-	SessionLabel          string
 	VerificationTokenHash []byte
 	VerificationExpiresAt time.Time
 	InviteHash            []byte
@@ -269,9 +266,6 @@ func (s *PostgresStore) RegisterEligible(ctx context.Context, input Registration
 		return User{}, ErrEmailTaken
 	}
 	if err != nil {
-		return User{}, err
-	}
-	if err := insertSessionTx(ctx, tx, user.ID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, time.Now().UTC()); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `

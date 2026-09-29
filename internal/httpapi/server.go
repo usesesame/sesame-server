@@ -165,9 +165,10 @@ func (s *MaintenanceState) Snapshot() OperationalMaintenance {
 }
 
 type api struct {
-	config Config
-	limits *authLimiter
-	routes *routeRegistry
+	config              Config
+	limits              *authLimiter
+	routes              *routeRegistry
+	dummyPasswordVerify func()
 }
 
 func New(config Config) http.Handler {
