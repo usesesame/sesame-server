@@ -365,12 +365,37 @@ func parseTrustedProxies(value string) ([]netip.Prefix, error) {
 			return nil, errors.New("SESAME_TRUSTED_PROXIES must contain CIDR ranges")
 		}
 		prefix = prefix.Masked()
-		if prefix.Bits() == 0 {
-			return nil, errors.New("SESAME_TRUSTED_PROXIES must not cover every address")
+		if prefix.Addr().Is4In6() {
+			return nil, errors.New("SESAME_TRUSTED_PROXIES must not contain IPv4-mapped IPv6 ranges")
+		}
+		if !trustedProxyAddr(prefix.Addr()) || !trustedProxyAddr(lastAddrInPrefix(prefix)) {
+			return nil, errors.New("SESAME_TRUSTED_PROXIES must stay inside loopback, private, or link-local addresses")
 		}
 		prefixes = append(prefixes, prefix)
 	}
 	return prefixes, nil
+}
+
+func trustedProxyAddr(addr netip.Addr) bool {
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
+}
+
+func lastAddrInPrefix(prefix netip.Prefix) netip.Addr {
+	addr := prefix.Addr()
+	raw := addr.As16()
+	start := prefix.Bits()
+	if addr.Is4() {
+		start += 96
+	}
+	for bit := start; bit < 128; bit++ {
+		raw[bit/8] |= 1 << (7 - bit%8)
+	}
+	if addr.Is4() {
+		var raw4 [4]byte
+		copy(raw4[:], raw[12:])
+		return netip.AddrFrom4(raw4)
+	}
+	return netip.AddrFrom16(raw)
 }
 
 func runMaintenance(ctx context.Context, store accounts.MaintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState) {

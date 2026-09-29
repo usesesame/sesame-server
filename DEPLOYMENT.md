@@ -233,6 +233,26 @@ the tool, mode 0600, never printed, and copied into the per-version
 snapshots under `deploy/state/history/`. Back that directory up with the
 same care as the env file itself.
 
+## Upgrading an existing stack
+
+An existing `.env.production` keeps its own values. The deploy tool rewrites
+only the three image lines, so nothing narrows a wide
+`SESAME_TRUSTED_PROXIES` for you. Set it to the pinned Compose subnet,
+`172.30.0.0/24` in the example, and keep it equal to
+`SESAME_COMPOSE_SUBNET`. The API refuses to start when the value holds an
+address outside loopback, private, or link-local space, such as `0.0.0.0/0`,
+`0.0.0.0/1`, or `::ffff:0.0.0.0/96`. The old `172.16.0.0/12` still starts,
+but it trusts every peer in that range, not only the proxy.
+
+Changing the Compose `ipam` subnet recreates the `sesame-prod_default`
+network on the next `up -d`. Docker stops and recreates every container
+attached to that network, including the database, so expect a short outage.
+
+The old `mail.usesesame.app:host-gateway` mapping is gone. When the relay
+runs on this host and must be reached by its certificate name, set
+`SESAME_SMTP_HOST_GATEWAY` to that name. Review host firewall and Postfix
+`mynetworks` rules written for the old bridge subnet. They no longer match.
+
 ## Backups
 
 Two things matter, and they fail differently.
