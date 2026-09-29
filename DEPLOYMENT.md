@@ -95,7 +95,7 @@ Every application container runs with a read-only root filesystem, all Linux
 capabilities dropped, `no-new-privileges`, and fixed process and memory
 limits. Only `/tmp` is writable in the Go containers. The account and admin
 portals also mount the nginx cache and pid directories, and run as the
-image's `nginx` user (UID 101). PostgreSQL keeps a writable data volume and
+image's `nginx` user, UID 101. PostgreSQL keeps a writable data volume and
 the capabilities its entrypoint needs to own the data directory. An existing
 deployment picks the container settings up when
 `docker compose -f deploy/compose/compose.prod.yaml --env-file deploy/compose/.env.production up -d`
