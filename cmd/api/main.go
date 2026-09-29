@@ -364,7 +364,11 @@ func parseTrustedProxies(value string) ([]netip.Prefix, error) {
 		if err != nil {
 			return nil, errors.New("SESAME_TRUSTED_PROXIES must contain CIDR ranges")
 		}
-		prefixes = append(prefixes, prefix.Masked())
+		prefix = prefix.Masked()
+		if prefix.Bits() == 0 {
+			return nil, errors.New("SESAME_TRUSTED_PROXIES must not cover every address")
+		}
+		prefixes = append(prefixes, prefix)
 	}
 	return prefixes, nil
 }

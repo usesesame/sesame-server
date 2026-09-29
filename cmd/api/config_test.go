@@ -6,6 +6,46 @@ import (
 	"usesesame.app/backend/internal/httpapi"
 )
 
+func TestParseTrustedProxies(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   string
+		want    []string
+		wantErr bool
+	}{
+		{name: "unset trusts nobody", value: "", want: nil},
+		{name: "blank trusts nobody", value: "   ", want: nil},
+		{name: "single range", value: "172.30.0.0/24", want: []string{"172.30.0.0/24"}},
+		{name: "multiple ranges", value: "172.30.0.0/24, 2001:db8::/64", want: []string{"172.30.0.0/24", "2001:db8::/64"}},
+		{name: "masked to the network", value: "172.30.0.7/24", want: []string{"172.30.0.0/24"}},
+		{name: "whole ipv4 refused", value: "0.0.0.0/0", wantErr: true},
+		{name: "whole ipv6 refused", value: "::/0", wantErr: true},
+		{name: "missing prefix refused", value: "172.30.0.1", wantErr: true},
+		{name: "malformed refused", value: "not-a-cidr", wantErr: true},
+		{name: "bad prefix length refused", value: "172.30.0.0/33", wantErr: true},
+		{name: "empty element refused", value: "172.30.0.0/24,", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseTrustedProxies(tc.value)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("parseTrustedProxies(%q) error = %v, wantErr %v", tc.value, err, tc.wantErr)
+			}
+			if tc.wantErr {
+				return
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("parseTrustedProxies(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+			for index, prefix := range got {
+				if prefix.String() != tc.want[index] {
+					t.Fatalf("parseTrustedProxies(%q)[%d] = %s, want %s", tc.value, index, prefix, tc.want[index])
+				}
+			}
+		})
+	}
+}
+
 func TestValidateAdminOriginRefusesACollapsedPortalBoundary(t *testing.T) {
 	if err := validateAdminOrigin("https://admin.example.invalid", "https://account.example.invalid"); err != nil {
 		t.Fatalf("distinct origins must be accepted, got %v", err)
