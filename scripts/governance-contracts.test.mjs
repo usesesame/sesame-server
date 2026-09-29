@@ -51,16 +51,28 @@ test('a workflow that writes says so at the job that writes', () => {
       `${workflow} should default to contents: read at the top and widen per job`,
     )
   }
-  const releaseJob = jobBlock(read('.github', 'workflows', 'release.yml'), 'release')
+  const release = read('.github', 'workflows', 'release.yml')
+  const verifyJob = jobBlock(release, 'verify')
+  assert.doesNotMatch(
+    verifyJob,
+    /^\s+id-token:/m,
+    'the verify job builds dependencies and must not mint an OIDC token',
+  )
+  assert.doesNotMatch(
+    verifyJob,
+    /^\s+[a-z][a-z0-9-]*:\s*write\s*$/m,
+    'the verify job must not hold a write permission',
+  )
+  const publishJob = jobBlock(release, 'publish')
   assert.match(
-    releaseJob,
+    publishJob,
     /^\s+environment:\s*server-release\s*$/m,
-    'the release job should run behind its protected environment',
+    'the publish job should run behind its protected environment',
   )
   assert.match(
-    releaseJob,
+    publishJob,
     /^\s+id-token:\s*write\s*$/m,
-    'the release job signs and attests keylessly and needs an OIDC token',
+    'the publish job signs and attests keylessly and needs an OIDC token',
   )
 })
 
