@@ -255,12 +255,26 @@ A manual backup looks the same:
 ```bash
 docker compose -f deploy/compose/compose.prod.yaml \
   --env-file deploy/compose/.env.production \
-  exec -T db pg_dump -U sesame sesame | gzip \
+  exec -T db pg_dump -U sesame_backup sesame | gzip \
   | age -r age1... > sesame-$(date +%F).sql.gz.age
 ```
 
-Restore is a manual procedure that needs the identity. Decrypt with it and
-load the dump into a scratch database before anything else:
+Restore is a manual procedure that needs the identity. A scratch database
+has only the bootstrap superuser. The dump carries `OWNER TO` and grant
+statements for `sesame_owner`, `sesame_app`, and `sesame_backup`, and
+`pg_dump` does not dump roles, so create them in the scratch database first:
+
+```bash
+docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame <<'SQL'
+CREATE ROLE sesame_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE sesame_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE sesame_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT pg_read_all_data TO sesame_backup;
+GRANT CREATE, USAGE ON SCHEMA public TO sesame_owner;
+SQL
+```
+
+Then decrypt with the identity and load the dump:
 
 ```bash
 age --decrypt --identity /path/to/backup-identity.txt sesame-<version>.sql.gz.age \

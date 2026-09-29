@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createWriteStream, readFileSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -19,6 +20,7 @@ import {
   deployRelease,
   parseBackupRecipients,
   parseRelease,
+  pgDumpArguments,
   readDeployedState,
   rehearsalEnvFile,
   rewriteEnvImages,
@@ -531,6 +533,87 @@ test('the deploy tool encrypts backups with age and reads the operator recipient
   assert.ok(source.includes('writeEncryptedBackup(child.stdout, destination'))
   assert.ok(!source.includes('writeCompressedBackup'))
   assert.ok(!source.includes('gunzip -c'))
+})
+
+test('the backup dump carries ownership and the rehearsal copy strips it', () => {
+  assert.deepEqual(pgDumpArguments(), ['pg_dump', '-U', 'sesame_backup', 'sesame'])
+  assert.deepEqual(pgDumpArguments({ stripOwnership: true }), ['pg_dump', '-U', 'sesame_backup', '--no-owner', '--no-acl', 'sesame'])
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'deploy-release.mjs'), 'utf8')
+  const takeBackupAt = source.indexOf('async function takeStreamingBackup')
+  const restoreAt = source.indexOf('async function restoreFreshDump')
+  const dockerAt = source.indexOf('function docker(')
+  assert.ok(takeBackupAt >= 0 && restoreAt > takeBackupAt && dockerAt > restoreAt, 'the backup or rehearsal functions moved')
+  assert.ok(source.slice(takeBackupAt, restoreAt).includes('spawnDump()'), 'the encrypted backup must keep the complete dump')
+  assert.ok(source.slice(restoreAt, dockerAt).includes('spawnDump({ stripOwnership: true })'), 'the rehearsal copy must strip ownership')
+  assert.ok(source.includes('ON_ERROR_STOP=1'), 'the rehearsal restore must stop on the first error')
+})
+
+const livePostgresImage = 'postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2'
+const livePostgresSkip = spawnSync('docker', ['version', '--format', '{{.Server.Version}}'], { stdio: 'ignore' }).status !== 0
+  ? 'docker is not available'
+  : spawnSync('docker', ['image', 'inspect', livePostgresImage], { stdio: 'ignore' }).status !== 0
+    ? 'the pinned rehearsal database image is not present'
+    : false
+
+test('the stripped rehearsal dump restores into a scratch database with no application roles', { skip: livePostgresSkip, timeout: 180000 }, async () => {
+  const suffix = `${process.pid}-${randomBytes(4).toString('hex')}`
+  const production = `sesame-contract-production-${suffix}`
+  const scratch = `sesame-contract-scratch-${suffix}`
+  const password = randomBytes(12).toString('hex')
+  const docker = (args, options = {}) => spawnSync('docker', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options })
+  const psql = (container, input, database = 'sesame') => docker(['exec', '-i', container, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'sesame', '-d', database], { input })
+  const roleSql = [
+    'CREATE ROLE sesame_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;',
+    'CREATE ROLE sesame_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;',
+    'CREATE ROLE sesame_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;',
+    'GRANT pg_read_all_data TO sesame_backup;',
+    '',
+  ].join('\n')
+  try {
+    for (const name of [production, scratch]) {
+      const started = docker(['run', '-d', '--name', name, '-e', 'POSTGRES_USER=sesame', '-e', `POSTGRES_PASSWORD=${password}`, '-e', 'POSTGRES_DB=sesame', '--tmpfs', '/var/lib/postgresql', livePostgresImage])
+      assert.equal(started.status, 0, `could not start ${name}: ${started.stderr}`)
+    }
+    for (const name of [production, scratch]) {
+      let ready = false
+      for (let attempt = 0; attempt < 90 && !ready; attempt += 1) {
+        if (docker(['exec', name, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0) {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000))
+          ready = docker(['exec', name, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0
+        } else {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 500))
+        }
+      }
+      assert.ok(ready, `${name} never became ready`)
+    }
+    assert.equal(psql(production, roleSql).status, 0)
+    assert.equal(psql(production, [
+      'CREATE TABLE sesame_restore_fixture (id integer);',
+      'ALTER TABLE sesame_restore_fixture OWNER TO sesame_owner;',
+      'GRANT SELECT ON sesame_restore_fixture TO sesame_app;',
+      '',
+    ].join('\n')).status, 0)
+    const complete = docker(['exec', production, ...pgDumpArguments()])
+    assert.equal(complete.status, 0, `pg_dump failed: ${complete.stderr}`)
+    assert.match(complete.stdout, /OWNER TO sesame_owner/)
+    assert.match(complete.stdout, /TO sesame_app/)
+    const stripped = docker(['exec', production, ...pgDumpArguments({ stripOwnership: true })])
+    assert.equal(stripped.status, 0, `pg_dump failed: ${stripped.stderr}`)
+    assert.doesNotMatch(stripped.stdout, /OWNER TO /)
+    assert.doesNotMatch(stripped.stdout, /GRANT .* TO sesame_app/)
+
+    const completeRestore = psql(scratch, complete.stdout)
+    assert.notEqual(completeRestore.status, 0, 'the complete dump must not restore before the roles exist')
+    assert.match(completeRestore.stderr, /role "sesame_owner" does not exist/)
+
+    assert.equal(docker(['exec', scratch, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'sesame', '-d', 'postgres', '-c', 'DROP DATABASE sesame', '-c', 'CREATE DATABASE sesame']).status, 0)
+    const restored = psql(scratch, stripped.stdout)
+    assert.equal(restored.status, 0, `the stripped dump failed to restore: ${restored.stderr}`)
+    const owner = docker(['exec', scratch, 'psql', '-tAc', `SELECT tableowner FROM pg_tables WHERE tablename = 'sesame_restore_fixture'`, '-U', 'sesame', '-d', 'sesame'])
+    assert.equal(owner.stdout.trim(), 'sesame')
+  } finally {
+    docker(['rm', '-f', production, scratch])
+  }
 })
 
 test('deploy files and their backup directory are written with restrictive permissions', async () => {

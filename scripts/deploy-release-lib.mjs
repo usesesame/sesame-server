@@ -31,6 +31,10 @@ export function assertBackupRecipients(recipients) {
   }
 }
 
+export function pgDumpArguments({ stripOwnership = false } = {}) {
+  return ['pg_dump', '-U', 'sesame_backup', ...(stripOwnership ? ['--no-owner', '--no-acl'] : []), 'sesame']
+}
+
 export function readEnvImages(text) {
   const images = {}
   for (const [component, field] of IMAGE_FIELDS) {

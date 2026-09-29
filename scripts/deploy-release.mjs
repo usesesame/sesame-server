@@ -7,7 +7,7 @@ import { pipeline } from 'node:stream/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fileIO } from './deploy-io.mjs'
-import { BACKUP_COMPLETE_MARKER, classifyDeployment, deployRelease, parseBackupRecipients, parseRelease, readDeployedState, rehearsalEnvFile, rollbackRelease, writeEncryptedBackup } from './deploy-release-lib.mjs'
+import { BACKUP_COMPLETE_MARKER, classifyDeployment, deployRelease, parseBackupRecipients, parseRelease, pgDumpArguments, readDeployedState, rehearsalEnvFile, rollbackRelease, writeEncryptedBackup } from './deploy-release-lib.mjs'
 import { parseEnvText } from './setup-lib.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -90,8 +90,8 @@ async function main(args) {
   throw new Error('Usage: deploy-release.mjs <plan|deploy|rollback|status> [server-release.json] [version] [--wait-timeout seconds]')
 }
 
-function spawnDump() {
-  return spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', 'pg_dump', '-U', 'sesame', 'sesame'], { stdio: ['ignore', 'pipe', 'pipe'] })
+function spawnDump({ stripOwnership = false } = {}) {
+  return spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', ...pgDumpArguments({ stripOwnership })], { stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
 async function takeStreamingBackup(destination, recipients) {
@@ -272,7 +272,7 @@ async function waitFor(condition, message, attempts = 60, delayMs = 1000) {
 }
 
 async function restoreFreshDump(container) {
-  const dump = spawnDump()
+  const dump = spawnDump({ stripOwnership: true })
   const psql = spawn('docker', ['exec', '-i', container, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'sesame', '-d', 'sesame'], { stdio: ['pipe', 'ignore', 'pipe'] })
   const dumpOutcome = childOutcome(dump)
   const psqlOutcome = childOutcome(psql)
