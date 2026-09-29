@@ -120,14 +120,6 @@ func (a *api) allowKeyed(response http.ResponseWriter, request *http.Request, ke
 	return false
 }
 
-func (a *api) verifyDummyPassword() {
-	if a.dummyPasswordVerify != nil {
-		a.dummyPasswordVerify()
-		return
-	}
-	accounts.DummyVerifyPassword()
-}
-
 // Lets recovery spend its budget without letting the status code disclose
 // whether an address has an account.
 func (a *api) consumeKeyed(request *http.Request, key string, limit int, window time.Duration) (bool, time.Duration, error) {

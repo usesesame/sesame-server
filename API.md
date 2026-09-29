@@ -116,11 +116,12 @@ body.
   `{mode:"closed"|"invite"|"public",enabled,requiresInvite,emailDeliveryAvailable}`.
 - `POST /v1/auth/register` with `{email,password,inviteCode?}` returns `202`
   with an empty body. The server enforces the registration mode and consumes
-  eligibility/invites transactionally. An address that already has an account
-  and an eligible new address receive the same response. Only a new account
-  receives a verification email, and the outbox result does not change the
-  response; a queued message does not mean the upstream SMTP relay accepted it.
-  Registration does not create a browser session.
+  eligibility/invites transactionally. An address that already has an account,
+  an invitation that was already used, and an eligible new address all receive
+  the same response. Only a new account receives a verification email, and the
+  outbox result does not change the response; a queued message does not mean the
+  upstream SMTP relay accepted it. Registration does not create a browser
+  session.
 - `POST /v1/auth/email/verification/request` with no body returns `202`.
 - `POST /v1/auth/email/verification/confirm` with `{token}` returns `200 {user}`.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,

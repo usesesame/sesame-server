@@ -115,12 +115,12 @@ func (a *api) register(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusForbidden, "registration_not_eligible", "This beta invitation is unavailable or does not match that email address.")
 		return
 	}
-	if err != nil && !errors.Is(err, accounts.ErrEmailTaken) {
+	if err != nil && !errors.Is(err, accounts.ErrEmailTaken) && !errors.Is(err, accounts.ErrRegistrationNotCreated) {
 		writeError(response, http.StatusServiceUnavailable, "registration_unavailable", "Account registration is temporarily unavailable.")
 		return
 	}
 	if err == nil && a.config.EmailSender != nil {
-		_ = a.sendAccountEmail(request.Context(), "verify-email", user.Email, verificationToken, now.Add(emailVerificationTTL))
+		_ = a.sendAccountEmail(request.Context(), false, "verify-email", user.Email, verificationToken, now.Add(emailVerificationTTL))
 	}
 	response.WriteHeader(http.StatusAccepted)
 }
