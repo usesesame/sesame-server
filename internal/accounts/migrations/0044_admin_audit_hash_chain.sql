@@ -73,7 +73,10 @@ SET head_seq = COALESCE((SELECT MAX(chain_seq) FROM sesame_admin_audit_log), 0),
     head_hash = COALESCE((SELECT hash FROM sesame_admin_audit_log ORDER BY chain_seq DESC LIMIT 1), decode(repeat('00', 32), 'hex'))
 WHERE singleton;
 
-CREATE OR REPLACE FUNCTION sesame_chain_admin_audit_row() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION sesame_chain_admin_audit_row() RETURNS trigger
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
 DECLARE
   previous_hash BYTEA;
   previous_seq BIGINT;
@@ -97,17 +100,14 @@ CREATE TRIGGER sesame_admin_audit_chain
 BEFORE INSERT ON sesame_admin_audit_log
 FOR EACH ROW EXECUTE FUNCTION sesame_chain_admin_audit_row();
 
-CREATE OR REPLACE FUNCTION sesame_reset_admin_audit_chain() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION sesame_reject_admin_audit_truncate() RETURNS trigger AS $$
 BEGIN
-  INSERT INTO sesame_admin_audit_chain_head (singleton, head_seq, head_hash)
-  VALUES (TRUE, 0, decode(repeat('00', 32), 'hex'))
-  ON CONFLICT (singleton) DO UPDATE SET head_seq = 0, head_hash = decode(repeat('00', 32), 'hex');
-  RETURN NULL;
+  RAISE EXCEPTION 'sesame_admin_audit_log cannot be truncated';
 END $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER sesame_admin_audit_chain_reset
-AFTER TRUNCATE ON sesame_admin_audit_log
-FOR EACH STATEMENT EXECUTE FUNCTION sesame_reset_admin_audit_chain();
+CREATE TRIGGER sesame_admin_audit_chain_truncate
+BEFORE TRUNCATE ON sesame_admin_audit_log
+FOR EACH STATEMENT EXECUTE FUNCTION sesame_reject_admin_audit_truncate();
 
 CREATE TABLE IF NOT EXISTS sesame_admin_audit_checkpoints (
   id BIGSERIAL PRIMARY KEY,
@@ -120,3 +120,11 @@ CREATE TABLE IF NOT EXISTS sesame_admin_audit_checkpoints (
   CONSTRAINT sesame_admin_audit_checkpoints_chain_hash_length CHECK (octet_length(chain_hash) = 32),
   CONSTRAINT sesame_admin_audit_checkpoints_signature_length CHECK (octet_length(signature) = 64)
 );
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sesame_app') THEN
+    REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE sesame_admin_audit_chain_head FROM sesame_app;
+    REVOKE UPDATE, DELETE ON TABLE sesame_admin_audit_checkpoints FROM sesame_app;
+  END IF;
+END $$;

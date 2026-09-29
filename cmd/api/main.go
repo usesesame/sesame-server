@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -437,13 +438,17 @@ func verifyAuditChain(ctx context.Context, db *sql.DB, capabilityKey ed25519.Pri
 		slog.Warn("Sesame API detected an invalid admin audit checkpoint", "reason", checkpoints.FirstBreak)
 		return httpapi.OperationalDegraded
 	}
-	written, err := adminstore.CheckpointAuditChain(ctx, db, capabilityKey, capabilityKeyID)
+	checkpoint, err := adminstore.CheckpointAuditChain(ctx, db, capabilityKey, capabilityKeyID)
 	if err != nil {
 		slog.Warn("Sesame API could not write an admin audit checkpoint", "error", err)
 		return httpapi.OperationalDegraded
 	}
-	if written {
-		slog.Info("wrote admin audit checkpoint", "coverSeq", report.HeadSeq)
+	if checkpoint != nil {
+		slog.Info("wrote admin audit checkpoint",
+			"coverSeq", checkpoint.CoverSeq,
+			"chainHash", hex.EncodeToString(checkpoint.ChainHash),
+			"keyId", checkpoint.KeyID,
+			"signature", hex.EncodeToString(checkpoint.Signature))
 	}
 	return status
 }

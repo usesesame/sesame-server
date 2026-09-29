@@ -124,51 +124,60 @@ func auditCheckpointMessage(coverSeq int64, chainHash []byte, keyID string, sign
 	})
 }
 
-func CheckpointAuditChain(ctx context.Context, db *sql.DB, signingKey ed25519.PrivateKey, keyID string) (bool, error) {
+func CheckpointAuditChain(ctx context.Context, db *sql.DB, signingKey ed25519.PrivateKey, keyID string) (*AuditCheckpoint, error) {
 	if len(signingKey) != ed25519.PrivateKeySize {
-		return false, errors.New("audit checkpoint signing key is invalid")
+		return nil, errors.New("audit checkpoint signing key is invalid")
 	}
 	keyID = strings.TrimSpace(keyID)
 	if keyID == "" {
-		return false, errors.New("audit checkpoint key id is required")
+		return nil, errors.New("audit checkpoint key id is required")
 	}
 	var coverSeq int64
 	var chainHash []byte
 	err := db.QueryRowContext(ctx, `SELECT chain_seq, hash FROM sesame_admin_audit_log ORDER BY chain_seq DESC LIMIT 1`).Scan(&coverSeq, &chainHash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("read audit chain head: %w", err)
+		return nil, fmt.Errorf("read audit chain head: %w", err)
 	}
 	if len(chainHash) != sha256.Size {
-		return false, errors.New("audit chain head has no valid hash")
+		return nil, errors.New("audit chain head has no valid hash")
 	}
 	var lastCoverSeq int64
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(cover_seq), 0) FROM sesame_admin_audit_checkpoints`).Scan(&lastCoverSeq); err != nil {
-		return false, fmt.Errorf("read audit checkpoints: %w", err)
+		return nil, fmt.Errorf("read audit checkpoints: %w", err)
 	}
 	if coverSeq <= lastCoverSeq {
-		return false, nil
+		return nil, nil
 	}
 	signedAt := time.Now().UTC().Truncate(time.Microsecond)
 	message, err := auditCheckpointMessage(coverSeq, chainHash, keyID, signedAt)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	result, err := db.ExecContext(ctx, `
+	signature := ed25519.Sign(signingKey, message)
+	var id int64
+	err = db.QueryRowContext(ctx, `
 		INSERT INTO sesame_admin_audit_checkpoints (cover_seq, chain_hash, key_id, signed_at, signature)
 		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (cover_seq) DO NOTHING
-	`, coverSeq, chainHash, keyID, signedAt, ed25519.Sign(signingKey, message))
-	if err != nil {
-		return false, fmt.Errorf("write audit checkpoint: %w", err)
+		RETURNING id
+	`, coverSeq, chainHash, keyID, signedAt, signature).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	written, err := result.RowsAffected()
 	if err != nil {
-		return false, err
+		return nil, fmt.Errorf("write audit checkpoint: %w", err)
 	}
-	return written > 0, nil
+	return &AuditCheckpoint{
+		ID:        id,
+		CoverSeq:  coverSeq,
+		ChainHash: chainHash,
+		KeyID:     keyID,
+		SignedAt:  signedAt,
+		Signature: signature,
+	}, nil
 }
 
 func VerifyAuditCheckpoints(ctx context.Context, db *sql.DB, publicKey ed25519.PublicKey, keyID string) (AuditCheckpointReport, error) {

@@ -7,11 +7,14 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"usesesame.app/backend/internal/accounts"
 )
@@ -28,15 +31,36 @@ func newAuditChainTest(t *testing.T) (*Store, *sql.DB, string) {
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
 	lockReleaseTests(t, accountStore.DB())
-	if _, err := accountStore.DB().ExecContext(context.Background(), `TRUNCATE sesame_admin_audit_log, sesame_admin_audit_checkpoints RESTART IDENTITY`); err != nil {
-		t.Fatalf("clear audit tables: %v", err)
-	}
+	truncateAuditTables(t, accountStore.DB(), `TRUNCATE sesame_admin_audit_log, sesame_admin_audit_checkpoints RESTART IDENTITY`)
 	store, err := Open(context.Background(), databaseURL, bytes.Repeat([]byte{4}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	return store, accountStore.DB(), databaseURL
+}
+
+func truncateAuditTables(t *testing.T, db *sql.DB, statement string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS sesame_admin_audit_chain_truncate ON sesame_admin_audit_log`); err != nil {
+		t.Fatalf("drop the audit truncate trigger: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, statement); err != nil {
+		t.Fatalf("truncate audit tables: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO sesame_admin_audit_chain_head (singleton, head_seq, head_hash)
+		VALUES (TRUE, 0, decode(repeat('00', 32), 'hex'))
+		ON CONFLICT (singleton) DO UPDATE SET head_seq = 0, head_hash = decode(repeat('00', 32), 'hex')`); err != nil {
+		t.Fatalf("reset the audit chain head: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		CREATE TRIGGER sesame_admin_audit_chain_truncate
+		BEFORE TRUNCATE ON sesame_admin_audit_log
+		FOR EACH STATEMENT EXECUTE FUNCTION sesame_reject_admin_audit_truncate()`); err != nil {
+		t.Fatalf("restore the audit truncate trigger: %v", err)
+	}
 }
 
 func appendAuditRows(t *testing.T, store *Store, db *sql.DB, count int) []int64 {
@@ -257,12 +281,15 @@ func TestAuditCheckpointsDetectRewrites(t *testing.T) {
 		t.Fatalf("generate checkpoint key: %v", err)
 	}
 	ctx := context.Background()
-	written, err := CheckpointAuditChain(ctx, db, privateKey, "fictional-capability-key")
+	checkpoint, err := CheckpointAuditChain(ctx, db, privateKey, "fictional-capability-key")
 	if err != nil {
 		t.Fatalf("write audit checkpoint: %v", err)
 	}
-	if !written {
+	if checkpoint == nil {
 		t.Fatal("no audit checkpoint was written for a new chain")
+	}
+	if checkpoint.CoverSeq != 3 || checkpoint.KeyID != "fictional-capability-key" || len(checkpoint.Signature) != ed25519.SignatureSize {
+		t.Fatalf("checkpoint = %#v, want a signed checkpoint covering sequence 3", checkpoint)
 	}
 	report, err := VerifyAuditCheckpoints(ctx, db, publicKey, "fictional-capability-key")
 	if err != nil {
@@ -271,19 +298,19 @@ func TestAuditCheckpointsDetectRewrites(t *testing.T) {
 	if !report.Verified || report.Checkpoints != 1 || report.Latest == nil || report.Latest.CoverSeq != 3 {
 		t.Fatalf("checkpoint report = %#v, want one verified checkpoint covering sequence 3", report)
 	}
-	written, err = CheckpointAuditChain(ctx, db, privateKey, "fictional-capability-key")
+	checkpoint, err = CheckpointAuditChain(ctx, db, privateKey, "fictional-capability-key")
 	if err != nil {
 		t.Fatalf("repeat audit checkpoint: %v", err)
 	}
-	if written {
+	if checkpoint != nil {
 		t.Fatal("an audit checkpoint was repeated without new rows")
 	}
 	ids := appendAuditRows(t, store, db, 1)
-	written, err = CheckpointAuditChain(ctx, db, privateKey, "fictional-capability-key")
+	checkpoint, err = CheckpointAuditChain(ctx, db, privateKey, "fictional-capability-key")
 	if err != nil {
 		t.Fatalf("advance audit checkpoint: %v", err)
 	}
-	if !written {
+	if checkpoint == nil {
 		t.Fatal("no audit checkpoint was written for an advanced chain")
 	}
 	report, err = VerifyAuditCheckpoints(ctx, db, publicKey, "fictional-capability-key")
@@ -328,5 +355,95 @@ func TestAuditCheckpointsDetectRewrites(t *testing.T) {
 	}
 	if report.Verified || report.FirstBreak == "" {
 		t.Fatalf("checkpoint report = %#v, want a detected deleted row", report)
+	}
+}
+
+func insufficientPrivilege(err error) bool {
+	var postgresError *pgconn.PgError
+	return errors.As(err, &postgresError) && postgresError.Code == "42501"
+}
+
+func TestAuditChainRejectsTruncate(t *testing.T) {
+	store, db, _ := newAuditChainTest(t)
+	appendAuditRows(t, store, db, 2)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `TRUNCATE sesame_admin_audit_log`); err == nil {
+		t.Fatal("the audit log was truncated")
+	} else if !strings.Contains(err.Error(), "cannot be truncated") {
+		t.Fatalf("truncate error = %v, want the truncate guard", err)
+	}
+	report, err := VerifyAuditChain(ctx, db)
+	if err != nil {
+		t.Fatalf("verify audit chain: %v", err)
+	}
+	if !report.Verified || report.Rows != 2 {
+		t.Fatalf("chain report = %#v, want the two audit rows to survive", report)
+	}
+}
+
+func TestAuditChainDeniesTheApplicationRoleHeadWrites(t *testing.T) {
+	_, db, _ := newAuditChainTest(t)
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `
+		DO $$
+		BEGIN
+			CREATE ROLE sesame_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
+		EXCEPTION WHEN duplicate_object THEN
+			NULL;
+		END $$`); err != nil {
+		t.Fatalf("ensure the application role: %v", err)
+	}
+	for _, statement := range []string{
+		`GRANT USAGE ON SCHEMA public TO sesame_app`,
+		`GRANT SELECT, INSERT ON sesame_admin_audit_log TO sesame_app`,
+		`GRANT SELECT, INSERT ON sesame_admin_audit_checkpoints TO sesame_app`,
+		`GRANT USAGE, SELECT ON SEQUENCE sesame_admin_audit_log_id_seq TO sesame_app`,
+		`GRANT USAGE, SELECT ON SEQUENCE sesame_admin_audit_checkpoints_id_seq TO sesame_app`,
+	} {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("reserve an application connection: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = conn.ExecContext(context.Background(), `RESET ROLE`)
+		_ = conn.Close()
+	})
+	if _, err := conn.ExecContext(ctx, `SET ROLE sesame_app`); err != nil {
+		t.Fatalf("assume the application role: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, `
+		INSERT INTO sesame_admin_audit_log (admin_email, action, target_type, detail)
+		VALUES ('app-role@example.invalid', 'app.append', 'test', '{"fictional": true}'::jsonb)`); err != nil {
+		t.Fatalf("the application role must append audit rows: %v", err)
+	}
+	var headSeq int64
+	if err := db.QueryRowContext(ctx, `SELECT head_seq FROM sesame_admin_audit_chain_head WHERE singleton`).Scan(&headSeq); err != nil {
+		t.Fatalf("read the audit chain head: %v", err)
+	}
+	if headSeq != 1 {
+		t.Fatalf("head sequence = %d, want 1 after the application insert", headSeq)
+	}
+	report, err := VerifyAuditChain(ctx, db)
+	if err != nil {
+		t.Fatalf("verify audit chain: %v", err)
+	}
+	if !report.Verified || report.Rows != 1 {
+		t.Fatalf("chain report = %#v, want the application row to chain", report)
+	}
+	for _, statement := range []string{
+		`UPDATE sesame_admin_audit_chain_head SET head_seq = 99 WHERE singleton`,
+		`DELETE FROM sesame_admin_audit_chain_head WHERE singleton`,
+		`DELETE FROM sesame_admin_audit_checkpoints`,
+		`TRUNCATE sesame_admin_audit_log`,
+	} {
+		if _, err := conn.ExecContext(ctx, statement); err == nil {
+			t.Fatalf("the application role ran %q", statement)
+		} else if !insufficientPrivilege(err) {
+			t.Fatalf("%q failed without a privilege error: %v", statement, err)
+		}
 	}
 }

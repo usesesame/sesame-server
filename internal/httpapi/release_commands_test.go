@@ -28,9 +28,7 @@ func TestReleaseCommandRoutes(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
 	lockDatabaseTests(t, accountStore.DB())
-	if _, err := accountStore.DB().ExecContext(ctx, `TRUNCATE sesame_releases, sesame_admin_audit_log, sesame_admin_sessions, sesame_admin_accounts RESTART IDENTITY CASCADE`); err != nil {
-		t.Fatalf("clear release tables: %v", err)
-	}
+	truncateAuditTables(t, accountStore.DB(), `TRUNCATE sesame_releases, sesame_admin_audit_log, sesame_admin_sessions, sesame_admin_accounts RESTART IDENTITY CASCADE`)
 	adminStore, err := adminstore.Open(ctx, databaseURL, bytes.Repeat([]byte{2}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)
@@ -78,6 +76,29 @@ func lockDatabaseTests(t *testing.T, db *sql.DB) {
 		_, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, lockID)
 		_ = conn.Close()
 	})
+}
+
+func truncateAuditTables(t *testing.T, db *sql.DB, statement string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := db.ExecContext(ctx, `DROP TRIGGER IF EXISTS sesame_admin_audit_chain_truncate ON sesame_admin_audit_log`); err != nil {
+		t.Fatalf("drop the audit truncate trigger: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, statement); err != nil {
+		t.Fatalf("truncate audit tables: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO sesame_admin_audit_chain_head (singleton, head_seq, head_hash)
+		VALUES (TRUE, 0, decode(repeat('00', 32), 'hex'))
+		ON CONFLICT (singleton) DO UPDATE SET head_seq = 0, head_hash = decode(repeat('00', 32), 'hex')`); err != nil {
+		t.Fatalf("reset the audit chain head: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		CREATE TRIGGER sesame_admin_audit_chain_truncate
+		BEFORE TRUNCATE ON sesame_admin_audit_log
+		FOR EACH STATEMENT EXECUTE FUNCTION sesame_reject_admin_audit_truncate()`); err != nil {
+		t.Fatalf("restore the audit truncate trigger: %v", err)
+	}
 }
 
 func releaseCommandRequest(t *testing.T, handler http.Handler, store *adminstore.Store, actor adminstore.Account, path string, body map[string]any) *httptest.ResponseRecorder {
