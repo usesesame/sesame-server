@@ -170,6 +170,11 @@ func (a *api) passkeyLoginFinish(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusUnauthorized, "passkey_login_failed", "That passkey could not be verified.")
 		return
 	}
+	if credential.Authenticator.CloneWarning {
+		a.recordAccountEvent(request.Context(), matchedAccountID, "passkey_clone_warning", "Passkey", nil)
+		writeError(response, http.StatusUnauthorized, "passkey_clone_warning", "Sesame refused that passkey because its authenticator reported a possible clone. Sign in with your password, remove the passkey, and register it again.")
+		return
+	}
 	// Issuing a session while this write is unconfirmed would let a session
 	// through on state the server never actually saved.
 	if persistErr := persistPasskeyCredentialState(request.Context(), store, credential); persistErr != nil {

@@ -185,7 +185,9 @@ creation of the replacement current session are one database transaction.
 
 A passkey authenticates the website account only. It never unlocks,
 identifies, or touches a local vault, and no vault material is part of any
-ceremony.
+ceremony. If an authenticator reports a possible clone after a successful
+assertion, the API records a `passkey_clone_warning` security event and
+refuses the sign-in instead of creating a session.
 
 ## Account state and deletion
 
