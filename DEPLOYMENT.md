@@ -32,6 +32,8 @@ to loopback.
 - An SMTP account that supports STARTTLS. Without working mail there is no
   email verification, no password recovery, and no email change.
 - Node.js 24.20 to build the website.
+- The `age` command for encrypted database backups, installed with
+  `apt install age`.
 
 ## 1. Configure
 
@@ -72,6 +74,13 @@ them as well.
   internet. Widening it to `0.0.0.0/0` lets any client forge its own
   address and defeat rate limiting. Verify the network with
   `docker network inspect sesame-prod_default`.
+
+Set `SESAME_BACKUP_AGE_RECIPIENTS` to one or more age public recipients,
+separated by commas. Generate the identity with `age-keygen` on a device that
+is not this host and keep the private identity there or on a hardware token.
+The host holds only public recipients, so it can encrypt every backup and read
+none of them. The deploy tool refuses to take a backup while this value is
+empty. The Backups section has the restore procedure and the quarterly drill.
 
 ## 2. Start the stack
 
@@ -187,10 +196,11 @@ The deploy tool runs these stages, and every stage is safe to retry after
 an interruption:
 
 1. Pull and verify all three images by digest and identity labels.
-2. Take a verified `pg_dump` backup.
-3. Restore that backup into a scratch database and run the candidate
-   migration and the previous revision's API against it. This is the
-   rehearsal.
+2. Take a `pg_dump` backup and encrypt it to the age recipients.
+3. Stream a fresh copy of the live database into a scratch database and run
+   the candidate migration and the previous revision's API against it. This
+   is the rehearsal. The host holds no age identity, so the encrypted backup
+   from step 2 cannot be read here.
 4. Apply the migration to the production database.
 5. Start the candidate API beside the live stack on a port Caddy does not
    route, and probe `/livez` and `/readyz`.
@@ -203,43 +213,72 @@ If a stage fails, the failure is contained and recorded:
 - A failed health check before the switch changes no traffic. The previous
   revision keeps serving, and the env file is untouched.
 - A failed health check after the switch rolls back automatically. The tool
-  restores the recorded previous env snapshot, restarts the stack, probes
-  it, and records the rollback. The interrupted attempt is recorded, and
-  rerunning `deploy` with the same `server-release.json` converges on that
-  revision instead of duplicating it.
+  rewrites the three image lines in `.env.production` back to the recorded
+  previous digests, restarts the stack, probes it, and records the rollback.
+  The interrupted attempt is recorded, and rerunning `deploy` with the same
+  `server-release.json` converges on that revision instead of duplicating it.
 - Deploying an older release than the recorded one is refused. Re-presenting
   the same release with changed bytes is refused. Artifact identity is
   immutable.
 - The rehearsal proves the previous revision still runs against the
   migrated schema, so an ordinary rollback after migration is safe.
-  Rollback restores images and configuration only. It never reverts
-  migrations. If a release ships an incompatible database contraction,
-  recovery means restoring the recorded backup,
-  `deploy/state/backups/sesame-<version>-<timestamp>.sql.gz`, onto the
-  previous revision by hand. That is a deliberate operator procedure.
+  Rollback restores the recorded image references and leaves every other
+  value in `.env.production` in place. It never reverts migrations. If a
+  release ships an incompatible database contraction, recovery means
+  restoring the recorded backup,
+  `deploy/state/backups/sesame-<version>-<timestamp>.sql.gz.age`, onto the
+  previous revision by hand with the age identity. That is a deliberate
+  operator procedure.
 
-State, env snapshots, and backups live under `deploy/state/`, which is
-gitignored: `deployed.json`, `pending.json`, `backups/`, and
-`history/<version>/`. Never delete `history/` while an older version is
-still a wanted rollback target. Secrets from `.env.production` are read by
-the tool, mode 0600, never printed, and copied into the per-version
-snapshots under `deploy/state/history/`. Back that directory up with the
-same care as the env file itself.
+State and backups live under `deploy/state/`, which is gitignored:
+`deployed.json`, `pending.json`, and `backups/`. The tool reads
+`.env.production` at mode 0600 and never prints it. It records the image
+references it needs for rollback in `deployed.json` and writes no copy of the
+env file, so the deploy state holds no secrets. The encrypted files in
+`backups/` are the only database copies the host keeps.
 
 ## Backups
 
 Two things matter, and they fail differently.
 
+Every `npm run deploy:release -- deploy` streams a `pg_dump` through `gzip`
+and `age` and writes the result under `deploy/state/backups/` as
+`sesame-<version>-<timestamp>.sql.gz.age`. `SESAME_BACKUP_AGE_RECIPIENTS`
+supplies the public recipients. The host holds no private identity, so it
+cannot read the backups it writes. Keep the identity on a separate device and
+keep a copy of the encrypted files off the host as well.
+
+A manual backup looks the same:
+
 ```bash
 docker compose -f deploy/compose/compose.prod.yaml \
   --env-file deploy/compose/.env.production \
-  exec -T db pg_dump -U sesame sesame | gzip > sesame-$(date +%F).sql.gz
+  exec -T db pg_dump -U sesame sesame | gzip \
+  | age -r age1... > sesame-$(date +%F).sql.gz.age
 ```
+
+Restore is a manual procedure that needs the identity. Decrypt with it and
+load the dump into a scratch database before anything else:
+
+```bash
+age --decrypt --identity /path/to/backup-identity.txt sesame-<version>.sql.gz.age \
+  | gunzip \
+  | docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame
+```
+
+Run the restore where the identity is available and the scratch database is
+reachable, and do not write the decrypted dump to disk. Check the schema
+version and a known account row. Restoring over the live database destroys
+it, so rehearse first.
 
 A lost database loses accounts. A lost `SESAME_ADMIN_ENCRYPTION_KEY` locks
 every administrator out while the database stays perfectly intact, which is
 the harder failure to recover from. Back up `deploy/compose/.env.production`
 separately, somewhere other than this host.
+
+Restore one backup at least quarterly: decrypt it with the identity, load it
+into a scratch database, and check the schema version and a known account row.
+Record the date and the result. A drill that has not run is not a pass.
 
 ## Operating notes
 
