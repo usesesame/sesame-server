@@ -13,6 +13,8 @@ const IMAGE_FIELDS = [
   ['admin', 'SESAME_ADMIN_IMAGE', 'Admin'],
 ]
 
+const RELEASE_WORKFLOW = '.github/workflows/release.yml'
+
 const PENDING_FILE = 'pending.json'
 const STATE_FILE = 'deployed.json'
 const STAGING_ENV = 'deploy-candidate.env'
@@ -25,11 +27,18 @@ export function parseRelease(bytes) {
   const identity = releaseIdentity(raw.version, raw.commit)
   const images = {}
   for (const [component, , label] of IMAGE_FIELDS) {
-    const value = raw.images?.[component]
-    const reference = typeof value === 'object' && value !== null ? value.reference : value
-    images[component] = digestReference(reference, label)
+    images[component] = parseReleaseImage(raw.images?.[component], label)
   }
   return { ...identity, images, setDigest: createHash('sha256').update(text).digest('hex') }
+}
+
+function parseReleaseImage(value, label) {
+  const named = typeof value === 'object' && value !== null
+  const image = digestReference(named ? value.reference : value, label)
+  if (named && (value.name !== image.name || value.digest !== image.digest)) {
+    throw new Error(`${label} image must carry a name and digest that match its digest reference.`)
+  }
+  return image
 }
 
 function versionParts(version) {
@@ -223,7 +232,32 @@ async function savePending(io, root, pending) {
   await io.writeJSONAtomic(join(root, PENDING_FILE), pending, 0o600)
 }
 
+export function attestationTarget(release, component) {
+  const image = release.images[component]
+  const match = image.name.match(/^ghcr\.io\/([^/]+)\/([^/]+)$/)
+  if (!match) {
+    throw new Error(`The ${component} image ${image.name} is not hosted on ghcr.io, so its provenance cannot be verified.`)
+  }
+  const suffix = `-${component}`
+  if (match[2].length <= suffix.length || !match[2].endsWith(suffix)) {
+    throw new Error(`The ${component} image ${image.name} does not follow the release repository naming of a ${suffix} image, so its provenance cannot be verified.`)
+  }
+  const repository = `${match[1]}/${match[2].slice(0, -suffix.length)}`
+  return {
+    reference: image.reference,
+    repository,
+    signerWorkflow: `${repository}/${RELEASE_WORKFLOW}`,
+    sourceRef: `refs/tags/v${release.version}`,
+  }
+}
+
+export function attestationArgs({ reference, repository, signerWorkflow, sourceRef }) {
+  return ['attestation', 'verify', `oci://${reference}`, '--repo', repository, '--signer-workflow', signerWorkflow, '--source-ref', sourceRef, '--deny-self-hosted-runners']
+}
+
 async function verifyImages(io, release) {
+  const targets = {}
+  for (const [component] of IMAGE_FIELDS) targets[component] = attestationTarget(release, component)
   for (const [component] of IMAGE_FIELDS) {
     const expected = release.images[component]
     await io.pullImage(expected.reference)
@@ -235,6 +269,8 @@ async function verifyImages(io, release) {
     if (image.labels['org.opencontainers.image.version'] !== release.version || image.labels['org.opencontainers.image.revision'] !== release.commit) {
       throw new Error(`The ${component} image identity does not match release ${release.version} at ${release.commit}.`)
     }
+    const target = targets[component]
+    await io.verifyImageAttestation(target)
   }
 }
 
@@ -281,9 +317,9 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
 
   const envText = await io.readText(prodEnvPath)
   const resumed = Boolean(record)
+  await verifyImages(io, release)
 
   if (!resumed) {
-    await verifyImages(io, release)
     const snapshotVersion = snapshotVersionFor(state)
     const snapshotPath = snapshotPathFor(root, snapshotVersion)
     if (!(await io.exists(snapshotPath))) {
