@@ -582,3 +582,89 @@ test('the compose stack creates its own secrets before it starts', () => {
   assert.match(scripts.setup ?? '', /scripts\/setup\.mjs/, 'the setup script no longer generates deployment secrets')
   assert.match(readFileSync(join(root, 'README.md'), 'utf8'), /npm run setup/, 'the README no longer tells a self-hoster to create the secrets first')
 })
+
+function composeServices(text) {
+  const services = {}
+  let inServices = false
+  let name = null
+  let key = null
+  for (const rawLine of text.split('\n')) {
+    if (rawLine.trim() === '' || rawLine.trimStart().startsWith('#')) continue
+    const indent = rawLine.length - rawLine.trimStart().length
+    const line = rawLine.trimEnd()
+    if (indent === 0) {
+      inServices = line.trim() === 'services:'
+      name = null
+      key = null
+      continue
+    }
+    if (!inServices) continue
+    if (indent === 2 && line.trim().endsWith(':')) {
+      name = line.trim().slice(0, -1)
+      services[name] = {}
+      key = null
+      continue
+    }
+    if (name === null) continue
+    if (indent === 4) {
+      const match = line.trim().match(/^([A-Za-z0-9_-]+):(?: (.*))?$/)
+      if (!match) continue
+      key = match[1]
+      services[name][key] = match[2] === undefined ? [] : unquote(match[2])
+      continue
+    }
+    if (indent === 6 && key !== null && Array.isArray(services[name][key]) && line.trim().startsWith('- ')) {
+      services[name][key].push(unquote(line.trim().slice(2).trim()))
+    }
+  }
+  return services
+}
+
+function unquote(value) {
+  return value.replace(/^"(.*)"$/, '$1')
+}
+
+test('production keeps the container hardening baseline for every application service', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const services = composeServices(readFileSync(join(root, 'deploy', 'compose', 'compose.prod.yaml'), 'utf8'))
+  const baseline = {
+    migrate: { pids: '128', memory: '128m' },
+    api: { pids: '256', memory: '256m', port: '127.0.0.1:8787:8787' },
+    account: { pids: '128', memory: '64m', port: '127.0.0.1:4175:8080' },
+    admin: { pids: '128', memory: '64m', port: '127.0.0.1:4174:8080' },
+    gateway: { pids: '128', memory: '128m', port: '127.0.0.1:8791:8791' },
+  }
+  for (const [name, expected] of Object.entries(baseline)) {
+    const service = services[name]
+    assert.ok(service, `compose.prod.yaml must define ${name}`)
+    assert.equal(service.read_only, 'true', `${name} must keep read_only: true`)
+    assert.deepEqual(service.cap_drop, ['ALL'], `${name} must keep cap_drop: [ALL]`)
+    assert.deepEqual(service.security_opt, ['no-new-privileges:true'], `${name} must keep no-new-privileges:true`)
+    assert.equal(service.pids_limit, expected.pids, `${name} must keep its pids limit`)
+    assert.equal(service.mem_limit, expected.memory, `${name} must keep its memory limit`)
+    assert.ok(
+      service.tmpfs.some((entry) => entry === '/tmp' || entry.startsWith('/tmp:')),
+      `${name} must keep a writable tmpfs at /tmp`,
+    )
+    if (expected.port) assert.deepEqual(service.ports, [expected.port], `${name} must keep its loopback port binding`)
+  }
+  for (const name of ['account', 'admin']) {
+    for (const mount of ['/var/cache/nginx', '/run']) {
+      assert.ok(
+        services[name].tmpfs.some((entry) => entry === mount || entry.startsWith(`${mount}:`)),
+        `${name} must keep a writable tmpfs at ${mount}`,
+      )
+    }
+  }
+  for (const name of ['api', 'account', 'admin']) {
+    assert.ok(services[name].healthcheck !== undefined, `${name} must keep its health check`)
+  }
+  const db = services.db
+  assert.equal(db.read_only, undefined, 'PostgreSQL must keep a writable root filesystem')
+  assert.equal(db.cap_drop, undefined, 'PostgreSQL must keep the capabilities its entrypoint needs')
+  assert.deepEqual(db.security_opt, ['no-new-privileges:true'], 'PostgreSQL must keep no-new-privileges:true')
+  assert.equal(db.pids_limit, '256', 'PostgreSQL must keep its pids limit')
+  assert.equal(db.mem_limit, '1g', 'PostgreSQL must keep its memory limit')
+  assert.equal(db.volumes.includes('database:/var/lib/postgresql'), true, 'PostgreSQL must keep its data volume')
+  assert.match(db.image, /^postgres:[^@]+@sha256:[0-9a-f]{64}$/, 'PostgreSQL must stay digest pinned')
+})
