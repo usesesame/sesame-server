@@ -13,6 +13,7 @@ const IMAGE_FIELDS = [
   ['admin', 'SESAME_ADMIN_IMAGE', 'Admin'],
 ]
 
+const RELEASE_REPOSITORY = 'usesesame/sesame-server'
 const RELEASE_WORKFLOW = '.github/workflows/release.yml'
 
 const PENDING_FILE = 'pending.json'
@@ -243,10 +244,13 @@ export function attestationTarget(release, component) {
     throw new Error(`The ${component} image ${image.name} does not follow the release repository naming of a ${suffix} image, so its provenance cannot be verified.`)
   }
   const repository = `${match[1]}/${match[2].slice(0, -suffix.length)}`
+  if (repository !== RELEASE_REPOSITORY) {
+    throw new Error(`The ${component} image ${image.name} names the release repository ${repository}, not the pinned repository ${RELEASE_REPOSITORY}, so its provenance cannot be verified.`)
+  }
   return {
     reference: image.reference,
-    repository,
-    signerWorkflow: `${repository}/${RELEASE_WORKFLOW}`,
+    repository: RELEASE_REPOSITORY,
+    signerWorkflow: `${RELEASE_REPOSITORY}/${RELEASE_WORKFLOW}`,
     sourceRef: `refs/tags/v${release.version}`,
   }
 }
@@ -272,6 +276,18 @@ async function verifyImages(io, release) {
     const target = targets[component]
     await io.verifyImageAttestation(target)
   }
+}
+
+function recordedRelease(record, version) {
+  const images = {}
+  for (const [component, , label] of IMAGE_FIELDS) {
+    const value = record.images?.[component]
+    if (value === undefined || value === null) {
+      throw new Error(`The deployment record for ${version} predates image attestations and carries no image digests, so the rollback cannot verify provenance. Restore ${version} by hand or roll back only to a revision recorded with image digests.`)
+    }
+    images[component] = parseReleaseImage(value, label)
+  }
+  return { version, commit: record.commit, images }
 }
 
 // The pinned env file is what every later restart uses, so a deployment is not
@@ -305,6 +321,7 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
       await io.unlink(join(root, PENDING_FILE))
       return { deployed: release.version, backup: state.current.backup, from: state.current.previous?.version ?? null }
     }
+    await verifyImages(io, release)
     await convergePinnedEnv(io, prodEnvPath, release)
     throw new Error(`Release ${release.version} is already the deployed revision.`)
   }
@@ -462,6 +479,7 @@ export async function rollbackRelease(io, { root, prodEnvPath, targetVersion }) 
   if (!record) throw new Error(`${target} was never deployed by this tool, so its digests and env snapshot are unknown.`)
   const snapshotPath = snapshotPathFor(root, target)
   if (!(await io.exists(snapshotPath))) throw new Error(`The env snapshot for ${target} is missing; a rollback needs the exact previous env file.`)
+  await verifyImages(io, recordedRelease(record, target))
   await io.writeText(prodEnvPath, await io.readText(snapshotPath), 0o600)
   const up = await io.composeUp()
   if (!up.ok) throw new Error(`The rollback restart failed: ${up.error}. The env file for ${target} is in place; run the compose up manually to converge.`)

@@ -169,10 +169,11 @@ dependency SBOM and signed provenance to each digest. Production uses the
 digest references, never the version tags.
 
 Before it changes anything, the deploy tool verifies each image's provenance
-attestation with the GitHub CLI against this repository, the release workflow,
-and the release tag. An image whose attestation is missing, was signed for
-another ref, or names another repository stops the deploy. A host with no
-GitHub access cannot deploy; verification is not skippable.
+attestation with the GitHub CLI against the pinned release repository
+`usesesame/sesame-server`, the release workflow, and the release tag. An image
+whose attestation is missing, was signed for another ref, or names another
+repository stops the deploy. A host with no GitHub access cannot deploy;
+verification is not skippable.
 
 The GitHub `server-release` environment must require release approval and
 define `SESAME_API_ORIGIN`, `SESAME_PUBLIC_SITE_ORIGIN`, and
