@@ -200,11 +200,11 @@ func main() {
 		OperationalOutbox:         operationalOutbox,
 		Maintenance:               maintenance,
 	}
-	runMaintenanceOnce(ctx, store, outbox, maintenance)
+	runMaintenanceOnce(ctx, store, outbox, maintenance, config.CapabilitySigningKey, config.CapabilityKeyID)
 	backgroundJobs.Add(1)
 	go func() {
 		defer backgroundJobs.Done()
-		runMaintenance(ctx, store, outbox, maintenance)
+		runMaintenance(ctx, store, outbox, maintenance, config.CapabilitySigningKey, config.CapabilityKeyID)
 	}()
 	server := &http.Server{
 		Addr:              env("SESAME_API_ADDR", "127.0.0.1:8787"),
@@ -369,7 +369,12 @@ func parseTrustedProxies(value string) ([]netip.Prefix, error) {
 	return prefixes, nil
 }
 
-func runMaintenance(ctx context.Context, store accounts.MaintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState) {
+type maintenanceStore interface {
+	accounts.MaintenanceStore
+	DB() *sql.DB
+}
+
+func runMaintenance(ctx context.Context, store maintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState, capabilityKey ed25519.PrivateKey, capabilityKeyID string) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -378,13 +383,13 @@ func runMaintenance(ctx context.Context, store accounts.MaintenanceStore, outbox
 			return
 		case <-ticker.C:
 			purgeContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-			runMaintenanceOnce(purgeContext, store, outbox, maintenance)
+			runMaintenanceOnce(purgeContext, store, outbox, maintenance, capabilityKey, capabilityKeyID)
 			cancel()
 		}
 	}
 }
 
-func runMaintenanceOnce(ctx context.Context, store accounts.MaintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState) {
+func runMaintenanceOnce(ctx context.Context, store maintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState, capabilityKey ed25519.PrivateKey, capabilityKeyID string) {
 	status := httpapi.OperationalReady
 	if err := store.PurgeExpired(ctx); err != nil {
 		slog.Warn("Sesame API could not purge expired security records", "error", err)
@@ -404,7 +409,43 @@ func runMaintenanceOnce(ctx context.Context, store accounts.MaintenanceStore, ou
 			slog.Info("purged failed email outbox records", "count", n)
 		}
 	}
+	status = verifyAuditChain(ctx, store.DB(), capabilityKey, capabilityKeyID, status)
 	maintenance.Record(status, time.Now().UTC())
+}
+
+func verifyAuditChain(ctx context.Context, db *sql.DB, capabilityKey ed25519.PrivateKey, capabilityKeyID string, status httpapi.OperationalStatus) httpapi.OperationalStatus {
+	report, err := adminstore.VerifyAuditChain(ctx, db)
+	if err != nil {
+		slog.Warn("Sesame API could not verify the admin audit chain", "error", err)
+		return httpapi.OperationalDegraded
+	}
+	if !report.Verified {
+		slog.Warn("Sesame API detected a broken admin audit chain", "seq", report.FirstBreak.Seq, "row", report.FirstBreak.ID, "reason", report.FirstBreak.Reason)
+		return httpapi.OperationalDegraded
+	}
+	publicKey, ok := capabilityKey.Public().(ed25519.PublicKey)
+	if !ok {
+		slog.Warn("Sesame API cannot verify admin audit checkpoints", "reason", "capability signing key is missing")
+		return httpapi.OperationalDegraded
+	}
+	checkpoints, err := adminstore.VerifyAuditCheckpoints(ctx, db, publicKey, capabilityKeyID)
+	if err != nil {
+		slog.Warn("Sesame API could not verify admin audit checkpoints", "error", err)
+		return httpapi.OperationalDegraded
+	}
+	if !checkpoints.Verified {
+		slog.Warn("Sesame API detected an invalid admin audit checkpoint", "reason", checkpoints.FirstBreak)
+		return httpapi.OperationalDegraded
+	}
+	written, err := adminstore.CheckpointAuditChain(ctx, db, capabilityKey, capabilityKeyID)
+	if err != nil {
+		slog.Warn("Sesame API could not write an admin audit checkpoint", "error", err)
+		return httpapi.OperationalDegraded
+	}
+	if written {
+		slog.Info("wrote admin audit checkpoint", "coverSeq", report.HeadSeq)
+	}
+	return status
 }
 
 func buildPasskeys(origin, rpID, rpName string) *webauthn.WebAuthn {

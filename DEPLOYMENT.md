@@ -154,7 +154,13 @@ administrator registration, and no session is issued until TOTP is
 configured.
 
 Every administrator mutation writes its audit row in the same database
-transaction as the change.
+transaction as the change. A database trigger chains each row with a SHA-256
+hash over its stored values, so inserts from an earlier revision during an
+upgrade are chained too. The hourly maintenance run verifies the chain and
+writes a signed checkpoint, covering the newest row, with the capability
+signing key whenever new rows exist. Keep a copy of each checkpoint outside
+the database. That copy proves the covered history was not rewritten after
+the checkpoint. It does not prove the entries were accurate.
 
 ## Updating to a new release
 

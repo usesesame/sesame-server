@@ -72,6 +72,18 @@ the scope above, uses only your own deployment and your own accounts, avoids
 accessing or retaining anyone else's data, avoids degrading the service for
 others, and gives us reasonable time to ship a fix before public disclosure.
 
+## Audit log integrity
+
+Each administrator audit row stores `hash = SHA256(prev_hash || canonical(row))`
+over its stored values, computed in the same transaction as the insert. The API
+recomputes the chain during the hourly maintenance run and writes a signed
+checkpoint, covering the newest row, with the capability signing key from
+`SESAME_CAPABILITY_SIGNING_KEY`. The checkpoint proves the covered history was
+not rewritten after the checkpoint was taken, when a copy of the checkpoint is
+retained outside the database. It does not prove that the entries were accurate,
+and a writer who rewrites the whole chain and every retained copy before the
+next verification is not detected by the database alone.
+
 ## Known limits
 
 - Sesame has not had an independent security audit.
