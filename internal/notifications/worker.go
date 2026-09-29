@@ -81,7 +81,7 @@ func (w *Worker) deliver(ctx context.Context, item OutboxItem) error {
 	if w.sealer == nil {
 		return errors.New("no action URL encryption configured")
 	}
-	actionURL, err := w.sealer.Open(item.SealedActionURL)
+	actionURL, err := w.sealer.Open(item.Kind, item.To, item.SealedActionURL)
 	if err != nil {
 		return fmt.Errorf("open action URL: %w", err)
 	}

@@ -4,7 +4,9 @@ SET status = 'failed',
     lease_until = NULL,
     action_url = '',
     updated_at = now()
-WHERE action_url <> '' AND status IN ('pending', 'processing');
+WHERE kind IN ('verify-email', 'recover-password', 'change-email', 'support-reply')
+  AND action_url LIKE '%#token=%'
+  AND status IN ('pending', 'processing');
 
 UPDATE sesame_email_outbox
 SET action_url = ''

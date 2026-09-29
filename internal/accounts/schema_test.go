@@ -36,20 +36,23 @@ func TestEmailOutboxActionURLMigrationClearsLegacyPlaintext(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `TRUNCATE sesame_email_outbox`); err != nil {
 		t.Fatalf("clear email outbox: %v", err)
 	}
-	seed := func(status, actionURL string) string {
+	seed := func(kind, status, actionURL string) string {
 		t.Helper()
 		var id string
 		if err := db.QueryRowContext(ctx, `
 			INSERT INTO sesame_email_outbox (kind, to_email, action_url, expires_at, subject, body, status)
-			VALUES ('verify-email', 'migration@example.invalid', $1, NOW() + INTERVAL '1 hour', 'Subject', 'Body', $2)
-			RETURNING id`, actionURL, status).Scan(&id); err != nil {
+			VALUES ($1, 'migration@example.invalid', $2, NOW() + INTERVAL '1 hour', 'Subject', 'Body', $3)
+			RETURNING id`, kind, actionURL, status).Scan(&id); err != nil {
 			t.Fatalf("seed outbox row: %v", err)
 		}
 		return id
 	}
-	pendingID := seed("pending", "https://account.example.invalid/verify-email#token=fictional-migration")
-	deliveredID := seed("delivered", "https://account.example.invalid/verify-email#token=fictional-migration")
-	noticeID := seed("pending", "")
+	pendingID := seed("verify-email", "pending", "https://account.example.invalid/verify-email#token=fictional-migration")
+	deliveredID := seed("verify-email", "delivered", "https://account.example.invalid/verify-email#token=fictional-migration")
+	recoveryID := seed("recover-password", "pending", "https://account.example.invalid/reset-password#token=fictional-migration")
+	supportLinkID := seed("support-reply", "pending", "https://account.example.invalid/support")
+	supportNoticeID := seed("support-receipt", "pending", "https://account.example.invalid/support")
+	noticeID := seed("security-sign-in", "pending", "")
 
 	migrations, err := loadMigrations()
 	if err != nil {
@@ -93,14 +96,23 @@ func TestEmailOutboxActionURLMigrationClearsLegacyPlaintext(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatalf("iterate migrated outbox rows: %v", err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("migrated outbox rows = %d, want 3", len(got))
+	if len(got) != 6 {
+		t.Fatalf("migrated outbox rows = %d, want 6", len(got))
 	}
 	if row := got[pendingID]; row.status != "failed" || row.errorMessage != "action_url_encryption_upgrade" {
-		t.Fatalf("pending legacy row = %+v, want failed with action_url_encryption_upgrade", row)
+		t.Fatalf("pending verification row = %+v, want failed with action_url_encryption_upgrade", row)
+	}
+	if row := got[recoveryID]; row.status != "failed" || row.errorMessage != "action_url_encryption_upgrade" {
+		t.Fatalf("pending recovery row = %+v, want failed with action_url_encryption_upgrade", row)
 	}
 	if row := got[deliveredID]; row.status != "delivered" {
 		t.Fatalf("delivered legacy row = %+v, want delivered", row)
+	}
+	if row := got[supportLinkID]; row.status != "pending" {
+		t.Fatalf("support link row = %+v, want pending so it still sends", row)
+	}
+	if row := got[supportNoticeID]; row.status != "pending" {
+		t.Fatalf("support receipt row = %+v, want pending", row)
 	}
 	if row := got[noticeID]; row.status != "pending" {
 		t.Fatalf("notice row = %+v, want pending", row)

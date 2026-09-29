@@ -43,7 +43,7 @@ func TestWorkerRunStopsBeforeThePoolCloses(t *testing.T) {
 		t.Fatalf("clear outbox: %v", err)
 	}
 	sealer := testActionURLSealer(t)
-	sealedActionURL, err := sealer.Seal("https://account.test.invalid/verify")
+	sealedActionURL, err := sealer.Seal("verify-email", "worker@example.invalid", "https://account.test.invalid/verify")
 	if err != nil {
 		t.Fatalf("seal action URL: %v", err)
 	}

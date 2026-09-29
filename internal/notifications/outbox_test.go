@@ -163,7 +163,7 @@ func TestPollReturnsOnlyDueMessagesAndMarksDelivery(t *testing.T) {
 	if item.SealedActionURL == "https://account.example.invalid/verify?token=fictional" || strings.Contains(item.SealedActionURL, "fictional") {
 		t.Fatalf("claimed item kept a plaintext action URL: %+v", item)
 	}
-	if opened, err := sealer.Open(item.SealedActionURL); err != nil || opened != "https://account.example.invalid/verify?token=fictional" {
+	if opened, err := sealer.Open("verify-email", outboxTestRecipient, item.SealedActionURL); err != nil || opened != "https://account.example.invalid/verify?token=fictional" {
 		t.Fatalf("claimed action URL opened to %q, %v", opened, err)
 	}
 	if item.Attempts != 0 {
@@ -219,7 +219,7 @@ func TestEnqueueStoresASealedActionURL(t *testing.T) {
 	if stored == "" || stored == "https://account.example.invalid/verify?token=fictional" || strings.Contains(stored, "fictional") {
 		t.Fatalf("stored action URL = %q, want a sealed value without the token", stored)
 	}
-	opened, err := sealer.Open(stored)
+	opened, err := sealer.Open("verify-email", outboxTestRecipient, stored)
 	if err != nil || opened != "https://account.example.invalid/verify?token=fictional" {
 		t.Fatalf("stored action URL opened to %q, %v", opened, err)
 	}

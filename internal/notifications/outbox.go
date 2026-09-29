@@ -101,7 +101,7 @@ type outboxInserter interface {
 }
 
 func enqueueOutboxMessage(ctx context.Context, db outboxInserter, sealer *ActionURLSealer, message httpapi.AccountEmail) (string, error) {
-	sealedActionURL, err := sealer.Seal(message.ActionURL)
+	sealedActionURL, err := sealer.Seal(message.Kind, message.To, message.ActionURL)
 	if err != nil {
 		return "", fmt.Errorf("seal email outbox action URL: %w", err)
 	}

@@ -3,6 +3,8 @@ package notifications
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -50,6 +52,47 @@ func TestWorkerDeliversClaimedMessages(t *testing.T) {
 	state := readOutboxRow(t, db, id)
 	if state.status != "delivered" || state.attempts != 1 || state.errorMessage.Valid || state.leaseUntil.Valid {
 		t.Fatalf("delivered row = %+v", state)
+	}
+}
+
+func TestWorkerSendsNonSecretNotificationsQueuedBeforeTheActionURLMigration(t *testing.T) {
+	outbox, sealer, db := testOutbox(t)
+	ctx := context.Background()
+	seed := func(kind, actionURL string) string {
+		t.Helper()
+		var id string
+		if err := db.QueryRowContext(ctx, `
+			INSERT INTO sesame_email_outbox (kind, to_email, action_url, expires_at, subject, body)
+			VALUES ($1, 'upgrade@example.invalid', $2, NOW() + INTERVAL '1 hour', 'Subject', 'Body')
+			RETURNING id`, kind, actionURL).Scan(&id); err != nil {
+			t.Fatalf("seed outbox row: %v", err)
+		}
+		return id
+	}
+	supportID := seed("support-reply", "https://account.example.invalid/support")
+	recoveryID := seed("recover-password", "https://account.example.invalid/reset-password#token=fictional-legacy")
+
+	statement, err := os.ReadFile(filepath.Join("..", "accounts", "migrations", "0042_email_outbox_action_url_encryption.sql"))
+	if err != nil {
+		t.Fatalf("read the action URL encryption migration: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, string(statement)); err != nil {
+		t.Fatalf("apply the action URL encryption migration: %v", err)
+	}
+
+	sender := &recordingSender{}
+	NewWorker(outbox, sender, sealer).DeliverAllOnce(ctx)
+
+	sent := sender.sent()
+	if len(sent) != 1 || sent[0].Kind != "support-reply" || sent[0].ActionURL != "" {
+		t.Fatalf("sender received %+v, want only the support reply without an action link", sent)
+	}
+	if state := readOutboxRow(t, db, supportID); state.status != "delivered" {
+		t.Fatalf("support reply row after delivery = %+v, want delivered", state)
+	}
+	recovery := readOutboxRow(t, db, recoveryID)
+	if recovery.status != "failed" || recovery.errorMessage.String != "action_url_encryption_upgrade" {
+		t.Fatalf("recovery row after migration = %+v, want failed with action_url_encryption_upgrade", recovery)
 	}
 }
 

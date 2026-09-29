@@ -246,14 +246,16 @@ separately, somewhere other than this host.
 ## Operating notes
 
 - **Email action links are sealed, never stored in plaintext.** The API seals
-  each queued action link with `SESAME_ADMIN_ENCRYPTION_KEY`, and the delivery
-  worker opens it only to send the message. A delivered or failed outbox row,
+  each queued action link with a key derived from
+  `SESAME_ADMIN_ENCRYPTION_KEY`, and the delivery worker opens it only to send
+  the message. A delivered or failed outbox row,
   including its sealed link, is purged seven days after its last update; an
   undelivered row expires at its own deadline first. Verification links live
   24 hours, recovery and email-change links 30 minutes, and support access
-  links seven days. Deploying this release fails any action email still
-  queued at migration time and clears its link, so those users request a new
-  one.
+  links seven days. Deploying this release fails every queued action email
+  that carries a single-use token and clears its link, so those users request
+  a new one. Queued notifications without a token stay pending and send, with
+  their link cleared.
 - **Registration** defaults to `invite`. With the administration portal
   running, the `registration_mode` feature flag in the database wins over
   the environment variable.
