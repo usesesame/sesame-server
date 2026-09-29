@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
 import { link, unlink } from 'node:fs/promises'
 import { createGunzip, createGzip } from 'node:zlib'
 import { Readable, Transform } from 'node:stream'
@@ -17,6 +16,30 @@ const PENDING_FILE = 'pending.json'
 const STATE_FILE = 'deployed.json'
 const STAGING_ENV = 'deploy-candidate.env'
 export const BACKUP_MARKER = '-- PostgreSQL database dump'
+export const BACKUP_COMPLETE_MARKER = '-- PostgreSQL database dump complete'
+
+export function parseBackupRecipients(value) {
+  return String(value ?? '')
+    .split(/[\n,]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+}
+
+export function assertBackupRecipients(recipients) {
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    throw new Error('No age recipients are configured. Set SESAME_BACKUP_AGE_RECIPIENTS so database backups are never written unencrypted.')
+  }
+}
+
+export function readEnvImages(text) {
+  const images = {}
+  for (const [component, field] of IMAGE_FIELDS) {
+    const match = String(text).match(new RegExp(`^${field}=(.*)$`, 'm'))
+    if (!match) throw new Error(`The production env file does not set ${field}.`)
+    images[component] = { reference: match[1].trim() }
+  }
+  return images
+}
 
 export function parseRelease(bytes) {
   const text = Buffer.from(bytes).toString('utf8')
@@ -110,13 +133,14 @@ export async function assertUsableBackup(gzipBytes) {
   return createHash('sha256').update(gzipBytes).digest('hex')
 }
 
-export async function writeCompressedBackup(source, destination, confirmSource = async () => {}) {
+export async function writeEncryptedBackup(source, destination, { recipients, encrypt, confirmSource = async () => {} } = {}) {
+  assertBackupRecipients(recipients)
+  if (typeof encrypt !== 'function') throw new Error('The deploy backup writer was called without an age encryption step.')
   const staging = `${destination}.part-${randomBytes(12).toString('hex')}`
-  const digest = createHash('sha256')
   let prefix = Buffer.alloc(0)
-  let bytes = 0
   try {
-    await pipeline(
+    const gzip = createGzip()
+    const compressed = pipeline(
       source,
       new Transform({
         transform(chunk, encoding, callback) {
@@ -126,21 +150,26 @@ export async function writeCompressedBackup(source, destination, confirmSource =
           callback(null, chunk)
         },
       }),
-      createGzip(),
-      new Transform({
-        transform(chunk, encoding, callback) {
-          digest.update(chunk)
-          bytes += chunk.length
-          callback(null, chunk)
-        },
-      }),
-      createWriteStream(staging, { flags: 'wx', mode: 0o600 }),
+      gzip,
     )
+    let result
+    try {
+      const encrypted = encrypt(gzip, staging)
+      const [, encryptedResult] = await Promise.all([compressed, encrypted])
+      result = encryptedResult
+    } catch (error) {
+      gzip.destroy()
+      await compressed.catch(() => {})
+      throw error
+    }
     await confirmSource()
-    if (bytes < 1024) throw new Error('The pre-deployment backup is not a usable gzip dump.')
+    if (!result || typeof result.sha256 !== 'string' || !Number.isFinite(result.bytes)) {
+      throw new Error('The backup encryption step did not report the encrypted digest and size.')
+    }
+    if (result.bytes < 1024) throw new Error('The pre-deployment backup is not a usable gzip dump.')
     if (!prefix.includes(BACKUP_MARKER)) throw new Error('The pre-deployment backup does not contain a PostgreSQL dump.')
     await link(staging, destination)
-    return { sha256: digest.digest('hex'), bytes }
+    return { sha256: result.sha256, bytes: result.bytes }
   } finally {
     try {
       await unlink(staging)
@@ -205,14 +234,6 @@ function identityOf(record) {
 
 function deployedRecord(entry, at) {
   return { ...identityOf(entry), deployedAt: at, previous: null }
-}
-
-function snapshotVersionFor(state) {
-  return state.current?.version ?? 'pre-bootstrap'
-}
-
-function snapshotPathFor(root, version) {
-  return join(root, 'history', version, 'env.production')
 }
 
 function stamp(at) {
@@ -284,27 +305,23 @@ export async function deployRelease(io, { root, prodEnvPath, release }) {
 
   if (!resumed) {
     await verifyImages(io, release)
-    const snapshotVersion = snapshotVersionFor(state)
-    const snapshotPath = snapshotPathFor(root, snapshotVersion)
-    if (!(await io.exists(snapshotPath))) {
-      await io.mkdirp(dirname(snapshotPath))
-      await io.writeText(snapshotPath, envText, 0o600)
-    }
-    record = { schemaVersion: 1, phase: 'prepared', release, startedAt: io.now() }
+    record = { schemaVersion: 1, phase: 'prepared', release, startedAt: io.now(), previousImages: readEnvImages(envText) }
     await savePending(io, root, record)
   }
 
   if (!record.backup || !(await io.exists(record.backup.file))) {
-    const file = join(root, 'backups', `sesame-${release.version}-${stamp(io.now())}.sql.gz`)
+    const recipients = await io.backupRecipients()
+    assertBackupRecipients(recipients)
+    const file = join(root, 'backups', `sesame-${release.version}-${stamp(io.now())}.sql.gz.age`)
     await io.mkdirp(dirname(file))
-    const backup = await io.takeBackup(file)
+    const backup = await io.takeBackup(file, recipients)
     record.backup = { file, sha256: backup.sha256, bytes: backup.bytes }
     await savePending(io, root, record)
   }
 
   if (record.rehearsal?.ok !== true) {
     const previousRef = state.current?.images?.api?.reference ?? null
-    const rehearsal = await io.rehearse({ backupFile: record.backup.file, candidateRef: release.images.api.reference, previousRef })
+    const rehearsal = await io.rehearse({ candidateRef: release.images.api.reference, previousRef })
     if (!rehearsal.ok) {
       record.rehearsal = { ok: false, error: rehearsal.error, at: io.now() }
       await savePending(io, root, record)
@@ -380,12 +397,17 @@ async function completeDeployment(io, root, state, release, record) {
 }
 
 async function recoverFailedSwitch(io, root, prodEnvPath, state, release, record, reason) {
-  const snapshotVersion = snapshotVersionFor(state)
-  const snapshotPath = snapshotPathFor(root, snapshotVersion)
-  if (!(await io.exists(snapshotPath))) {
-    throw new Error(`Traffic switch failed (${reason}) and the env snapshot for ${snapshotVersion} is missing. Manual recovery on the host is required.`)
+  const previousImages = state.current?.images ?? record.previousImages ?? null
+  if (!previousImages) {
+    throw new Error(`Traffic switch failed (${reason}) and no previous image references are recorded. Manual recovery on the host is required.`)
   }
-  await io.writeText(prodEnvPath, await io.readText(snapshotPath), 0o600)
+  let restoredEnv
+  try {
+    restoredEnv = rewriteEnvImages(await io.readText(prodEnvPath), previousImages)
+  } catch {
+    throw new Error(`Traffic switch failed (${reason}) and the previous image references cannot be applied to ${prodEnvPath}. Manual recovery on the host is required.`)
+  }
+  await io.writeText(prodEnvPath, restoredEnv, 0o600)
   const up = await io.composeUp()
   if (!up.ok) {
     throw new Error(`Traffic switch failed (${reason}) and the rollback restart also failed: ${up.error}. Manual recovery on the host is required.`)
@@ -396,16 +418,17 @@ async function recoverFailedSwitch(io, root, prodEnvPath, state, release, record
   }
   // 'pre-bootstrap' is not a real deployed identity: recording it as current
   // would poison every later version comparison, so it stays as current null.
-  const restored = snapshotVersion === 'pre-bootstrap' ? null : await findDeployedIdentity(state, snapshotVersion)
+  const version = state.current?.version ?? 'pre-bootstrap'
+  const restored = state.current ?? null
   const at = io.now()
   const next = {
     schemaVersion: 1,
     current: restored ? { ...identityOf(restored), deployedAt: at, previous: null } : null,
-    history: [...state.history, { action: 'rollback', version: snapshotVersion, from: release.version, at, ...(restored ? identityOf(restored) : {}) }],
+    history: [...state.history, { action: 'rollback', version, from: release.version, at, ...(restored ? identityOf(restored) : {}) }],
   }
   await io.writeJSONAtomic(join(root, STATE_FILE), next)
   await io.unlink(join(root, PENDING_FILE))
-  throw new Error(`Traffic switch failed (${reason}); ${snapshotVersion} is serving again and the rollback was recorded.`)
+  throw new Error(`Traffic switch failed (${reason}); ${version} is serving again and the rollback was recorded.`)
 }
 
 async function findDeployedIdentity(state, version) {
@@ -423,10 +446,9 @@ export async function rollbackRelease(io, { root, prodEnvPath, targetVersion }) 
   if (!target) throw new Error('No earlier deployment is recorded. The first deployment of this host has no rollback target.')
   if (target === state.current.version) throw new Error(`${target} is already serving.`)
   const record = await findDeployedIdentity(state, target)
-  if (!record) throw new Error(`${target} was never deployed by this tool, so its digests and env snapshot are unknown.`)
-  const snapshotPath = snapshotPathFor(root, target)
-  if (!(await io.exists(snapshotPath))) throw new Error(`The env snapshot for ${target} is missing; a rollback needs the exact previous env file.`)
-  await io.writeText(prodEnvPath, await io.readText(snapshotPath), 0o600)
+  if (!record) throw new Error(`${target} was never deployed by this tool, so its image references are unknown.`)
+  if (!record.images) throw new Error(`${target} has no recorded image references, so a rollback cannot be reconstructed.`)
+  await io.writeText(prodEnvPath, rewriteEnvImages(await io.readText(prodEnvPath), record.images), 0o600)
   const up = await io.composeUp()
   if (!up.ok) throw new Error(`The rollback restart failed: ${up.error}. The env file for ${target} is in place; run the compose up manually to converge.`)
   const live = await io.liveHealth()
