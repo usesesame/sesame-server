@@ -132,7 +132,10 @@ body.
 
 Verification tokens live for 24 hours. Recovery and email-change tokens live
 for 30 minutes. Only SHA-256 token hashes are stored. Tokens are single-use;
-creating another token for the same purpose invalidates the previous one.
+creating another token for the same purpose invalidates the previous one. The
+queued action email stores its link sealed with the deployment's admin
+encryption key, never in plaintext; a delivered or failed outbox row is
+purged seven days after its last update.
 
 Action emails contain links such as `/verify-email#token={token}`. The token
 is in the URL fragment so it is never sent to the server in the request line,
