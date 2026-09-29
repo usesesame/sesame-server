@@ -125,7 +125,8 @@ body.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
   malformed, and known emails receive the same response shape.
 - `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` returns
-  `200 {user,otherSessionsRevoked:true}` and a replacement session.
+  `200 {user,otherSessionsRevoked:true}` and a replacement session. Every
+  linked desktop token is revoked with the old browser sessions.
 - `POST /v1/account/email/change/request` with `{newEmail}` returns `202`.
 - `POST /v1/account/email/change/confirm` with `{token}` returns
   `200 {user,otherSessionsRevoked:true}` and a replacement session.
@@ -142,7 +143,8 @@ of the confirmation endpoint.
 
 `user` is `{id,email,emailVerified,betaAccess}`. Confirming an email change or
 password recovery revokes every older browser session in the same transaction
-that applies the account change.
+that applies the account change. A password reset also revokes every linked
+desktop token in that transaction.
 
 ## Recent authentication and browser sessions
 
@@ -152,7 +154,8 @@ recent-auth window is ten minutes.
 
 - `POST /v1/account/reauthenticate` with `{password}` returns `204`.
 - `GET /v1/account/sessions` returns `{sessions:[Session]}`.
-- `DELETE /v1/account/sessions` returns `204` and revokes every website session.
+- `DELETE /v1/account/sessions` returns `204` and revokes every website session
+  and every linked desktop token.
 - `DELETE /v1/account/sessions/{id}` returns `204`.
 
 `Session` is
@@ -167,8 +170,8 @@ and browser-session revocation. A stale request receives
 original operation once.
 
 `POST /v1/account/password` accepts `{currentPassword,newPassword}`. The new
-password, revocation of every old session, and creation of the replacement
-current session are one database transaction.
+password, revocation of every old session and every linked desktop token, and
+creation of the replacement current session are one database transaction.
 
 ## Passkeys
 
@@ -287,7 +290,10 @@ recorded in the account activity log without the raw ticket or artifact object k
 
 Link states are `none`, `pending`, `connected`, or `expired`. The raw code is
 returned once on creation and is never stored in recoverable form. A connected
-state remains briefly so the website can show a clear success result.
+state remains briefly so the website can show a clear success result. A
+password change, a password reset, and revoking every website session delete
+every linked desktop token in the same transaction. The desktop receives the
+normal authorization failure and must link again.
 
 ## Desktop updates
 
