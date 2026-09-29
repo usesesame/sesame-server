@@ -23,14 +23,14 @@ type supportRequestInput struct {
 }
 
 var (
-	secretAssignmentPattern = regexp.MustCompile(`(?i)(password|passwd|pwd|passphrase|pin|totp|otp|seed|secret|token|api[ _-]?key|backup[ _-]?code|recovery[ _-]?code|private[ _-]?key)\s*[:=：]`)
-	pinNumberPattern        = regexp.MustCompile(`(?i)\bpin\b[ \t]*[:=：]?[ \t]*\d{4,8}\b`)
+	secretAssignmentPattern = regexp.MustCompile(`(?i)\b(password|passwd|pwd|passphrase|pin|totp|otp|seed|secret|token|api[ _-]?key|backup[ _-]?code|recovery[ _-]?code|private[ _-]?key)\s*[:=：]`)
+	pinNumberPattern        = regexp.MustCompile(`(?i)\bpin\b[ \t]*(?:[:=：]|(?:is|was)[ \t]+)?[ \t]*\d{4,8}\b`)
 	longTokenPattern        = regexp.MustCompile(`(?:^|[^[:alnum:]_-])(?:[A-Fa-f0-9]{40,}|[A-Za-z0-9_-]{48,})(?:$|[^[:alnum:]_-])`)
 	diagnosticCodePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	recoveryKitPattern      = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]-])[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}){4}(?:$|[^[:alnum:]-])`)
 	base32SecretPattern     = regexp.MustCompile(`(?:^|[^[:alnum:]])[A-Z2-7]{16,}(?:$|[^[:alnum:]])`)
 	base32DigitPattern      = regexp.MustCompile(`[2-7]`)
-	base64SecretPattern     = regexp.MustCompile(`(?:^|[^A-Za-z0-9+/=])([A-Za-z0-9+/]{31,}={0,2})(?:$|[^A-Za-z0-9+/=])`)
+	base64SecretPattern     = regexp.MustCompile(`(?:^|[^A-Za-z0-9+/=_-])([A-Za-z0-9+/_-]{31,}={0,2})(?:$|[^A-Za-z0-9+/=_-])`)
 	seedPhrasePattern       = regexp.MustCompile(`(?i:\b(?:seed|mnemonic|recovery)\s+(?:phrase|words?)\b)[\s\S]{0,24}?(?:(?:[a-z]{3,8}[ \t]+){11,}[a-z]{3,8}|(?:[A-Z]{3,8}[ \t]+){11,}[A-Z]{3,8})`)
 	secretProsePattern      = regexp.MustCompile(`(?i)\b(?:master\s+)?(?:password|passphrase|recovery\s+kit|recovery\s+code|backup\s+code|totp|otp|2fa\s+code|seed|api\s+key|secret\s+key|private\s+key|access\s+token|session\s+token)s?\s+(?:is|was|are|were)\s+["']?([^\s"']{8,})`)
 )
@@ -206,7 +206,10 @@ func containsSecretShapedText(value string) bool {
 }
 
 func base64ShapedValue(value string) bool {
-	if len(value) < 32 || !strings.ContainsAny(value, "+=") {
+	if len(value) < 32 {
+		return false
+	}
+	if len(value) < 43 && !strings.ContainsAny(value, "+=") {
 		return false
 	}
 	hasDigit, hasUpper, hasLower := false, false, false
