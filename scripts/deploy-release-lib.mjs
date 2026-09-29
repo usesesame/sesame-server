@@ -86,6 +86,17 @@ export function rewriteEnvImages(text, images) {
   return rewritten.join('\n')
 }
 
+export function rehearsalRoleBootstrapSql() {
+  return [
+    `CREATE ROLE sesame_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;`,
+    `CREATE ROLE sesame_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;`,
+    `CREATE ROLE sesame_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;`,
+    `GRANT pg_read_all_data TO sesame_backup;`,
+    `GRANT CREATE, USAGE ON SCHEMA public TO sesame_owner;`,
+    ``,
+  ].join('\n')
+}
+
 // The rehearsal resolves the production API environment through `compose config`.
 // `docker run --env-file` takes literal `NAME=value` lines, so a value that spans
 // lines cannot be represented and must fail loudly instead of being truncated.

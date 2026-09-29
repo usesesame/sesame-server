@@ -263,6 +263,31 @@ docker compose -f deploy/compose/compose.prod.yaml \
   exec -T db pg_dump -U sesame_backup sesame | gzip > sesame-$(date +%F).sql.gz
 ```
 
+A scratch database has only the bootstrap superuser. The dump carries
+`OWNER TO` and grant statements for `sesame_owner`, `sesame_app`, and
+`sesame_backup`, and `pg_dump` does not dump roles, so create them in the
+scratch database before the load:
+
+```bash
+docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame <<'SQL'
+CREATE ROLE sesame_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE sesame_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE sesame_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT pg_read_all_data TO sesame_backup;
+GRANT CREATE, USAGE ON SCHEMA public TO sesame_owner;
+SQL
+```
+
+Then decompress the backup and load it:
+
+```bash
+gunzip -c sesame-<date>.sql.gz \
+  | docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame
+```
+
+Check the schema version and a known account row. Restoring over the live
+database destroys it, so rehearse first.
+
 A lost database loses accounts. A lost `SESAME_ADMIN_ENCRYPTION_KEY` locks
 every administrator out while the database stays perfectly intact, which is
 the harder failure to recover from. Back up `deploy/compose/.env.production`
