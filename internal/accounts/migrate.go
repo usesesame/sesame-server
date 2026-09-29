@@ -14,6 +14,10 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
+const runtimeRoleName = "sesame_app"
+
+const migrationLockID int64 = 0x534553414D45
+
 type migration struct {
 	version string
 	sql     string
@@ -51,15 +55,10 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		return err
 	}
 	defer conn.Close()
-	const migrationLockID int64 = 0x534553414D45
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationLockID); err != nil {
-		return fmt.Errorf("acquire migration lock: %w", err)
+	if err := lockMigration(ctx, conn); err != nil {
+		return err
 	}
-	defer func() {
-		unlockContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, _ = conn.ExecContext(unlockContext, `SELECT pg_advisory_unlock($1)`, migrationLockID)
-	}()
+	defer unlockMigration(conn)
 
 	if _, err := conn.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS sesame_schema_migrations (
@@ -83,6 +82,58 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 		}
 		if err := applyMigration(ctx, conn, m); err != nil {
 			return fmt.Errorf("apply migration %s: %w", m.version, err)
+		}
+	}
+	return nil
+}
+
+func lockMigration(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationLockID); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	return nil
+}
+
+func unlockMigration(conn *sql.Conn) {
+	unlockContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = conn.ExecContext(unlockContext, `SELECT pg_advisory_unlock($1)`, migrationLockID)
+}
+
+func (s *PostgresStore) ReconcileRuntimeRole(ctx context.Context) error {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := lockMigration(ctx, conn); err != nil {
+		return err
+	}
+	defer unlockMigration(conn)
+	return reconcileRuntimeRole(ctx, conn)
+}
+
+func reconcileRuntimeRole(ctx context.Context, conn *sql.Conn) error {
+	var exists bool
+	if err := conn.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1)`, runtimeRoleName).Scan(&exists); err != nil {
+		return fmt.Errorf("check the application role: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	statements := []string{
+		`GRANT USAGE ON SCHEMA public TO ` + runtimeRoleName,
+		`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ` + runtimeRoleName,
+		`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ` + runtimeRoleName,
+		`REVOKE CREATE ON SCHEMA public FROM ` + runtimeRoleName,
+		`REVOKE UPDATE, DELETE, TRUNCATE ON TABLE sesame_admin_audit_log FROM ` + runtimeRoleName,
+		`REVOKE UPDATE, DELETE, TRUNCATE ON TABLE sesame_sync_audit FROM ` + runtimeRoleName,
+		`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ` + runtimeRoleName,
+		`ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ` + runtimeRoleName,
+	}
+	for _, statement := range statements {
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("reconcile the application role: %w", err)
 		}
 	}
 	return nil

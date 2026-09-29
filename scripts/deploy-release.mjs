@@ -86,7 +86,7 @@ async function main(args) {
 }
 
 async function takeStreamingBackup(destination) {
-  const child = spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', 'pg_dump', '-U', 'sesame', 'sesame'], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', 'pg_dump', '-U', 'sesame_backup', 'sesame'], { stdio: ['ignore', 'pipe', 'pipe'] })
   let stderr = ''
   child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-8192) })
   let spawnError = null

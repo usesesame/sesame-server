@@ -568,6 +568,57 @@ test('rollback refuses unknown versions, missing snapshots, and a already-servin
   await assert.rejects(() => rollbackRelease(nothing, inputs), /Nothing is recorded as deployed/)
 })
 
+test('the production stack connects each service through its own database role', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const read = (file) => readFileSync(join(root, 'deploy', 'compose', file), 'utf8')
+  const production = read('compose.prod.yaml')
+  assert.ok(production.includes('DATABASE_URL: postgres://sesame_owner:${SESAME_DATABASE_OWNER_PASSWORD'), 'production migrations do not use the owner role')
+  assert.ok(production.includes('DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD'), 'the production API does not use the application role')
+  assert.ok(production.includes('POSTGRES_PASSWORD: ${SESAME_DATABASE_PASSWORD}'), 'production dropped the bootstrap superuser password')
+  assert.ok(production.includes('./initdb:/docker-entrypoint-initdb.d:ro'), 'production does not mount the role init script')
+  const development = read('compose.yaml')
+  assert.ok(development.includes('DATABASE_URL: postgres://sesame_owner:${SESAME_DATABASE_OWNER_PASSWORD'), 'development migrations do not use the owner role')
+  assert.ok(development.includes('DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD'), 'the development API does not use the application role')
+  const candidate = read('compose.candidate-check.yaml')
+  assert.ok(candidate.includes('postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD'), 'the candidate check does not use the application role')
+  const smoke = read('compose.release-smoke.yaml')
+  assert.ok(smoke.includes('postgres://sesame_owner:sesame-smoke-owner'), 'the smoke migration does not use the owner role')
+  assert.ok(smoke.includes('postgres://sesame_app:sesame-smoke-app'), 'the smoke API does not use the application role')
+  assert.ok(smoke.includes('./initdb:/docker-entrypoint-initdb.d:ro'), 'the smoke database does not mount the role init script')
+})
+
+test('the role init script is idempotent and least privileged', async () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const path = join(root, 'deploy', 'compose', 'initdb', '10-roles.sh')
+  const script = readFileSync(path, 'utf8')
+  assert.ok((await stat(path)).mode & 0o111, 'the role init script must be executable')
+  for (const marker of [
+    'IF NOT EXISTS (SELECT 1 FROM pg_roles',
+    'NOSUPERUSER',
+    'NOCREATEDB',
+    'NOCREATEROLE',
+    'GRANT CREATE, USAGE ON SCHEMA public TO sesame_owner',
+    'GRANT pg_read_all_data TO sesame_backup',
+    'ALTER FUNCTION %s OWNER TO sesame_owner',
+  ]) {
+    assert.ok(script.includes(marker), `the role init script is missing "${marker}"`)
+  }
+  assert.ok(!/PASSWORD\s*'/.test(script), 'the role init script must not hardcode a password')
+})
+
+test('the deploy tool dumps through the backup role', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const source = readFileSync(join(root, 'scripts', 'deploy-release.mjs'), 'utf8')
+  assert.ok(source.includes(`'pg_dump', '-U', 'sesame_backup'`), 'the deploy tool does not dump through the backup role')
+  assert.ok(!source.includes(`'pg_dump', '-U', 'sesame'`), 'the deploy tool still dumps through the bootstrap role')
+})
+
+test('the migration entrypoint reconciles the application role', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const source = readFileSync(join(root, 'cmd', 'migrate', 'main.go'), 'utf8')
+  assert.ok(source.includes('ReconcileRuntimeRole'), 'the migrate job does not apply the application role privileges')
+})
+
 test('the compose stack creates its own secrets before it starts', () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..')
   const scripts = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts ?? {}

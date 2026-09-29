@@ -54,6 +54,9 @@ const secret = () => randomBytes(32).toString('base64url')
 const capabilitySigningKey = value('SESAME_CAPABILITY_SIGNING_KEY', secret)
 const settings = new Map([
   ['SESAME_DATABASE_PASSWORD', value('SESAME_DATABASE_PASSWORD', secret)],
+  ['SESAME_DATABASE_OWNER_PASSWORD', value('SESAME_DATABASE_OWNER_PASSWORD', secret)],
+  ['SESAME_DATABASE_APP_PASSWORD', value('SESAME_DATABASE_APP_PASSWORD', secret)],
+  ['SESAME_DATABASE_BACKUP_PASSWORD', value('SESAME_DATABASE_BACKUP_PASSWORD', secret)],
   ['SESAME_CAPABILITY_SIGNING_KEY', capabilitySigningKey],
   ['SESAME_ADMIN_ENCRYPTION_KEY', value('SESAME_ADMIN_ENCRYPTION_KEY', secret)],
   ['SESAME_ADMIN_IP_PEPPER', value('SESAME_ADMIN_IP_PEPPER', secret)],
@@ -82,6 +85,12 @@ console.log(`Wrote ${toComposePath(envPath)}`)
 console.log(created.length > 0
   ? `Generated ${created.length} new local secret(s): ${created.join(', ')}`
   : 'Kept every existing secret. Rotating the admin key would lock out existing administrators.')
+console.log('')
+console.log('Database connections:')
+console.log('  SESAME_DATABASE_PASSWORD is the bootstrap superuser, used only to create the roles.')
+console.log('  migrate service connects as sesame_owner (schema changes) through DATABASE_URL.')
+console.log('  api service connects as sesame_app (data only) through DATABASE_URL.')
+console.log('  pg_dump connects as sesame_backup (read-only).')
 console.log('')
 console.log('Next:')
 console.log('  1. docker compose -f deploy/compose/compose.yaml up --build')

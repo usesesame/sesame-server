@@ -4,6 +4,9 @@ import { digestReference } from './release-contract.mjs'
 const digest = `sha256:${'0'.repeat(64)}`
 const common = {
   SESAME_DATABASE_PASSWORD: 'sesame-config-only',
+  SESAME_DATABASE_OWNER_PASSWORD: 'sesame-config-owner',
+  SESAME_DATABASE_APP_PASSWORD: 'sesame-config-app',
+  SESAME_DATABASE_BACKUP_PASSWORD: 'sesame-config-backup',
   SESAME_CAPABILITY_SIGNING_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   SESAME_CAPABILITY_PUBLIC_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   SESAME_ADMIN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -60,6 +63,34 @@ digestReference(candidate.services['candidate-api']?.image, 'Candidate check')
 if (candidate.services['candidate-api']?.build) throw new Error('The candidate check must not contain a build context.')
 if (candidate.networks?.default?.name !== 'sesame-prod_default' || candidate.networks?.default?.external !== true) {
   throw new Error('The candidate check must join the production network as an external network.')
+}
+
+const ownerDatabaseURL = `postgres://sesame_owner:${common.SESAME_DATABASE_OWNER_PASSWORD}@db:5432/sesame?sslmode=disable`
+const applicationDatabaseURL = `postgres://sesame_app:${common.SESAME_DATABASE_APP_PASSWORD}@db:5432/sesame?sslmode=disable`
+assertDatabaseRoles(development, 'Development', 'api')
+assertDatabaseRoles(production, 'Production', 'api')
+if (candidate.services['candidate-api']?.environment?.DATABASE_URL !== applicationDatabaseURL) {
+  throw new Error('The candidate check must connect through the application role.')
+}
+
+function assertDatabaseRoles(stack, label, apiService) {
+  const databaseEnvironment = stack.services.db?.environment ?? {}
+  if (databaseEnvironment.POSTGRES_USER !== 'sesame' || databaseEnvironment.POSTGRES_PASSWORD !== common.SESAME_DATABASE_PASSWORD) {
+    throw new Error(`${label} PostgreSQL must keep the bootstrap superuser for role creation.`)
+  }
+  for (const name of ['SESAME_DATABASE_OWNER_PASSWORD', 'SESAME_DATABASE_APP_PASSWORD', 'SESAME_DATABASE_BACKUP_PASSWORD']) {
+    if (!databaseEnvironment[name]) throw new Error(`${label} PostgreSQL must receive ${name} to create the roles.`)
+  }
+  const initMounts = (stack.services.db?.volumes ?? []).filter((volume) => volume.target === '/docker-entrypoint-initdb.d')
+  if (initMounts.length !== 1 || initMounts[0].type !== 'bind' || initMounts[0].read_only !== true) {
+    throw new Error(`${label} PostgreSQL must mount the role init script read-only.`)
+  }
+  if (stack.services.migrate?.environment?.DATABASE_URL !== ownerDatabaseURL) {
+    throw new Error(`${label} migrations must connect through the owner role.`)
+  }
+  if (stack.services[apiService]?.environment?.DATABASE_URL !== applicationDatabaseURL) {
+    throw new Error(`${label} API must connect through the application role.`)
+  }
 }
 
 function check(files, values) {
