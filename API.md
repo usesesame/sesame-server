@@ -121,7 +121,11 @@ body.
   to the durable outbox; it does not mean the message has been accepted by the
   upstream SMTP relay yet.
 - `POST /v1/auth/email/verification/request` with no body returns `202`.
-- `POST /v1/auth/email/verification/confirm` with `{token}` returns `200 {user}`.
+- `POST /v1/auth/email/verification/confirm` with `{token}` returns
+  `200 {user}` and a replacement browser session. Verification revokes every
+  browser session, passkey, and desktop connection created while the account was
+  unverified, and cancels its pending desktop-link codes, in the same transaction
+  that marks the address verified.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
   malformed, and known emails receive the same response shape.
 - `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` returns
@@ -142,13 +146,17 @@ of the confirmation endpoint.
 
 `user` is `{id,email,emailVerified,betaAccess}`. Confirming an email change or
 password recovery revokes every older browser session in the same transaction
-that applies the account change.
+that applies the account change. Recovery also revokes every passkey, desktop
+connection, and pending desktop-link code that predates the account's
+verification; on an account that is still unverified, that is all of them.
+Credentials an attacker attached to an unverified account do not survive
+verification or recovery.
 
 ## Recent authentication and browser sessions
 
-Password login, passkey login, registration, recovery completion, and email
-change completion mark a browser session as recently authenticated. The default
-recent-auth window is ten minutes.
+Password login, passkey login, registration, verification completion, recovery
+completion, and email change completion mark a browser session as recently
+authenticated. The default recent-auth window is ten minutes.
 
 - `POST /v1/account/reauthenticate` with `{password}` returns `204`.
 - `GET /v1/account/sessions` returns `{sessions:[Session]}`.

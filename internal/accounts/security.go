@@ -27,7 +27,7 @@ type AccountSecurityStore interface {
 	RevokeAllSessions(context.Context, string) error
 	ChangePasswordAndRotateSession(context.Context, PasswordRotation) error
 	CreateEmailVerification(context.Context, string, []byte, time.Time) error
-	VerifyEmail(context.Context, []byte, time.Time) (User, error)
+	VerifyEmail(context.Context, TokenSessionRotation) (User, error)
 	CreatePasswordRecovery(context.Context, string, []byte, time.Time) (User, bool, error)
 	ResetPasswordAndRotateSession(context.Context, TokenPasswordRotation) (User, error)
 	CreateEmailChange(context.Context, string, string, []byte, time.Time) error
@@ -381,23 +381,29 @@ func (s *PostgresStore) CreateEmailVerification(ctx context.Context, accountID s
 	return s.replaceAccountToken(ctx, accountID, TokenVerifyEmail, "", tokenHash, expiresAt)
 }
 
-func (s *PostgresStore) VerifyEmail(ctx context.Context, tokenHash []byte, now time.Time) (User, error) {
+func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotation) (User, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return User{}, err
 	}
 	defer tx.Rollback()
-	accountID, _, err := consumeAccountToken(ctx, tx, tokenHash, TokenVerifyEmail, now)
+	accountID, _, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenVerifyEmail, input.AuthenticatedAt)
 	if err != nil {
 		return User{}, err
 	}
 	var user User
 	err = tx.QueryRowContext(ctx, `
-		UPDATE sesame_accounts SET email_verified_at = COALESCE(email_verified_at, $2)
+		UPDATE sesame_accounts SET email_verified_at = COALESCE(email_verified_at, NOW())
 		WHERE id = $1
 		RETURNING id, email, TRUE, beta_access
-	`, accountID, now).Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess)
+	`, accountID).Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess)
 	if err != nil {
+		return User{}, err
+	}
+	if err := revokePreVerificationCredentials(ctx, tx, accountID); err != nil {
+		return User{}, err
+	}
+	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
 		return User{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -439,7 +445,7 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	if err := affectedOrNotFound(result); err != nil {
 		return User{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
+	if err := revokePreVerificationCredentials(ctx, tx, accountID); err != nil {
 		return User{}, err
 	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
@@ -453,6 +459,32 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 		return User{}, err
 	}
 	return user, nil
+}
+
+func revokePreVerificationCredentials(ctx context.Context, tx *sql.Tx, accountID string) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM sesame_webauthn_credentials
+		WHERE account_id = $1 AND created_at < COALESCE((SELECT email_verified_at FROM sesame_accounts WHERE id = $1), NOW())
+	`, accountID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM sesame_desktop_connections
+		WHERE account_id = $1 AND created_at < COALESCE((SELECT email_verified_at FROM sesame_accounts WHERE id = $1), NOW())
+	`, accountID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE sesame_desktop_link_codes SET cancelled_at = NOW()
+		WHERE account_id = $1 AND used_at IS NULL AND cancelled_at IS NULL
+			AND created_at < COALESCE((SELECT email_verified_at FROM sesame_accounts WHERE id = $1), NOW())
+	`, accountID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *PostgresStore) CreateEmailChange(ctx context.Context, accountID, newEmail string, tokenHash []byte, expiresAt time.Time) error {
