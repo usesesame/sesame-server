@@ -150,7 +150,9 @@ that applies the account change. Recovery also revokes every passkey, desktop
 connection, and pending desktop-link code that predates the account's
 verification; on an account that is still unverified, that is all of them.
 Credentials an attacker attached to an unverified account do not survive
-verification or recovery.
+verification or recovery. Verification keeps the password set at registration,
+so the address owner who did not start that registration should recover the
+account instead of verifying it.
 
 ## Recent authentication and browser sessions
 

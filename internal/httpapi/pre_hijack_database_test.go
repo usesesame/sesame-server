@@ -487,3 +487,46 @@ func TestVerifiedAccountKeepsPasskeyRegisteredAfterVerification(t *testing.T) {
 		t.Fatalf("passkeys after recovery = %d, want the account's own post-verification passkey", count)
 	}
 }
+
+func TestEmailChangeThenRecoveryKeepsVerifiedCredentials(t *testing.T) {
+	env := newPreHijackEnv(t)
+	originalEmail := env.uniqueEmail("before-change")
+	changedEmail := env.uniqueEmail("after-change")
+	client := newPreHijackClient(t, env)
+	accountID, _ := env.registerAccount(t, client, originalEmail)
+	verified := client.request(http.MethodPost, "/v1/auth/email/verification/confirm", map[string]any{"token": env.emails.token(t, "verify-email", originalEmail)})
+	if verified.Code != http.StatusOK {
+		t.Fatalf("verification status = %d: %s", verified.Code, verified.Body.String())
+	}
+	env.registerPasskey(t, client, accountID)
+	desktopToken := env.seedDesktopConnection(t, accountID)
+
+	requested := client.request(http.MethodPost, "/v1/account/email/change/request", map[string]any{"newEmail": changedEmail})
+	if requested.Code != http.StatusAccepted {
+		t.Fatalf("email change request status = %d: %s", requested.Code, requested.Body.String())
+	}
+	changed := client.request(http.MethodPost, "/v1/account/email/change/confirm", map[string]any{"token": env.emails.token(t, "change-email", changedEmail)})
+	if changed.Code != http.StatusOK {
+		t.Fatalf("email change status = %d: %s", changed.Code, changed.Body.String())
+	}
+
+	recoveryRequested := client.request(http.MethodPost, "/v1/auth/password/recovery/request", map[string]any{"email": changedEmail})
+	if recoveryRequested.Code != http.StatusAccepted {
+		t.Fatalf("recovery request status = %d: %s", recoveryRequested.Code, recoveryRequested.Body.String())
+	}
+	recovered := client.request(http.MethodPost, "/v1/auth/password/recovery/confirm", map[string]any{
+		"token": env.emails.token(t, "recover-password", changedEmail), "newPassword": "fictional-changed-password",
+	})
+	if recovered.Code != http.StatusOK {
+		t.Fatalf("recovery status = %d: %s", recovered.Code, recovered.Body.String())
+	}
+	if count := env.countRows(t, `SELECT COUNT(*) FROM sesame_webauthn_credentials WHERE account_id = $1`, accountID); count != 1 {
+		t.Fatalf("passkeys after email change and recovery = %d, want the verified account's passkey", count)
+	}
+	if count := env.countRows(t, `SELECT COUNT(*) FROM sesame_desktop_connections WHERE account_id = $1`, accountID); count != 1 {
+		t.Fatalf("desktop connections after email change and recovery = %d, want the verified account's connection", count)
+	}
+	if status := client.desktopRequest(http.MethodGet, "/v1/desktop/status", desktopToken, nil); status.Code != http.StatusOK {
+		t.Fatalf("desktop status after email change and recovery = %d: %s", status.Code, status.Body.String())
+	}
+}

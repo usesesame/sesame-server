@@ -391,6 +391,10 @@ func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotat
 	if err != nil {
 		return User{}, err
 	}
+	var wasVerified bool
+	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1`, accountID).Scan(&wasVerified); err != nil {
+		return User{}, err
+	}
 	var user User
 	err = tx.QueryRowContext(ctx, `
 		UPDATE sesame_accounts SET email_verified_at = COALESCE(email_verified_at, NOW())
@@ -400,7 +404,7 @@ func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotat
 	if err != nil {
 		return User{}, err
 	}
-	if err := revokePreVerificationCredentials(ctx, tx, accountID); err != nil {
+	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
 		return User{}, err
 	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
@@ -438,6 +442,10 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	if err != nil {
 		return User{}, err
 	}
+	var wasVerified bool
+	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1`, accountID).Scan(&wasVerified); err != nil {
+		return User{}, err
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE sesame_accounts SET password_hash = $2 WHERE id = $1 AND suspended_at IS NULL`, accountID, input.PasswordHash)
 	if err != nil {
 		return User{}, err
@@ -445,7 +453,7 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	if err := affectedOrNotFound(result); err != nil {
 		return User{}, err
 	}
-	if err := revokePreVerificationCredentials(ctx, tx, accountID); err != nil {
+	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
 		return User{}, err
 	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
@@ -461,9 +469,12 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	return user, nil
 }
 
-func revokePreVerificationCredentials(ctx context.Context, tx *sql.Tx, accountID string) error {
+func revokePreVerificationCredentials(ctx context.Context, tx *sql.Tx, accountID string, accountWasVerified bool) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
 		return err
+	}
+	if accountWasVerified {
+		return nil
 	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM sesame_webauthn_credentials
