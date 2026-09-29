@@ -3,6 +3,7 @@ package notifications
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -30,10 +31,10 @@ func (s *recordingSender) sent() []httpapi.AccountEmail {
 }
 
 func TestWorkerDeliversClaimedMessages(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, sealer, db := testOutbox(t)
 	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
 	sender := &recordingSender{}
-	NewWorker(outbox, sender).DeliverAllOnce(context.Background())
+	NewWorker(outbox, sender, sealer).DeliverAllOnce(context.Background())
 
 	sent := sender.sent()
 	if len(sent) != 1 {
@@ -53,10 +54,10 @@ func TestWorkerDeliversClaimedMessages(t *testing.T) {
 }
 
 func TestWorkerReturnsAFailedDeliveryToRetry(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, sealer, db := testOutbox(t)
 	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
 	sender := &recordingSender{err: errors.New("smtp unavailable")}
-	NewWorker(outbox, sender).DeliverAllOnce(context.Background())
+	NewWorker(outbox, sender, sealer).DeliverAllOnce(context.Background())
 
 	if len(sender.sent()) != 1 {
 		t.Fatalf("sender received %d messages, want 1", len(sender.sent()))
@@ -71,12 +72,42 @@ func TestWorkerReturnsAFailedDeliveryToRetry(t *testing.T) {
 }
 
 func TestWorkerWithoutASenderFailsDelivery(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, sealer, db := testOutbox(t)
 	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
-	NewWorker(outbox, nil).DeliverAllOnce(context.Background())
+	NewWorker(outbox, nil, sealer).DeliverAllOnce(context.Background())
 
 	state := readOutboxRow(t, db, id)
 	if state.status != "pending" || state.attempts != 1 || state.errorMessage.String != "no email sender configured" {
 		t.Fatalf("row without a sender = %+v", state)
+	}
+}
+
+func TestWorkerFailsClosedWithAWrongKey(t *testing.T) {
+	outbox, _, db := testOutbox(t)
+	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
+	sender := &recordingSender{}
+	NewWorker(outbox, sender, otherActionURLSealer(t)).DeliverAllOnce(context.Background())
+
+	if sent := sender.sent(); len(sent) != 0 {
+		t.Fatalf("sender received %d messages with a wrong key, want none: %+v", len(sent), sent)
+	}
+	state := readOutboxRow(t, db, id)
+	if state.status != "pending" || state.attempts != 1 || !strings.Contains(state.errorMessage.String, "action URL") {
+		t.Fatalf("row after a wrong key = %+v, want pending with an action URL error", state)
+	}
+}
+
+func TestWorkerFailsClosedWithoutActionURLEncryption(t *testing.T) {
+	outbox, _, db := testOutbox(t)
+	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
+	sender := &recordingSender{}
+	NewWorker(outbox, sender, nil).DeliverAllOnce(context.Background())
+
+	if sent := sender.sent(); len(sent) != 0 {
+		t.Fatalf("sender received %d messages without a key, want none: %+v", len(sent), sent)
+	}
+	state := readOutboxRow(t, db, id)
+	if state.status != "pending" || state.attempts != 1 || state.errorMessage.String != "no action URL encryption configured" {
+		t.Fatalf("row without action URL encryption = %+v", state)
 	}
 }

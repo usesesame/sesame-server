@@ -42,17 +42,22 @@ func TestWorkerRunStopsBeforeThePoolCloses(t *testing.T) {
 	if _, err := db.ExecContext(context.Background(), `TRUNCATE sesame_email_outbox`); err != nil {
 		t.Fatalf("clear outbox: %v", err)
 	}
+	sealer := testActionURLSealer(t)
+	sealedActionURL, err := sealer.Seal("https://account.test.invalid/verify")
+	if err != nil {
+		t.Fatalf("seal action URL: %v", err)
+	}
 	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO sesame_email_outbox (kind, to_email, action_url, expires_at, subject, body)
-		VALUES ('verify-email', 'worker@example.invalid', 'https://account.test.invalid/verify',
-		        now() + interval '1 hour', 'Verify your email', 'Body')`); err != nil {
+		VALUES ('verify-email', 'worker@example.invalid', $1,
+		        now() + interval '1 hour', 'Verify your email', 'Body')`, sealedActionURL); err != nil {
 		t.Fatalf("queue outbox message: %v", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sender := &blockingDeliverySender{started: make(chan struct{}, 1)}
-	worker := NewWorker(NewPostgresOutbox(db), sender)
+	worker := NewWorker(NewPostgresOutbox(db, sealer), sender, sealer)
 	done := runWorker(t, worker, ctx)
 
 	select {
