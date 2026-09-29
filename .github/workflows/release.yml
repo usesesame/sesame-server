@@ -93,6 +93,10 @@ jobs:
     outputs:
       version: ${{ needs.verify.outputs.version }}
       commit: ${{ needs.verify.outputs.commit }}
+      images_sha256: ${{ steps.digests.outputs.images_sha256 }}
+      api_sbom_sha256: ${{ steps.digests.outputs.api_sbom_sha256 }}
+      account_sbom_sha256: ${{ steps.digests.outputs.account_sbom_sha256 }}
+      admin_sbom_sha256: ${{ steps.digests.outputs.admin_sbom_sha256 }}
     env:
       SESAME_RELEASE_VERSION: ${{ needs.verify.outputs.version }}
       SESAME_RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
@@ -139,6 +143,20 @@ jobs:
 
       - run: docker save --output release-images.tar "$SESAME_API_IMAGE" "$SESAME_ACCOUNT_IMAGE" "$SESAME_ADMIN_IMAGE"
 
+      - id: digests
+        name: Record the release artifact digests
+        run: |
+          set -euo pipefail
+          record() {
+            local name="$1" file="$2" digest
+            digest=$(sha256sum -- "$file" | cut -d ' ' -f 1)
+            printf '%s=%s\n' "$name" "$digest" >> "$GITHUB_OUTPUT"
+          }
+          record images_sha256 release-images.tar
+          record api_sbom_sha256 api.spdx.json
+          record account_sbom_sha256 account.spdx.json
+          record admin_sbom_sha256 admin.spdx.json
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: release-images-${{ needs.verify.outputs.version }}
@@ -180,6 +198,31 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
         with:
           name: release-images-${{ needs.images.outputs.version }}
+
+      - name: Verify the release artifact digests
+        env:
+          EXPECTED_IMAGES_SHA256: ${{ needs.images.outputs.images_sha256 }}
+          EXPECTED_API_SBOM_SHA256: ${{ needs.images.outputs.api_sbom_sha256 }}
+          EXPECTED_ACCOUNT_SBOM_SHA256: ${{ needs.images.outputs.account_sbom_sha256 }}
+          EXPECTED_ADMIN_SBOM_SHA256: ${{ needs.images.outputs.admin_sbom_sha256 }}
+        run: |
+          set -euo pipefail
+          verify() {
+            local file="$1" expected="$2" actual
+            if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "release digest for $file is malformed: expected 64 lowercase hex characters" >&2
+              exit 1
+            fi
+            actual=$(sha256sum -- "$file" | cut -d ' ' -f 1)
+            if [[ "$actual" != "$expected" ]]; then
+              echo "release digest mismatch for $file: expected $expected, got $actual" >&2
+              exit 1
+            fi
+          }
+          verify release-images.tar "$EXPECTED_IMAGES_SHA256"
+          verify api.spdx.json "$EXPECTED_API_SBOM_SHA256"
+          verify account.spdx.json "$EXPECTED_ACCOUNT_SBOM_SHA256"
+          verify admin.spdx.json "$EXPECTED_ADMIN_SBOM_SHA256"
 
       - run: docker load --input release-images.tar
 

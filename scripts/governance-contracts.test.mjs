@@ -63,6 +63,17 @@ test('a workflow that writes says so at the job that writes', () => {
     /^\s+[a-z][a-z0-9-]*:\s*write\s*$/m,
     'the verify job must not hold a write permission',
   )
+  const imagesJob = jobBlock(release, 'images')
+  assert.doesNotMatch(
+    imagesJob,
+    /^\s+id-token:/m,
+    'the images job builds images and must not mint an OIDC token',
+  )
+  assert.doesNotMatch(
+    imagesJob,
+    /^\s+[a-z][a-z0-9-]*:\s*write\s*$/m,
+    'the images job must not hold a write permission',
+  )
   const publishJob = jobBlock(release, 'publish')
   assert.match(
     publishJob,
@@ -73,6 +84,48 @@ test('a workflow that writes says so at the job that writes', () => {
     publishJob,
     /^\s+id-token:\s*write\s*$/m,
     'the publish job signs and attests keylessly and needs an OIDC token',
+  )
+  assert.doesNotMatch(
+    publishJob,
+    /\bnpm ci\b/,
+    'the publish job publishes prebuilt artifacts and must not install dependencies',
+  )
+  assert.doesNotMatch(
+    publishJob,
+    /\bgo\b/,
+    'the publish job publishes prebuilt artifacts and must not run the Go toolchain',
+  )
+  assert.doesNotMatch(
+    publishJob,
+    /\bdocker build\b/,
+    'the publish job publishes prebuilt artifacts and must not build images',
+  )
+})
+
+test('the publish job verifies the artifact digests the images job records', () => {
+  const release = read('.github', 'workflows', 'release.yml')
+  const imagesJob = jobBlock(release, 'images')
+  const publishJob = jobBlock(release, 'publish')
+  for (const output of ['images_sha256', 'api_sbom_sha256', 'account_sbom_sha256', 'admin_sbom_sha256']) {
+    assert.match(
+      imagesJob,
+      new RegExp(`^\\s+${output}:\\s*\\$\\{\\{ steps\\.[a-z0-9_-]+\\.outputs\\.${output} \\}\\}\\s*$`, 'm'),
+      `the images job does not expose ${output}`,
+    )
+    assert.ok(
+      publishJob.includes(`needs.images.outputs.${output}`),
+      `the publish job does not read ${output} from the images job`,
+    )
+  }
+  const hashed = publishJob.indexOf('sha256sum')
+  assert.ok(hashed > 0, 'the publish job does not hash the downloaded artifacts')
+  assert.ok(
+    publishJob.indexOf('docker load') > hashed,
+    'the publish job loads the artifacts before it verifies their digests',
+  )
+  assert.ok(
+    publishJob.indexOf('docker push') > hashed,
+    'the publish job pushes artifacts before it verifies their digests',
   )
 })
 
