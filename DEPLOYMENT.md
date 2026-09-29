@@ -235,7 +235,9 @@ State and backups live under `deploy/state/`, which is gitignored:
 `.env.production` at mode 0600 and never prints it. It records the image
 references it needs for rollback in `deployed.json` and writes no copy of the
 env file, so the deploy state holds no secrets. The encrypted files in
-`backups/` are the only database copies the host keeps.
+`backups/` are the only database copies the host keeps. If an earlier
+checkout left plaintext env copies under `deploy/state/history/`, delete that
+directory; nothing reads it, and it holds every secret from that deployment.
 
 ## Backups
 
