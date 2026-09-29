@@ -347,7 +347,7 @@ func (a *api) confirmEmailChange(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusServiceUnavailable, "email_change_unavailable", "Changing your email is temporarily unavailable.")
 		return
 	}
-	user, err := store.ConfirmEmailChangeAndRotateSession(request.Context(), accounts.TokenSessionRotation{
+	result, err := store.ConfirmEmailChangeAndRotateSession(request.Context(), accounts.TokenSessionRotation{
 		TokenHash: accounts.HashSessionToken(input.Token), SessionTokenHash: sessionHash,
 		SessionExpiresAt: now.Add(a.config.SessionDuration), SessionLabel: browserLabel(request), AuthenticatedAt: now,
 	})
@@ -364,9 +364,12 @@ func (a *api) confirmEmailChange(response http.ResponseWriter, request *http.Req
 		return
 	}
 	a.setSessionCookie(response, token)
-	a.recordAccountEvent(request.Context(), user.ID, "email_changed", "Sesame account", nil)
-	a.sendSecurityNotification(request.Context(), user, "security-email-changed", "Your Sesame account email changed", "The email address for your Sesame website account was changed. Other website sessions were revoked.")
-	writeJSON(response, http.StatusOK, map[string]any{"user": user, "otherSessionsRevoked": true})
+	a.recordAccountEvent(request.Context(), result.User.ID, "email_changed", "Sesame account", nil)
+	a.sendSecurityNotification(request.Context(), result.User, "security-email-changed", "Your Sesame account email changed", "The email address for your Sesame website account was changed. Other website sessions were revoked.")
+	if result.PreviousEmail != "" && result.PreviousEmail != result.User.Email {
+		a.sendSecurityEmail(request.Context(), result.PreviousEmail, "security-email-changed", "Your Sesame account email changed", "The email address for your Sesame website account was changed away from this address. Other website sessions were revoked. If you did not make this change, contact support.")
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"user": result.User, "otherSessionsRevoked": true})
 }
 
 func (a *api) listAccountSessions(response http.ResponseWriter, request *http.Request) {
