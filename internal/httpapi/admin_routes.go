@@ -92,7 +92,7 @@ func (a *api) adminUserDelete(response http.ResponseWriter, request *http.Reques
 		a.notFound(response, request)
 		return
 	}
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersDelete)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersDelete)
 	if !ok {
 		return
 	}
@@ -208,7 +208,7 @@ func (a *api) adminFlags(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionFlagsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionFlagsManage)
 	if !ok {
 		return
 	}
@@ -331,7 +331,7 @@ func (a *api) adminReleases(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) adminReleasePublish(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
