@@ -9,10 +9,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -381,10 +384,9 @@ func TestAuditChainRejectsTruncate(t *testing.T) {
 	}
 }
 
-func TestAuditChainDeniesTheApplicationRoleHeadWrites(t *testing.T) {
-	_, db, _ := newAuditChainTest(t)
-	ctx := context.Background()
-	if _, err := db.ExecContext(ctx, `
+func ensureApplicationRole(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.ExecContext(context.Background(), `
 		DO $$
 		BEGIN
 			CREATE ROLE sesame_app NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
@@ -393,17 +395,29 @@ func TestAuditChainDeniesTheApplicationRoleHeadWrites(t *testing.T) {
 		END $$`); err != nil {
 		t.Fatalf("ensure the application role: %v", err)
 	}
+}
+
+func grantApplicationAuditAccess(t *testing.T, db *sql.DB) {
+	t.Helper()
 	for _, statement := range []string{
 		`GRANT USAGE ON SCHEMA public TO sesame_app`,
+		`GRANT SELECT ON sesame_admin_audit_chain_head TO sesame_app`,
 		`GRANT SELECT, INSERT ON sesame_admin_audit_log TO sesame_app`,
 		`GRANT SELECT, INSERT ON sesame_admin_audit_checkpoints TO sesame_app`,
 		`GRANT USAGE, SELECT ON SEQUENCE sesame_admin_audit_log_id_seq TO sesame_app`,
 		`GRANT USAGE, SELECT ON SEQUENCE sesame_admin_audit_checkpoints_id_seq TO sesame_app`,
 	} {
-		if _, err := db.ExecContext(ctx, statement); err != nil {
+		if _, err := db.ExecContext(context.Background(), statement); err != nil {
 			t.Fatalf("%s: %v", statement, err)
 		}
 	}
+}
+
+func applicationRoleConnection(t *testing.T, db *sql.DB) *sql.Conn {
+	t.Helper()
+	ensureApplicationRole(t, db)
+	grantApplicationAuditAccess(t, db)
+	ctx := context.Background()
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		t.Fatalf("reserve an application connection: %v", err)
@@ -415,19 +429,76 @@ func TestAuditChainDeniesTheApplicationRoleHeadWrites(t *testing.T) {
 	if _, err := conn.ExecContext(ctx, `SET ROLE sesame_app`); err != nil {
 		t.Fatalf("assume the application role: %v", err)
 	}
+	return conn
+}
+
+func databaseURLWithName(t *testing.T, databaseURL, databaseName string) string {
+	t.Helper()
+	parsed, err := url.Parse(databaseURL)
+	if err != nil {
+		t.Fatalf("parse the test database URL: %v", err)
+	}
+	if parsed.Scheme != "postgres" && parsed.Scheme != "postgresql" {
+		t.Fatal("the test database URL must use the postgres:// form")
+	}
+	parsed.Path = "/" + databaseName
+	return parsed.String()
+}
+
+func TestAuditChainDeniesTheApplicationRoleHeadWrites(t *testing.T) {
+	ctx := context.Background()
+	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("SESAME_TEST_DATABASE_URL is required")
+	}
+	accountStore, err := accounts.OpenWithoutMigrate(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("open the test database: %v", err)
+	}
+	t.Cleanup(func() { _ = accountStore.Close() })
+	ensureApplicationRole(t, accountStore.DB())
+
+	databaseName := fmt.Sprintf("sesame_audit_chain_%d_%d", os.Getpid(), time.Now().UnixNano())
+	if _, err := accountStore.DB().ExecContext(ctx, `CREATE DATABASE `+databaseName); err != nil {
+		t.Fatalf("create a fresh audit chain test database: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupContext := context.Background()
+		_, _ = accountStore.DB().ExecContext(cleanupContext, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`, databaseName)
+		if _, err := accountStore.DB().ExecContext(cleanupContext, `DROP DATABASE IF EXISTS `+databaseName); err != nil {
+			t.Errorf("drop the fresh audit chain test database: %v", err)
+		}
+	})
+	freshStore, err := accounts.OpenWithoutMigrate(ctx, databaseURLWithName(t, databaseURL, databaseName))
+	if err != nil {
+		t.Fatalf("open the fresh audit chain test database: %v", err)
+	}
+	t.Cleanup(func() { _ = freshStore.Close() })
+	if _, err := freshStore.DB().ExecContext(ctx, `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT UPDATE, DELETE, TRUNCATE ON TABLES TO sesame_app`); err != nil {
+		t.Fatalf("grant the pre-revoke default privileges: %v", err)
+	}
+	if err := freshStore.Migrate(ctx); err != nil {
+		t.Fatalf("migrate the fresh audit chain test database: %v", err)
+	}
+	if _, err := freshStore.DB().ExecContext(ctx, `REVOKE UPDATE, DELETE, TRUNCATE ON TABLE sesame_admin_audit_log FROM sesame_app`); err != nil {
+		t.Fatalf("revoke the default-granted audit log privileges: %v", err)
+	}
+	grantApplicationAuditAccess(t, freshStore.DB())
+
+	conn := applicationRoleConnection(t, freshStore.DB())
 	if _, err := conn.ExecContext(ctx, `
 		INSERT INTO sesame_admin_audit_log (admin_email, action, target_type, detail)
 		VALUES ('app-role@example.invalid', 'app.append', 'test', '{"fictional": true}'::jsonb)`); err != nil {
 		t.Fatalf("the application role must append audit rows: %v", err)
 	}
 	var headSeq int64
-	if err := db.QueryRowContext(ctx, `SELECT head_seq FROM sesame_admin_audit_chain_head WHERE singleton`).Scan(&headSeq); err != nil {
+	if err := freshStore.DB().QueryRowContext(ctx, `SELECT head_seq FROM public.sesame_admin_audit_chain_head WHERE singleton`).Scan(&headSeq); err != nil {
 		t.Fatalf("read the audit chain head: %v", err)
 	}
 	if headSeq != 1 {
 		t.Fatalf("head sequence = %d, want 1 after the application insert", headSeq)
 	}
-	report, err := VerifyAuditChain(ctx, db)
+	report, err := VerifyAuditChain(ctx, freshStore.DB())
 	if err != nil {
 		t.Fatalf("verify audit chain: %v", err)
 	}
@@ -444,6 +515,99 @@ func TestAuditChainDeniesTheApplicationRoleHeadWrites(t *testing.T) {
 			t.Fatalf("the application role ran %q", statement)
 		} else if !insufficientPrivilege(err) {
 			t.Fatalf("%q failed without a privilege error: %v", statement, err)
+		}
+	}
+	var headRows int64
+	var heldSeq int64
+	if err := freshStore.DB().QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MAX(head_seq), -1) FROM public.sesame_admin_audit_chain_head`).Scan(&headRows, &heldSeq); err != nil {
+		t.Fatalf("read the audit chain head after the denied writes: %v", err)
+	}
+	if headRows != 1 || heldSeq != 1 {
+		t.Fatalf("chain head rows = %d sequence = %d, want a single row at sequence 1", headRows, heldSeq)
+	}
+}
+
+func TestAuditChainIgnoresATemporaryTableShadowingTheHead(t *testing.T) {
+	_, db, _ := newAuditChainTest(t)
+	ctx := context.Background()
+	conn := applicationRoleConnection(t, db)
+	if _, err := conn.ExecContext(ctx, `
+		CREATE TEMP TABLE sesame_admin_audit_chain_head (
+			singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+			head_seq BIGINT NOT NULL,
+			head_hash BYTEA NOT NULL
+		)`); err != nil {
+		t.Fatalf("create the shadowing temporary table: %v", err)
+	}
+	if _, err := conn.ExecContext(ctx, `
+		INSERT INTO sesame_admin_audit_log (admin_email, action, target_type, detail)
+		VALUES ('app-role@example.invalid', 'app.shadow', 'test', '{"fictional": true}'::jsonb)`); err != nil {
+		t.Fatalf("the application role must append audit rows: %v", err)
+	}
+	var shadowRows int64
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM pg_temp.sesame_admin_audit_chain_head`).Scan(&shadowRows); err != nil {
+		t.Fatalf("count the shadowing temporary table: %v", err)
+	}
+	if shadowRows != 0 {
+		t.Fatalf("shadowing temporary table rows = %d, want 0", shadowRows)
+	}
+	var headSeq int64
+	if err := db.QueryRowContext(ctx, `SELECT head_seq FROM public.sesame_admin_audit_chain_head WHERE singleton`).Scan(&headSeq); err != nil {
+		t.Fatalf("read the real audit chain head: %v", err)
+	}
+	if headSeq != 1 {
+		t.Fatalf("real head sequence = %d, want 1 after the application insert", headSeq)
+	}
+	report, err := VerifyAuditChain(ctx, db)
+	if err != nil {
+		t.Fatalf("verify audit chain: %v", err)
+	}
+	if !report.Verified || report.Rows != 1 {
+		t.Fatalf("chain report = %#v, want the application row to chain", report)
+	}
+}
+
+func readAuditChainMigration(t *testing.T) string {
+	t.Helper()
+	source, err := os.ReadFile(filepath.Join("..", "accounts", "migrations", "0044_admin_audit_hash_chain.sql"))
+	if err != nil {
+		t.Fatalf("read the audit hash chain migration: %v", err)
+	}
+	return string(source)
+}
+
+func TestAuditChainMigrationPinsTheDefinerFunction(t *testing.T) {
+	migration := readAuditChainMigration(t)
+	start := strings.Index(migration, "CREATE OR REPLACE FUNCTION sesame_chain_admin_audit_row()")
+	if start < 0 {
+		t.Fatal("the audit hash chain migration must define sesame_chain_admin_audit_row")
+	}
+	rest := migration[start:]
+	end := strings.Index(rest, "$$ LANGUAGE plpgsql;")
+	if end < 0 {
+		t.Fatal("the sesame_chain_admin_audit_row definition must end with $$ LANGUAGE plpgsql;")
+	}
+	definition := rest[:end]
+	if !strings.Contains(definition, "SET search_path = pg_catalog, public, pg_temp") {
+		t.Fatal("sesame_chain_admin_audit_row must pin SET search_path = pg_catalog, public, pg_temp")
+	}
+	qualified := strings.ReplaceAll(definition, "public.sesame_admin_audit_chain_head", "")
+	qualified = strings.ReplaceAll(qualified, "public.sesame_admin_audit_row_hash", "")
+	for _, name := range []string{"sesame_admin_audit_chain_head", "sesame_admin_audit_row_hash"} {
+		if strings.Contains(qualified, name) {
+			t.Fatalf("sesame_chain_admin_audit_row must qualify every %s reference with public.", name)
+		}
+	}
+}
+
+func TestAuditChainMigrationRevokesTheApplicationRole(t *testing.T) {
+	migration := readAuditChainMigration(t)
+	for _, statement := range []string{
+		"REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLE sesame_admin_audit_chain_head FROM sesame_app",
+		"REVOKE UPDATE, DELETE ON TABLE sesame_admin_audit_checkpoints FROM sesame_app",
+	} {
+		if !strings.Contains(migration, statement) {
+			t.Fatalf("the audit hash chain migration must keep %q", statement)
 		}
 	}
 }

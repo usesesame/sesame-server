@@ -75,24 +75,24 @@ WHERE singleton;
 
 CREATE OR REPLACE FUNCTION sesame_chain_admin_audit_row() RETURNS trigger
 SECURITY DEFINER
-SET search_path = pg_catalog, public
+SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
   previous_hash BYTEA;
   previous_seq BIGINT;
 BEGIN
   SELECT head_seq, head_hash INTO previous_seq, previous_hash
-  FROM sesame_admin_audit_chain_head WHERE singleton FOR UPDATE;
+  FROM public.sesame_admin_audit_chain_head WHERE singleton FOR UPDATE;
   IF previous_seq IS NULL OR previous_hash IS NULL THEN
     RAISE EXCEPTION 'sesame admin audit chain head is missing';
   END IF;
   NEW.chain_seq := previous_seq + 1;
   NEW.prev_hash := previous_hash;
-  NEW.hash := sesame_admin_audit_row_hash(
+  NEW.hash := public.sesame_admin_audit_row_hash(
     previous_hash, NEW.chain_seq, NEW.id, NEW.admin_id, NEW.admin_email, NEW.action,
     NEW.target_type, NEW.target_id, NEW.detail, NEW.ip_hash, NEW.created_at
   );
-  UPDATE sesame_admin_audit_chain_head SET head_seq = NEW.chain_seq, head_hash = NEW.hash WHERE singleton;
+  UPDATE public.sesame_admin_audit_chain_head SET head_seq = NEW.chain_seq, head_hash = NEW.hash WHERE singleton;
   RETURN NEW;
 END $$ LANGUAGE plpgsql;
 
