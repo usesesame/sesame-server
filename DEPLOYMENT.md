@@ -253,11 +253,17 @@ keep a copy of the encrypted files off the host as well.
 A manual backup looks the same:
 
 ```bash
+set -o pipefail
+out=sesame-$(date +%F).sql.gz.age
 docker compose -f deploy/compose/compose.prod.yaml \
   --env-file deploy/compose/.env.production \
   exec -T db pg_dump -U sesame_backup sesame | gzip \
-  | age -r age1... > sesame-$(date +%F).sql.gz.age
+  | age -r age1... > "$out" \
+  || { rm -f "$out"; echo "backup failed" >&2; }
 ```
+
+With `pipefail` set, the pipeline fails when `pg_dump` fails, and the
+failure branch removes the partial file and warns on stderr.
 
 Restore is a manual procedure that needs the identity. A scratch database
 has only the bootstrap superuser. The dump carries `OWNER TO` and grant
@@ -277,9 +283,11 @@ SQL
 Then decrypt with the identity and load the dump:
 
 ```bash
+set -o pipefail
 age --decrypt --identity /path/to/backup-identity.txt sesame-<version>.sql.gz.age \
   | gunzip \
-  | docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame
+  | docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame \
+  || echo "restore failed" >&2
 ```
 
 Run the restore where the identity is available and the scratch database is
