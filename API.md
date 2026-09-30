@@ -454,10 +454,13 @@ cookie, session table, CSRF token and eight-hour TTL. Password plus TOTP is
 required. There is no public admin registration; `cmd/adminctl bootstrap`
 creates the first one-time setup link.
 
-Destructive actions are user deletion, feature-flag changes and release
-publication, and they also require a fresh credential check. The admin session
-must have re-authenticated within the last five minutes. Sign-in and setup
-count as a fresh re-authentication. A missing or expired check returns
+Destructive actions also require a fresh credential check: user deletion,
+owner release and beta changes, suspension, session and device revocation,
+feature-flag changes, release publication, rollout, emergency stop and
+withdrawal, extension publication acceptance and transition, plan changes, and
+administrator creation, update and deletion. The admin session must have
+re-authenticated within the last five minutes. Sign-in and setup count as a
+fresh re-authentication. A missing or expired check returns
 `403 admin_step_up_required` and commits no change.
 
 - `POST /v1/admin/auth/step-up` renews the re-authentication of the caller's
