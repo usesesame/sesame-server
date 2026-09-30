@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -79,10 +80,13 @@ func main() {
 		slog.Error("Sesame API configuration is invalid", "error", "Secure session cookies are required for an HTTPS website origin")
 		os.Exit(1)
 	}
-	trustedProxies, err := parseTrustedProxies(os.Getenv("SESAME_TRUSTED_PROXIES"))
+	trustedProxies, trustedProxyWarnings, err := parseTrustedProxies(os.Getenv("SESAME_TRUSTED_PROXIES"))
 	if err != nil {
 		slog.Error("Sesame API configuration is invalid", "error", err)
 		os.Exit(1)
+	}
+	for _, warning := range trustedProxyWarnings {
+		slog.Warn("Sesame API configuration warning", "warning", warning)
 	}
 	store, err := accounts.OpenWithoutMigrate(ctx, databaseURL)
 	if err != nil {
@@ -353,27 +357,45 @@ func buildEmailSender(ctx context.Context, db *sql.DB) (httpapi.EmailSender, not
 	return notifications.NewOutboxEmailSender(outbox), outbox, worker, nil
 }
 
-func parseTrustedProxies(value string) ([]netip.Prefix, error) {
+func parseTrustedProxies(value string) ([]netip.Prefix, []string, error) {
 	if strings.TrimSpace(value) == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	prefixes := make([]netip.Prefix, 0)
+	warnings := make([]string, 0)
 	for _, raw := range strings.Split(value, ",") {
 		raw = strings.TrimSpace(raw)
 		prefix, err := netip.ParsePrefix(raw)
 		if err != nil {
-			return nil, errors.New("SESAME_TRUSTED_PROXIES must contain CIDR ranges")
+			return nil, nil, errors.New("SESAME_TRUSTED_PROXIES must contain CIDR ranges")
 		}
 		prefix = prefix.Masked()
 		if prefix.Addr().Is4In6() {
-			return nil, errors.New("SESAME_TRUSTED_PROXIES must not contain IPv4-mapped IPv6 ranges")
+			return nil, nil, errors.New("SESAME_TRUSTED_PROXIES must not contain IPv4-mapped IPv6 ranges")
 		}
 		if !trustedProxyAddr(prefix.Addr()) || !trustedProxyAddr(lastAddrInPrefix(prefix)) {
-			return nil, errors.New("SESAME_TRUSTED_PROXIES must stay inside loopback, private, or link-local addresses")
+			return nil, nil, errors.New("SESAME_TRUSTED_PROXIES must stay inside loopback, private, or link-local addresses")
+		}
+		if warning := trustedProxyWidthWarning(prefix); warning != "" {
+			warnings = append(warnings, warning)
 		}
 		prefixes = append(prefixes, prefix)
 	}
-	return prefixes, nil
+	return prefixes, warnings, nil
+}
+
+func trustedProxyWidthWarning(prefix netip.Prefix) string {
+	if prefix.Addr().IsLoopback() {
+		return ""
+	}
+	limit := 64
+	if prefix.Addr().Is4() {
+		limit = 24
+	}
+	if prefix.Bits() >= limit {
+		return ""
+	}
+	return fmt.Sprintf("trusted proxy range %s is wider than /%d; pin the proxy network if possible", prefix, limit)
 }
 
 func trustedProxyAddr(addr netip.Addr) bool {

@@ -241,8 +241,9 @@ only the three image lines, so nothing narrows a wide
 `172.30.0.0/24` in the example, and keep it equal to
 `SESAME_COMPOSE_SUBNET`. The API refuses to start when the value holds an
 address outside loopback, private, or link-local space, such as `0.0.0.0/0`,
-`0.0.0.0/1`, or `::ffff:0.0.0.0/96`. The old `172.16.0.0/12` still starts,
-but it trusts every peer in that range, not only the proxy.
+`0.0.0.0/1`, or `::ffff:0.0.0.0/96`. The old `172.16.0.0/12` still starts
+with a warning that the range is wider than `/24`, and it trusts every peer
+in that range, not only the proxy.
 
 Changing the Compose `ipam` subnet recreates the `sesame-prod_default`
 network on the next `up -d`. Docker stops and recreates every container

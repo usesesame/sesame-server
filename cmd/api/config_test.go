@@ -8,20 +8,24 @@ import (
 
 func TestParseTrustedProxies(t *testing.T) {
 	cases := []struct {
-		name    string
-		value   string
-		want    []string
-		wantErr bool
+		name         string
+		value        string
+		want         []string
+		wantWarnings []string
+		wantErr      bool
 	}{
 		{name: "unset trusts nobody", value: "", want: nil},
 		{name: "blank trusts nobody", value: "   ", want: nil},
 		{name: "single range", value: "172.30.0.0/24", want: []string{"172.30.0.0/24"}},
 		{name: "multiple ranges", value: "172.30.0.0/24, fd00::/64", want: []string{"172.30.0.0/24", "fd00::/64"}},
 		{name: "masked to the network", value: "172.30.0.7/24", want: []string{"172.30.0.0/24"}},
-		{name: "private range accepted", value: "172.16.0.0/12", want: []string{"172.16.0.0/12"}},
-		{name: "loopback accepted", value: "127.0.0.0/8", want: []string{"127.0.0.0/8"}},
+		{name: "wide private range warns", value: "172.16.0.0/12", want: []string{"172.16.0.0/12"}, wantWarnings: []string{"trusted proxy range 172.16.0.0/12 is wider than /24; pin the proxy network if possible"}},
+		{name: "loopback range accepted without warning", value: "127.0.0.0/8", want: []string{"127.0.0.0/8"}},
+		{name: "loopback address accepted without warning", value: "127.0.0.1/32", want: []string{"127.0.0.1/32"}},
+		{name: "ipv6 loopback accepted without warning", value: "::1/128", want: []string{"::1/128"}},
 		{name: "unique local ipv6 accepted", value: "fd00::/64", want: []string{"fd00::/64"}},
-		{name: "link-local ipv6 accepted", value: "fe80::/10", want: []string{"fe80::/10"}},
+		{name: "wide ipv6 range warns", value: "fd00::/32", want: []string{"fd00::/32"}, wantWarnings: []string{"trusted proxy range fd00::/32 is wider than /64; pin the proxy network if possible"}},
+		{name: "link-local ipv6 range warns", value: "fe80::/10", want: []string{"fe80::/10"}, wantWarnings: []string{"trusted proxy range fe80::/10 is wider than /64; pin the proxy network if possible"}},
 		{name: "whole ipv4 refused", value: "0.0.0.0/0", wantErr: true},
 		{name: "whole ipv6 refused", value: "::/0", wantErr: true},
 		{name: "half of ipv4 refused", value: "0.0.0.0/1", wantErr: true},
@@ -37,7 +41,7 @@ func TestParseTrustedProxies(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseTrustedProxies(tc.value)
+			got, warnings, err := parseTrustedProxies(tc.value)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("parseTrustedProxies(%q) error = %v, wantErr %v", tc.value, err, tc.wantErr)
 			}
@@ -50,6 +54,14 @@ func TestParseTrustedProxies(t *testing.T) {
 			for index, prefix := range got {
 				if prefix.String() != tc.want[index] {
 					t.Fatalf("parseTrustedProxies(%q)[%d] = %s, want %s", tc.value, index, prefix, tc.want[index])
+				}
+			}
+			if len(warnings) != len(tc.wantWarnings) {
+				t.Fatalf("parseTrustedProxies(%q) warnings = %v, want %v", tc.value, warnings, tc.wantWarnings)
+			}
+			for index, warning := range warnings {
+				if warning != tc.wantWarnings[index] {
+					t.Fatalf("parseTrustedProxies(%q) warnings[%d] = %q, want %q", tc.value, index, warning, tc.wantWarnings[index])
 				}
 			}
 		})
