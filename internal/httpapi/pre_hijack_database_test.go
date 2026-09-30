@@ -218,21 +218,25 @@ func decodeResponseUser(t *testing.T, response *httptest.ResponseRecorder) preHi
 
 func (e *preHijackEnv) registerAccount(t *testing.T, client *preHijackClient, email string) (string, string) {
 	t.Helper()
-	response := client.request(http.MethodPost, "/v1/auth/register", map[string]any{
+	registration := client.request(http.MethodPost, "/v1/auth/register", map[string]any{
 		"email": email, "password": "fictional-attacker-password",
 		"termsAccepted": true, "termsVersion": termsVersion,
 		"privacyAcknowledged": true, "privacyVersion": privacyVersion,
 	})
-	if response.Code != http.StatusCreated {
-		t.Fatalf("registration status = %d: %s", response.Code, response.Body.String())
+	if registration.Code != http.StatusCreated && registration.Code != http.StatusAccepted {
+		t.Fatalf("registration status = %d: %s", registration.Code, registration.Body.String())
 	}
-	user := decodeResponseUser(t, response)
+	signedIn := client.request(http.MethodPost, "/v1/auth/login", map[string]any{"email": email, "password": "fictional-attacker-password"})
+	if signedIn.Code != http.StatusOK {
+		t.Fatalf("login after registration status = %d: %s", signedIn.Code, signedIn.Body.String())
+	}
+	user := decodeResponseUser(t, signedIn)
 	if user.ID == "" || user.EmailVerified {
 		t.Fatalf("registered user = %+v, want a new unverified account", user)
 	}
 	session := client.cookies[sessionCookieName]
 	if session == nil {
-		t.Fatal("registration did not issue a browser session")
+		t.Fatal("login after registration did not issue a browser session")
 	}
 	e.deleteAccountOnCleanup(t, user.ID)
 	return user.ID, session.Value
@@ -386,6 +390,10 @@ func TestPreHijackVerificationRevokesUnverifiedCredentials(t *testing.T) {
 	if stale := old.request(http.MethodGet, "/v1/auth/me", nil); stale.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked session status = %d: %s", stale.Code, stale.Body.String())
 	}
+	stalePassword := newPreHijackClient(t, env)
+	if signIn := stalePassword.request(http.MethodPost, "/v1/auth/login", map[string]any{"email": email, "password": "fictional-attacker-password"}); signIn.Code != http.StatusUnauthorized {
+		t.Fatalf("registration password after verification status = %d: %s", signIn.Code, signIn.Body.String())
+	}
 	if count := env.countRows(t, `SELECT COUNT(*) FROM sesame_webauthn_credentials WHERE account_id = $1`, accountID); count != 0 {
 		t.Fatalf("passkeys after verification = %d, want 0", count)
 	}
@@ -488,7 +496,7 @@ func TestVerifiedAccountKeepsPasskeyRegisteredAfterVerification(t *testing.T) {
 	}
 }
 
-func TestEmailChangeThenRecoveryKeepsVerifiedCredentials(t *testing.T) {
+func TestEmailChangeThenRecoveryKeepsPasskeyAndRevokesDesktop(t *testing.T) {
 	env := newPreHijackEnv(t)
 	originalEmail := env.uniqueEmail("before-change")
 	changedEmail := env.uniqueEmail("after-change")
@@ -523,10 +531,10 @@ func TestEmailChangeThenRecoveryKeepsVerifiedCredentials(t *testing.T) {
 	if count := env.countRows(t, `SELECT COUNT(*) FROM sesame_webauthn_credentials WHERE account_id = $1`, accountID); count != 1 {
 		t.Fatalf("passkeys after email change and recovery = %d, want the verified account's passkey", count)
 	}
-	if count := env.countRows(t, `SELECT COUNT(*) FROM sesame_desktop_connections WHERE account_id = $1`, accountID); count != 1 {
-		t.Fatalf("desktop connections after email change and recovery = %d, want the verified account's connection", count)
+	if count := env.countRows(t, `SELECT COUNT(*) FROM sesame_desktop_connections WHERE account_id = $1`, accountID); count != 0 {
+		t.Fatalf("desktop connections after email change and recovery = %d, want 0", count)
 	}
-	if status := client.desktopRequest(http.MethodGet, "/v1/desktop/status", desktopToken, nil); status.Code != http.StatusOK {
+	if status := client.desktopRequest(http.MethodGet, "/v1/desktop/status", desktopToken, nil); status.Code != http.StatusUnauthorized {
 		t.Fatalf("desktop status after email change and recovery = %d: %s", status.Code, status.Body.String())
 	}
 }

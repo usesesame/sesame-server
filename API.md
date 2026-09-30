@@ -146,13 +146,13 @@ of the confirmation endpoint.
 
 `user` is `{id,email,emailVerified,betaAccess}`. Confirming an email change or
 password recovery revokes every older browser session in the same transaction
-that applies the account change. Recovery also revokes every passkey, desktop
-connection, and pending desktop-link code that predates the account's
-verification; on an account that is still unverified, that is all of them.
-Credentials an attacker attached to an unverified account do not survive
-verification or recovery. Verification keeps the password set at registration,
-so the address owner who did not start that registration should recover the
-account instead of verifying it.
+that applies the account change. Recovery also revokes every passkey and
+desktop connection created while the account was unverified, cancels its
+pending desktop-link codes, and revokes every desktop connection regardless of
+when it was created. Credentials an attacker attached to an unverified account
+do not survive verification or recovery. Verification clears the password set
+at registration, so the address owner who did not start that registration sets
+a new password through password recovery.
 
 ## Recent authentication and browser sessions
 

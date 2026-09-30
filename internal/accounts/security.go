@@ -407,6 +407,11 @@ func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotat
 	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
 		return User{}, err
 	}
+	if !wasVerified {
+		if _, err := tx.ExecContext(ctx, `UPDATE sesame_accounts SET password_hash = '' WHERE id = $1`, accountID); err != nil {
+			return User{}, err
+		}
+	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
 		return User{}, err
 	}
@@ -454,6 +459,9 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 		return User{}, err
 	}
 	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_desktop_connections WHERE account_id = $1`, accountID); err != nil {
 		return User{}, err
 	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
