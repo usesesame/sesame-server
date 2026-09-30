@@ -69,6 +69,19 @@ func TestApplicationRoleCannotRewriteTheAuditLog(t *testing.T) {
 		t.Fatalf("open test database: %v", err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	lockConnection, err := store.db.Conn(ctx)
+	if err != nil {
+		t.Fatalf("reserve the fixture lock connection: %v", err)
+	}
+	const fixtureLockID int64 = 762374923
+	if _, err := lockConnection.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, fixtureLockID); err != nil {
+		_ = lockConnection.Close()
+		t.Fatalf("lock the shared test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = lockConnection.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, fixtureLockID)
+		_ = lockConnection.Close()
+	})
 	if err := ensureApplicationRole(ctx, store.db); err != nil {
 		t.Fatalf("ensure the application role: %v", err)
 	}
