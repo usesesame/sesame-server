@@ -73,6 +73,9 @@ func TestSupportIntakeRejectsSecretShapedContent(t *testing.T) {
 	}{
 		{name: "assignment", subject: "Cannot sign in", message: "I wrote down password: correct-horse-battery before the reset."},
 		{name: "pwd assignment", subject: "Cannot sign in", message: "The log line shows pwd: correct-horse-battery next to my address."},
+		{name: "underscore password assignment", subject: "Cannot sign in", message: "The connection string shows DB_PASSWORD=fictional-value in the server log."},
+		{name: "underscore secret assignment", subject: "Cannot sign in", message: "The config lists client_secret=fictional-client-value for the sync service."},
+		{name: "underscore token assignment", subject: "Cannot sign in", message: "The request header access_token: fictional-access-value appears in every log line."},
 		{name: "pin number", subject: "Cannot sign in", message: "The app asks for PIN 482913 even after the reset."},
 		{name: "pin prose", subject: "Cannot sign in", message: "My PIN is 482913 and the app rejects it after the reset."},
 		{name: "seed phrase", subject: "Cannot sign in", message: "My seed phrase is apple banana cherry dog eagle fence grape house igloo jacket kite lemon and the app rejects it."},
@@ -102,14 +105,19 @@ func TestSupportIntakeRejectsSecretShapedContent(t *testing.T) {
 
 func TestSupportIntakeRejectsSecretShapedAppVersion(t *testing.T) {
 	env := newSupportTestEnv(t)
-	response := env.request(http.MethodPost, "/v1/support/requests", map[string]any{
-		"email":      supportGuestIntakeEmail(),
-		"subject":    "Cannot import records",
-		"message":    "The importer stops after the first file and the log shows no error.",
-		"appVersion": "pwd: correct-horse-battery",
-	}, supportWebMutation())
-	if response.Code != http.StatusBadRequest || errorCode(t, response) != "secret_shaped_content" {
-		t.Fatalf("intake = %d %q, want 400 secret_shaped_content", response.Code, errorCode(t, response))
+	for _, appVersion := range []string{
+		"pwd: correct-horse-battery",
+		"DB_PASSWORD=fictional-value",
+	} {
+		response := env.request(http.MethodPost, "/v1/support/requests", map[string]any{
+			"email":      supportGuestIntakeEmail(),
+			"subject":    "Cannot import records",
+			"message":    "The importer stops after the first file and the log shows no error.",
+			"appVersion": appVersion,
+		}, supportWebMutation())
+		if response.Code != http.StatusBadRequest || errorCode(t, response) != "secret_shaped_content" {
+			t.Fatalf("intake for appVersion %q = %d %q, want 400 secret_shaped_content", appVersion, response.Code, errorCode(t, response))
+		}
 	}
 }
 
@@ -145,6 +153,10 @@ func TestContainsSecretShapedText(t *testing.T) {
 		{name: "pin assignment", value: "I wrote pin: 482913 in my notes.", want: true},
 		{name: "pin settings", value: "Cannot find the pin settings", want: false},
 		{name: "spin assignment", value: "The importer summary shows spin: values in the column header after the update.", want: false},
+		{name: "uppercase spin assignment", value: "The importer summary shows SPIN: values in the column header after the update.", want: false},
+		{name: "underscore password assignment", value: "The connection string shows DB_PASSWORD=fictional-value in the server log.", want: true},
+		{name: "underscore secret assignment", value: "The config lists client_secret=fictional-client-value for the sync service.", want: true},
+		{name: "underscore token assignment", value: "The request header access_token: fictional-access-value appears in every log line.", want: true},
 		{name: "unpadded url-safe base64 key", value: "The exported key 8r_mklqs7HOQSBHD2YnIrv-aA-rzSra9flsKDLhnZvo will not import.", want: true},
 		{name: "unpadded slash base64 key", value: "The exported key DBL0thicxM/uTwHmjQ5jyJN28cQMv91TmiiRUGgHoE8 will not import.", want: true},
 		{name: "padded base64 key", value: "The exported key ejgFI6bjzttikWD1325ZdjhohM88ycZWJS84RCntRdU= will not import.", want: true},

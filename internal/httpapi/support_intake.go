@@ -23,7 +23,7 @@ type supportRequestInput struct {
 }
 
 var (
-	secretAssignmentPattern = regexp.MustCompile(`(?i)\b(password|passwd|pwd|passphrase|pin|totp|otp|seed|secret|token|api[ _-]?key|backup[ _-]?code|recovery[ _-]?code|private[ _-]?key)\s*[:=：]`)
+	secretAssignmentPattern = regexp.MustCompile(`(?i)((?:^|[^a-z])pin|password|passwd|pwd|passphrase|totp|otp|seed|secret|token|api[ _-]?key|backup[ _-]?code|recovery[ _-]?code|private[ _-]?key)\s*[:=：]`)
 	pinNumberPattern        = regexp.MustCompile(`(?i)\bpin\b[ \t]*(?:[:=：]|(?:is|was)[ \t]+)?[ \t]*\d{4,8}\b`)
 	longTokenPattern        = regexp.MustCompile(`(?:^|[^[:alnum:]_-])(?:[A-Fa-f0-9]{40,}|[A-Za-z0-9_-]{48,})(?:$|[^[:alnum:]_-])`)
 	diagnosticCodePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
