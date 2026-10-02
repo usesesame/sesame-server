@@ -51,9 +51,9 @@ and prints a one-time setup link. The link reveals its enrollment secret once.
 Setup must finish within 30 minutes. `adminctl reset` revokes sessions and
 issues a new link.
 
-`SESAME_ADMIN_ENCRYPTION_KEY` encrypts administrator TOTP secrets. Replacing
-that key makes existing secrets unreadable, so deployments must back it up
-separately from PostgreSQL.
+`SESAME_ADMIN_ENCRYPTION_KEY` encrypts administrator TOTP secrets and queued
+account-email action links. Replacing that key makes both unreadable, so
+deployments must back it up separately from PostgreSQL.
 
 ### Authorization and audit
 
