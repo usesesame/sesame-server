@@ -44,6 +44,7 @@ type Config struct {
 	AdminSecure               bool
 	AdminSessionDomain        string
 	AdminSessionTTL           time.Duration
+	AdminStepUpTTL            time.Duration
 	AdminIPPepper             string
 	CapabilitySigningKey      ed25519.PrivateKey
 	CapabilityKeyID           string
@@ -185,6 +186,9 @@ func New(config Config) http.Handler {
 	}
 	if config.AdminSessionTTL <= 0 {
 		config.AdminSessionTTL = 8 * time.Hour
+	}
+	if config.AdminStepUpTTL <= 0 {
+		config.AdminStepUpTTL = 5 * time.Minute
 	}
 	if config.CapabilityTTL <= 0 {
 		config.CapabilityTTL = 5 * time.Minute

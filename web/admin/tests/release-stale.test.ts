@@ -7,7 +7,7 @@ vi.mock('../src/lib/api', () => {
   class APIError extends Error {
     constructor(message: string, public status: number, public code = '') { super(message) }
   }
-  return { APIError, apiURL: 'https://api.test.invalid', request: api.request, mutate: api.mutate }
+  return { APIError, apiURL: 'https://api.test.invalid', request: api.request, mutate: api.mutate, onStepUpRequired: vi.fn() }
 })
 
 import App from '../src/App.svelte'

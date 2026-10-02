@@ -119,7 +119,7 @@ func waitForRun(t *testing.T, done <-chan struct{}) {
 
 func TestWorkerRunStopsWithoutWritesAfterCancellation(t *testing.T) {
 	outbox := &blockingPollOutbox{stubOutbox: stubOutbox{pending: []OutboxItem{{ID: "message-1", Kind: "verify-email", To: "user@example.invalid"}}}}
-	worker := NewWorker(outbox, &blockingSender{})
+	worker := NewWorker(outbox, &blockingSender{}, testActionURLSealer(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := runWorker(t, worker, ctx)
 
@@ -134,7 +134,7 @@ func TestWorkerRunStopsWithoutWritesAfterCancellation(t *testing.T) {
 func TestWorkerRunSkipsMarksWhenDeliveryIsInterrupted(t *testing.T) {
 	outbox := &stubOutbox{pending: []OutboxItem{{ID: "message-1", Kind: "verify-email", To: "user@example.invalid"}}}
 	sender := &blockingSender{started: make(chan struct{}, 1)}
-	worker := NewWorker(outbox, sender)
+	worker := NewWorker(outbox, sender, testActionURLSealer(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := runWorker(t, worker, ctx)
 
@@ -158,7 +158,7 @@ func TestWorkerRunDeliversAndMarksMessages(t *testing.T) {
 		delivered: delivered,
 	}
 	sender := &stubSender{}
-	worker := NewWorker(outbox, sender)
+	worker := NewWorker(outbox, sender, testActionURLSealer(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := runWorker(t, worker, ctx)
 
@@ -188,7 +188,7 @@ func TestWorkerRunMarksFailedMessagesBeforeCancellation(t *testing.T) {
 		failed:  failed,
 	}
 	sender := &stubSender{err: errors.New("smtp unavailable")}
-	worker := NewWorker(outbox, sender)
+	worker := NewWorker(outbox, sender, testActionURLSealer(t))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := runWorker(t, worker, ctx)
 

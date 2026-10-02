@@ -24,7 +24,7 @@ func (a *api) adminExtensionPublications(response http.ResponseWriter, request *
 }
 
 func (a *api) adminExtensionPublicationAccept(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -41,7 +41,7 @@ func (a *api) adminExtensionPublicationAccept(response http.ResponseWriter, requ
 }
 
 func (a *api) adminExtensionPublicationTransition(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}

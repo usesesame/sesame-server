@@ -47,13 +47,10 @@ func newSupportTestEnv(t *testing.T, options ...func(*Config)) *supportTestEnv {
 	t.Cleanup(func() { _ = accountStore.Close() })
 	db := accountStore.DB()
 	lockDatabaseTests(t, db)
-	if _, err := db.ExecContext(ctx, `
+	truncateAuditTables(t, db, `
 		TRUNCATE sesame_support_requests, sesame_support_messages, sesame_support_notes,
 		         sesame_admin_audit_log, sesame_admin_sessions, sesame_admin_accounts
-		RESTART IDENTITY CASCADE
-	`); err != nil {
-		t.Fatalf("clear support tables: %v", err)
-	}
+		RESTART IDENTITY CASCADE`)
 	adminStore, err := adminstore.Open(ctx, databaseURL, bytes.Repeat([]byte{9}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)

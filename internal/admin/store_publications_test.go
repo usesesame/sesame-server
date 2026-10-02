@@ -23,9 +23,7 @@ func publicationTestStore(t *testing.T) (*Store, *sql.DB) {
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
 	lockReleaseTests(t, accountStore.DB())
-	if _, err := accountStore.DB().ExecContext(context.Background(), `TRUNCATE sesame_extension_publications, sesame_admin_audit_log RESTART IDENTITY CASCADE`); err != nil {
-		t.Fatalf("clear extension publication tables: %v", err)
-	}
+	truncateAuditTables(t, accountStore.DB(), `TRUNCATE sesame_extension_publications, sesame_admin_audit_log RESTART IDENTITY CASCADE`)
 	store, err := Open(context.Background(), databaseURL, bytes.Repeat([]byte{1}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)

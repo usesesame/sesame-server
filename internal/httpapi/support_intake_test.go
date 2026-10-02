@@ -72,6 +72,18 @@ func TestSupportIntakeRejectsSecretShapedContent(t *testing.T) {
 		message string
 	}{
 		{name: "assignment", subject: "Cannot sign in", message: "I wrote down password: correct-horse-battery before the reset."},
+		{name: "pwd assignment", subject: "Cannot sign in", message: "The log line shows pwd: correct-horse-battery next to my address."},
+		{name: "underscore password assignment", subject: "Cannot sign in", message: "The connection string shows DB_PASSWORD=fictional-value in the server log."},
+		{name: "underscore secret assignment", subject: "Cannot sign in", message: "The config lists client_secret=fictional-client-value for the sync service."},
+		{name: "underscore token assignment", subject: "Cannot sign in", message: "The request header access_token: fictional-access-value appears in every log line."},
+		{name: "pin number", subject: "Cannot sign in", message: "The app asks for PIN 482913 even after the reset."},
+		{name: "pin prose", subject: "Cannot sign in", message: "My PIN is 482913 and the app rejects it after the reset."},
+		{name: "seed phrase", subject: "Cannot sign in", message: "My seed phrase is apple banana cherry dog eagle fence grape house igloo jacket kite lemon and the app rejects it."},
+		{name: "seed phrase on its own line", subject: "Cannot sign in", message: "I pasted this by mistake:\nseed phrase:\napple banana cherry dog eagle fence grape house igloo jacket kite lemon\nPlease remove it from the ticket."},
+		{name: "base64 key", subject: "Cannot sign in", message: "The exported key ejgFI6bjzttikWD1325ZdjhohM88ycZWJS84RCntRdU= will not import."},
+		{name: "unpadded url-safe base64 key", subject: "Cannot sign in", message: "The exported key 8r_mklqs7HOQSBHD2YnIrv-aA-rzSra9flsKDLhnZvo will not import."},
+		{name: "unpadded slash base64 key", subject: "Cannot sign in", message: "The exported key DBL0thicxM/uTwHmjQ5jyJN28cQMv91TmiiRUGgHoE8 will not import."},
+		{name: "fullwidth colon", subject: "Cannot sign in", message: "I wrote password：correct-horse-battery in my notes before the reset."},
 		{name: "recovery kit", subject: "Cannot sign in", message: "My recovery kit is ABCDE-FGHJK-MNPQR-STUVW-XYZ23 and it will not work."},
 		{name: "otpauth uri", subject: "Cannot sign in", message: "The code comes from otpauth://totp/Sesame:user@example.invalid?secret=JBSWY3DPEHPK3PXP every time."},
 		{name: "private key block", subject: "Cannot sign in", message: "I pasted -----BEGIN PRIVATE KEY----- into the notes field by mistake."},
@@ -86,6 +98,74 @@ func TestSupportIntakeRejectsSecretShapedContent(t *testing.T) {
 			}, supportWebMutation())
 			if response.Code != http.StatusBadRequest || errorCode(t, response) != "secret_shaped_content" {
 				t.Fatalf("intake = %d %q, want 400 secret_shaped_content", response.Code, errorCode(t, response))
+			}
+		})
+	}
+}
+
+func TestSupportIntakeRejectsSecretShapedAppVersion(t *testing.T) {
+	env := newSupportTestEnv(t)
+	for _, appVersion := range []string{
+		"pwd: correct-horse-battery",
+		"DB_PASSWORD=fictional-value",
+	} {
+		response := env.request(http.MethodPost, "/v1/support/requests", map[string]any{
+			"email":      supportGuestIntakeEmail(),
+			"subject":    "Cannot import records",
+			"message":    "The importer stops after the first file and the log shows no error.",
+			"appVersion": appVersion,
+		}, supportWebMutation())
+		if response.Code != http.StatusBadRequest || errorCode(t, response) != "secret_shaped_content" {
+			t.Fatalf("intake for appVersion %q = %d %q, want 400 secret_shaped_content", appVersion, response.Code, errorCode(t, response))
+		}
+	}
+}
+
+func TestSupportIntakeAcceptsOrdinaryTextNearSecretWords(t *testing.T) {
+	env := newSupportTestEnv(t)
+	response := env.request(http.MethodPost, "/v1/support/requests", map[string]any{
+		"email":   supportGuestIntakeEmail(),
+		"subject": "Cannot find the pin settings",
+		"message": "I want to change the seed phrase storage location and the app pin length, but https://example.invalid/download/Sesame+Release+Notes+September+2026 will not open after the update.",
+	}, supportWebMutation())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("intake status = %d: %s", response.Code, response.Body.String())
+	}
+	response = env.request(http.MethodPost, "/v1/support/requests", map[string]any{
+		"email":   supportGuestIntakeEmail(),
+		"subject": "Import summary looks wrong",
+		"message": "The importer summary shows spin: values in the column header after the update.",
+	}, supportWebMutation())
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("intake status = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestContainsSecretShapedText(t *testing.T) {
+	for _, testCase := range []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "pin prose", value: "My PIN is 482913 and the app rejects it after the reset.", want: true},
+		{name: "pin past tense", value: "The lock screen showed PIN was 482913 after the update.", want: true},
+		{name: "pin number", value: "The app asks for PIN 482913 even after the reset.", want: true},
+		{name: "pin assignment", value: "I wrote pin: 482913 in my notes.", want: true},
+		{name: "pin settings", value: "Cannot find the pin settings", want: false},
+		{name: "spin assignment", value: "The importer summary shows spin: values in the column header after the update.", want: false},
+		{name: "uppercase spin assignment", value: "The importer summary shows SPIN: values in the column header after the update.", want: false},
+		{name: "underscore password assignment", value: "The connection string shows DB_PASSWORD=fictional-value in the server log.", want: true},
+		{name: "underscore secret assignment", value: "The config lists client_secret=fictional-client-value for the sync service.", want: true},
+		{name: "underscore token assignment", value: "The request header access_token: fictional-access-value appears in every log line.", want: true},
+		{name: "unpadded url-safe base64 key", value: "The exported key 8r_mklqs7HOQSBHD2YnIrv-aA-rzSra9flsKDLhnZvo will not import.", want: true},
+		{name: "unpadded slash base64 key", value: "The exported key DBL0thicxM/uTwHmjQ5jyJN28cQMv91TmiiRUGgHoE8 will not import.", want: true},
+		{name: "padded base64 key", value: "The exported key ejgFI6bjzttikWD1325ZdjhohM88ycZWJS84RCntRdU= will not import.", want: true},
+		{name: "url with plus", value: "I want to change the seed phrase storage location and the app pin length, but https://example.invalid/download/Sesame+Release+Notes+September+2026 will not open after the update.", want: false},
+		{name: "ordinary message", value: "The importer stops after the first file and the log shows no error.", want: false},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := containsSecretShapedText(testCase.value); got != testCase.want {
+				t.Fatalf("containsSecretShapedText(%q) = %v, want %v", testCase.value, got, testCase.want)
 			}
 		})
 	}

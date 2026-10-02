@@ -103,7 +103,7 @@ func (a *api) allowAuthAttempt(response http.ResponseWriter, request *http.Reque
 }
 
 func (a *api) allowRequest(response http.ResponseWriter, request *http.Request, operation string, limit int, window time.Duration) bool {
-	return a.allowKeyed(response, request, operation+":"+a.clientIP(request), limit, window)
+	return a.allowKeyed(response, request, operation+":"+a.clientLimitKey(request), limit, window)
 }
 
 func (a *api) allowKeyed(response http.ResponseWriter, request *http.Request, key string, limit int, window time.Duration) bool {
@@ -298,6 +298,23 @@ func (a *api) clientIP(request *http.Request) string {
 		return ip.String()
 	}
 	return peer
+}
+
+func (a *api) clientLimitKey(request *http.Request) string {
+	client := a.clientIP(request)
+	address, err := netip.ParseAddr(client)
+	if err != nil {
+		return client
+	}
+	address = address.Unmap()
+	if !address.Is6() {
+		return address.String()
+	}
+	prefix, err := address.Prefix(64)
+	if err != nil {
+		return client
+	}
+	return prefix.String()
 }
 
 func (a *api) isTrustedProxy(value string) bool {

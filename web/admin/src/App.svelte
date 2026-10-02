@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteURLSearchParams } from 'svelte/reactivity'
-  import { APIError, apiURL, mutate, request } from './lib/api'
+  import { APIError, apiURL, mutate, onStepUpRequired, request } from './lib/api'
   import ExtensionStoresWorkspace from './lib/releases/ExtensionStoresWorkspace.svelte'
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
   import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
@@ -25,6 +25,12 @@
   let setupSecret = ''
   let setupURI = ''
   let setupEmail = ''
+  let stepUpOpen = false
+  let stepUpPassword = ''
+  let stepUpCode = ''
+  let stepUpError = ''
+  let stepUpBusy = false
+  let stepUpResolvers: ((renewed: boolean) => void)[] = []
   let overview: Overview | null = null
   let users: User[] = []
   let userTotal = 0
@@ -73,6 +79,7 @@
   let ticketSearchTimer: ReturnType<typeof setTimeout> | undefined
 
   $: isSetup = setupToken.length > 0
+  $: stepUpReady = (stepUpPassword === '') !== (stepUpCode === '')
   $: projectProfile = deploymentProfile === 'project'
   $: if (!projectProfile && (page === 'releases' || page === 'plans')) page = 'overview'
   $: canUsers = me?.role === 'super' || me?.role === 'support' || me?.role === 'billing' || me?.role === 'readonly'
@@ -90,6 +97,11 @@
   $: canEditPlans = me?.role === 'super' || me?.role === 'billing'
   $: canSupport = me?.role === 'super' || me?.role === 'support'
   $: canViewSupport = canSupport || me?.role === 'readonly'
+
+  onMount(() => {
+    onStepUpRequired(requestStepUp)
+    return () => onStepUpRequired(null)
+  })
 
   onMount(async () => {
     setupToken = new SvelteURLSearchParams(location.search).get('token') || ''
@@ -133,6 +145,40 @@
   }
 
   async function logout() { await mutate('/v1/admin/auth/logout', 'POST'); me = null; page = 'overview' }
+
+  function requestStepUp(): Promise<boolean> {
+    if (stepUpResolvers.length === 0) {
+      stepUpPassword = ''
+      stepUpCode = ''
+      stepUpError = ''
+      stepUpBusy = false
+      stepUpOpen = true
+    }
+    return new Promise((resolve) => { stepUpResolvers.push(resolve) })
+  }
+
+  function finishStepUp(renewed: boolean) {
+    stepUpOpen = false
+    const resolvers = stepUpResolvers
+    stepUpResolvers = []
+    for (const resolve of resolvers) resolve(renewed)
+  }
+
+  async function submitStepUp() {
+    const password = stepUpPassword
+    const code = stepUpCode
+    if (stepUpBusy || (password === '') === (code === '')) return
+    stepUpBusy = true
+    stepUpError = ''
+    try {
+      await mutate('/v1/admin/auth/step-up', 'POST', password ? { password } : { code })
+      finishStepUp(true)
+    } catch (reason) {
+      stepUpError = reason instanceof Error ? reason.message : 'The request failed.'
+    } finally {
+      stepUpBusy = false
+    }
+  }
 
   async function openPage(next: Page) {
     page = next; selectedUser = null; error = ''; notice = ''
@@ -655,4 +701,19 @@
       {/if}
     </main>
   </div>
+  {#if stepUpOpen}
+    <div class="stepup-backdrop">
+      <div class="stepup-panel" role="dialog" aria-modal="true" aria-label="Re-authenticate to continue">
+        <h2>Re-authenticate to continue</h2>
+        <p>This action needs a fresh credential check. Enter your admin password or a current six-digit code.</p>
+        <label>Admin password<input type="password" bind:value={stepUpPassword} autocomplete="current-password" /></label>
+        <label>Six-digit code<input bind:value={stepUpCode} inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" /></label>
+        {#if stepUpError}<p class="message error" role="alert">{stepUpError}</p>{/if}
+        <div class="stepup-actions">
+          <button onclick={() => finishStepUp(false)} disabled={stepUpBusy}>Cancel</button>
+          <button class="primary" onclick={submitStepUp} disabled={stepUpBusy || !stepUpReady}>Confirm</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}
