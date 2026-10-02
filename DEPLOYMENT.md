@@ -29,21 +29,25 @@ to loopback.
 - DNS A and AAAA records for `usesesame.app`, `www`, `api`, `account`, and
   `admin`, all pointing at the host. Caddy cannot issue certificates until
   these resolve.
-- An SMTP account that supports STARTTLS. Without working mail there is no
-  email verification, no password recovery, and no email change.
-- Node.js 24.20 to build the website.
+- An SMTP relay that supports STARTTLS, at a provider or on this host.
+  Without working mail there is no email verification, no password recovery,
+  and no email change.
+- Node.js 24.20 for the website build, the setup script, and the deploy tool.
+- The GitHub CLI, authenticated to github.com with `gh auth login`, so the deploy
+  tool can verify image provenance.
 
 ## 1. Configure
 
 ```bash
 git clone https://github.com/usesesame/sesame-server.git
 cd sesame-server
-npm ci
 npm run setup
 ```
 
 `npm run setup` generates this deployment's own secrets and resolves the
-build contexts. It writes `deploy/compose/.env`, the development file.
+build contexts. It writes `deploy/compose/.env`, the development file. The
+setup script and the deploy tool import only Node builtins, so the host needs
+no `npm install` step and no install scripts run on it.
 
 ```bash
 cp deploy/compose/.env.production.example deploy/compose/.env.production
@@ -67,21 +71,29 @@ connects as `sesame_owner` and owns schema changes, the API connects as
 `sesame_backup`. The bootstrap superuser only starts PostgreSQL and creates
 the roles; no service uses it at run time.
 
-Three values are fixed by the product. The comments in the example explain
-them as well.
+These values matter most. The comments in the example explain them as well.
 
-- `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret.
-  If it changes, those secrets become unreadable and sign-in fails with the
-  same message a wrong password gets. Back it up somewhere that survives
-  this disk.
+- `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret and
+  every queued account-email action link. If it changes, those secrets become
+  unreadable and sign-in fails with the same message a wrong password gets,
+  and queued email can never be delivered. The API refuses to start when SMTP
+  is configured without this key. Back it up somewhere that survives this
+  disk.
 - `SESAME_RP_ID` must be the account portal's registrable domain. Changing
   it later invalidates every passkey already registered.
 - `SESAME_TRUSTED_PROXIES` must name the proxy's network and nothing wider.
-  Every request arrives through the proxy, so without it the rate limiter
-  and the admin audit log see a single client address for the entire
-  internet. Widening it to `0.0.0.0/0` lets any client forge its own
-  address and defeat rate limiting. Verify the network with
+  The production stack pins its Compose network to `SESAME_COMPOSE_SUBNET`,
+  which the example sets to `172.30.0.0/24`, and the two values must always
+  name the same range. Never widen it to `0.0.0.0/0`: any client could then
+  forge its own address and defeat rate limiting, and the API refuses to
+  start with a range that covers every address. Verify the range with
   `docker network inspect sesame-prod_default`.
+- `SESAME_SMTP_ADDR` points at your own STARTTLS relay. It is empty in the
+  example, which runs the stack without verification, recovery, or
+  email-change mail. Set the username and password unless that relay accepts
+  mail only from the pinned Compose network. A relay on this host is reached
+  by its certificate name when `SESAME_SMTP_HOST_GATEWAY` names it. Never
+  point the address at a relay operated for another deployment.
 
 ## 2. Start the stack
 
@@ -100,6 +112,16 @@ Migrations run once, as their own service, before the API starts. The API
 refuses to start if a required value is missing or if an HTTPS origin is
 paired with insecure cookies. A misconfiguration fails closed instead of
 serving insecurely.
+
+Every application container runs with a read-only root filesystem, all Linux
+capabilities dropped, `no-new-privileges`, and fixed process and memory
+limits. Only `/tmp` is writable in the Go containers. The account and admin
+portals also mount the nginx cache and pid directories, and run as the
+image's `nginx` user, UID 101. PostgreSQL keeps a writable data volume and
+the capabilities its entrypoint needs to own the data directory. An existing
+deployment picks the container settings up when
+`docker compose -f deploy/compose/compose.prod.yaml --env-file deploy/compose/.env.production up -d`
+recreates the changed containers; no extra step is required.
 
 Check it:
 
@@ -164,7 +186,14 @@ administrator registration, and no session is issued until TOTP is
 configured.
 
 Every administrator mutation writes its audit row in the same database
-transaction as the change.
+transaction as the change. A database trigger chains each row with a SHA-256
+hash over its stored values, so inserts from an earlier revision during an
+upgrade are chained too. The hourly maintenance run verifies the chain and
+writes a signed checkpoint, covering the newest row, with the capability
+signing key whenever new rows exist. It logs the covered sequence, the chain
+hash, the signing key id and the signature in hex. Keep that log line outside
+the database. It proves the covered history was not rewritten after the
+checkpoint. It does not prove the entries were accurate.
 
 ## Updating to a new release
 
@@ -175,6 +204,13 @@ records their digest references in `server-release.json`, and attaches a
 dependency SBOM and signed provenance to each digest. Production uses the
 digest references, never the version tags.
 
+Before it changes anything, the deploy tool verifies each image's provenance
+attestation with the GitHub CLI against the pinned release repository
+`usesesame/sesame-server`, the release workflow, and the release tag. An image
+whose attestation is missing, was signed for another ref, or names another
+repository stops the deploy. A host with no GitHub access cannot deploy;
+verification is not skippable.
+
 The GitHub `server-release` environment must require release approval and
 define `SESAME_API_ORIGIN`, `SESAME_PUBLIC_SITE_ORIGIN`, and
 `SESAME_CAPABILITY_PUBLIC_KEY`. The key is the public half of the
@@ -182,8 +218,9 @@ production capability signing key. GitHub supplies registry and
 attestation credentials only to the workflow. Host and deployment
 credentials never enter the release job.
 
-Deploy one release artifact set end to end. Run this on the host, from a
-checkout at or newer than the revision that built the images.
+Deploy one release artifact set end to end. Check out the release tag on the
+host and run the tool with Node. The tool imports only Node builtins, so it
+needs no install step.
 
 A deployment that predates the database roles needs one migration step
 first. Add `SESAME_DATABASE_OWNER_PASSWORD`, `SESAME_DATABASE_APP_PASSWORD`,
@@ -203,17 +240,19 @@ tables and functions to `sesame_owner` so the deploy tool can migrate them.
 Then run the deploy:
 
 ```bash
-npm ci
-npm run deploy:release -- plan server-release.json     # what would happen, nothing changes
-npm run deploy:release -- deploy server-release.json
-npm run deploy:release -- status
-npm run deploy:release -- rollback [version]
+git fetch --tags
+git checkout v<version>
+node scripts/deploy-release.mjs plan server-release.json     # what would happen, nothing changes
+node scripts/deploy-release.mjs deploy server-release.json
+node scripts/deploy-release.mjs status
+node scripts/deploy-release.mjs rollback [version]
 ```
 
 The deploy tool runs these stages, and every stage is safe to retry after
 an interruption:
 
-1. Pull and verify all three images by digest and identity labels.
+1. Pull all three images and verify their digests, identity labels, and
+   GitHub provenance.
 2. Take a verified `pg_dump` backup.
 3. Restore that backup into a scratch database and run the candidate
    migration and the previous revision's API against it. This is the
@@ -227,6 +266,8 @@ an interruption:
 
 If a stage fails, the failure is contained and recorded:
 
+- A failed image verification stops the run before the backup, the rehearsal,
+  or any change.
 - A failed health check before the switch changes no traffic. The previous
   revision keeps serving, and the env file is untouched.
 - A failed health check after the switch rolls back automatically. The tool
@@ -252,6 +293,27 @@ still a wanted rollback target. Secrets from `.env.production` are read by
 the tool, mode 0600, never printed, and copied into the per-version
 snapshots under `deploy/state/history/`. Back that directory up with the
 same care as the env file itself.
+
+## Upgrading an existing stack
+
+An existing `.env.production` keeps its own values. The deploy tool rewrites
+only the three image lines, so nothing narrows a wide
+`SESAME_TRUSTED_PROXIES` for you. Set it to the pinned Compose subnet,
+`172.30.0.0/24` in the example, and keep it equal to
+`SESAME_COMPOSE_SUBNET`. The API refuses to start when the value holds an
+address outside loopback, private, or link-local space, such as `0.0.0.0/0`,
+`0.0.0.0/1`, or `::ffff:0.0.0.0/96`. The old `172.16.0.0/12` still starts
+with a warning that the range is wider than `/24`, and it trusts every peer
+in that range, not only the proxy.
+
+Changing the Compose `ipam` subnet recreates the `sesame-prod_default`
+network on the next `up -d`. Docker stops and recreates every container
+attached to that network, including the database, so expect a short outage.
+
+The old `mail.usesesame.app:host-gateway` mapping is gone. When the relay
+runs on this host and must be reached by its certificate name, set
+`SESAME_SMTP_HOST_GATEWAY` to that name. Review host firewall and Postfix
+`mynetworks` rules written for the old bridge subnet. They no longer match.
 
 ## Backups
 
@@ -295,6 +357,17 @@ separately, somewhere other than this host.
 
 ## Operating notes
 
+- **Email action links are sealed, never stored in plaintext.** The API seals
+  each queued action link with a key derived from
+  `SESAME_ADMIN_ENCRYPTION_KEY`, and the delivery worker opens it only to send
+  the message. A delivered or failed outbox row,
+  including its sealed link, is purged seven days after its last update; an
+  undelivered row expires at its own deadline first. Verification links live
+  24 hours, recovery and email-change links 30 minutes, and support access
+  links seven days. Deploying this release fails every queued action email
+  that carries a single-use token and clears its link, so those users request
+  a new one. Queued notifications without a token stay pending and send, with
+  their link cleared.
 - **Registration** defaults to `invite`. With the administration portal
   running, the `registration_mode` feature flag in the database wins over
   the environment variable.
@@ -318,6 +391,10 @@ separately, somewhere other than this host.
 - **Trusted proxy ranges** are a reviewed configuration change, since they
   decide how a client address is trusted before authentication. The
   dashboard shows the active count and cannot edit it at runtime.
+- **Container limits** live in `deploy/compose/compose.prod.yaml`. If a
+  service is killed for exceeding its memory limit, `docker inspect` reports
+  `OOMKilled` for that container; raise its `mem_limit` and run `up -d`
+  again. Keep the limits and the read-only root filesystem in place.
 - The API never accepts a vault. That boundary needs its own threat model
   and is outside anything here.
 
