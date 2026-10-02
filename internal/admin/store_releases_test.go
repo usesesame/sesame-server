@@ -257,9 +257,7 @@ func releaseTestStore(t *testing.T) (*Store, *sql.DB) {
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
 	lockReleaseTests(t, accountStore.DB())
-	if _, err := accountStore.DB().ExecContext(context.Background(), `TRUNCATE sesame_releases, sesame_admin_audit_log RESTART IDENTITY CASCADE`); err != nil {
-		t.Fatalf("clear release tables: %v", err)
-	}
+	truncateAuditTables(t, accountStore.DB(), `TRUNCATE sesame_releases, sesame_admin_audit_log RESTART IDENTITY CASCADE`)
 	store, err := Open(context.Background(), databaseURL, bytes.Repeat([]byte{1}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)
