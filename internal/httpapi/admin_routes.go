@@ -92,7 +92,7 @@ func (a *api) adminUserDelete(response http.ResponseWriter, request *http.Reques
 		a.notFound(response, request)
 		return
 	}
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersDelete)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersDelete)
 	if !ok {
 		return
 	}
@@ -112,7 +112,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 		}
 		switch action {
 		case "owner-release":
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 			if !ok {
 				return
 			}
@@ -121,7 +121,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 				return
 			}
 		case "beta":
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersManage)
 			if !ok {
 				return
 			}
@@ -130,7 +130,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 				return
 			}
 		case "suspend":
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersManage)
 			if !ok {
 				return
 			}
@@ -148,7 +148,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 				return
 			}
 		case "sessions":
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersManage)
 			if !ok {
 				return
 			}
@@ -162,7 +162,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 				a.notFound(response, request)
 				return
 			}
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersManage)
 			if !ok {
 				return
 			}
@@ -208,7 +208,7 @@ func (a *api) adminFlags(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionFlagsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionFlagsManage)
 	if !ok {
 		return
 	}
@@ -279,7 +279,7 @@ func (a *api) adminPlans(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminPlan(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionPlansWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionPlansWrite)
 	if !ok {
 		return
 	}
@@ -331,7 +331,7 @@ func (a *api) adminReleases(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) adminReleasePublish(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -347,7 +347,7 @@ func (a *api) adminReleasePublish(response http.ResponseWriter, request *http.Re
 }
 
 func (a *api) adminReleaseRollout(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -363,7 +363,7 @@ func (a *api) adminReleaseRollout(response http.ResponseWriter, request *http.Re
 }
 
 func (a *api) adminReleaseEmergencyStop(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -379,7 +379,7 @@ func (a *api) adminReleaseEmergencyStop(response http.ResponseWriter, request *h
 }
 
 func (a *api) adminReleaseWithdraw(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -420,7 +420,7 @@ func (a *api) adminAccounts(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) inviteAdminAccount(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionAdminsManage)
 	if !ok {
 		return
 	}
@@ -443,7 +443,7 @@ func (a *api) inviteAdminAccount(response http.ResponseWriter, request *http.Req
 }
 
 func (a *api) deleteAdminAccount(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionAdminsManage)
 	if !ok {
 		return
 	}
@@ -455,7 +455,7 @@ func (a *api) deleteAdminAccount(response http.ResponseWriter, request *http.Req
 }
 
 func (a *api) updateAdminAccount(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionAdminsManage)
 	if !ok {
 		return
 	}

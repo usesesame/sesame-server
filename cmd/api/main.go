@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -79,10 +81,13 @@ func main() {
 		slog.Error("Sesame API configuration is invalid", "error", "Secure session cookies are required for an HTTPS website origin")
 		os.Exit(1)
 	}
-	trustedProxies, err := parseTrustedProxies(os.Getenv("SESAME_TRUSTED_PROXIES"))
+	trustedProxies, trustedProxyWarnings, err := parseTrustedProxies(os.Getenv("SESAME_TRUSTED_PROXIES"))
 	if err != nil {
 		slog.Error("Sesame API configuration is invalid", "error", err)
 		os.Exit(1)
+	}
+	for _, warning := range trustedProxyWarnings {
+		slog.Warn("Sesame API configuration warning", "warning", warning)
 	}
 	store, err := accounts.OpenWithoutMigrate(ctx, databaseURL)
 	if err != nil {
@@ -102,6 +107,7 @@ func main() {
 		os.Exit(1)
 	}
 	var adminService *adminstore.Store
+	var adminKey []byte
 	adminKeyValue := strings.TrimSpace(os.Getenv("SESAME_ADMIN_ENCRYPTION_KEY"))
 	adminOrigin := ""
 	adminSecure := envBool("SESAME_ADMIN_SESSION_SECURE", sessionSecure)
@@ -121,11 +127,12 @@ func main() {
 			slog.Error("Sesame admin configuration is invalid", "error", err)
 			os.Exit(1)
 		}
-		adminKey, keyErr := adminstore.ParseEncryptionKey(adminKeyValue)
+		parsedKey, keyErr := adminstore.ParseEncryptionKey(adminKeyValue)
 		if keyErr != nil {
 			slog.Error("Sesame admin configuration is invalid", "error", keyErr)
 			os.Exit(1)
 		}
+		adminKey = parsedKey
 		if strings.HasPrefix(adminOrigin, "https://") && !adminSecure {
 			slog.Error("Sesame admin configuration is invalid", "error", "Secure admin cookies are required for an HTTPS admin origin")
 			os.Exit(1)
@@ -149,7 +156,7 @@ func main() {
 	} else {
 		slog.Warn("Sesame admin API is disabled", "reason", "SESAME_ADMIN_ENCRYPTION_KEY is not configured")
 	}
-	emailSender, outbox, worker, err := buildEmailSender(ctx, store.DB())
+	emailSender, outbox, worker, err := buildEmailSender(ctx, store.DB(), adminKey)
 	if err != nil {
 		slog.Error("Sesame API email configuration is invalid", "error", err)
 		os.Exit(1)
@@ -200,11 +207,11 @@ func main() {
 		OperationalOutbox:         operationalOutbox,
 		Maintenance:               maintenance,
 	}
-	runMaintenanceOnce(ctx, store, outbox, maintenance)
+	runMaintenanceOnce(ctx, store, outbox, maintenance, config.CapabilitySigningKey, config.CapabilityKeyID)
 	backgroundJobs.Add(1)
 	go func() {
 		defer backgroundJobs.Done()
-		runMaintenance(ctx, store, outbox, maintenance)
+		runMaintenance(ctx, store, outbox, maintenance, config.CapabilitySigningKey, config.CapabilityKeyID)
 	}()
 	server := &http.Server{
 		Addr:              env("SESAME_API_ADDR", "127.0.0.1:8787"),
@@ -322,10 +329,17 @@ func supportNotifyAddress(value string) (string, error) {
 	return value, nil
 }
 
-func buildEmailSender(ctx context.Context, db *sql.DB) (httpapi.EmailSender, notifications.Outbox, *notifications.Worker, error) {
+func buildEmailSender(ctx context.Context, db *sql.DB, encryptionKey []byte) (httpapi.EmailSender, notifications.Outbox, *notifications.Worker, error) {
 	address := strings.TrimSpace(os.Getenv("SESAME_SMTP_ADDR"))
 	if address == "" {
 		return nil, nil, nil, nil
+	}
+	if len(encryptionKey) == 0 {
+		return nil, nil, nil, errors.New("SESAME_ADMIN_ENCRYPTION_KEY is required to seal email outbox action links")
+	}
+	sealer, err := notifications.NewActionURLSealer(encryptionKey)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	from := strings.TrimSpace(os.Getenv("SESAME_SMTP_FROM"))
 	localCapture := envBool("SESAME_SMTP_ALLOW_INSECURE_LOCAL", false)
@@ -336,7 +350,6 @@ func buildEmailSender(ctx context.Context, db *sql.DB) (httpapi.EmailSender, not
 		return nil, nil, nil, errors.New("local SMTP capture must not use SMTP credentials")
 	}
 	var sender *notifications.SMTP
-	var err error
 	if localCapture {
 		sender, err = notifications.NewSMTPForLocalDevelopment(address, from)
 	} else {
@@ -345,31 +358,83 @@ func buildEmailSender(ctx context.Context, db *sql.DB) (httpapi.EmailSender, not
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	outbox := notifications.NewPostgresOutbox(db)
-	worker := notifications.NewWorker(outbox, sender)
+	outbox := notifications.NewPostgresOutbox(db, sealer)
+	worker := notifications.NewWorker(outbox, sender, sealer)
 	if err := outbox.Ping(ctx); err != nil {
 		return nil, nil, nil, err
 	}
 	return notifications.NewOutboxEmailSender(outbox), outbox, worker, nil
 }
 
-func parseTrustedProxies(value string) ([]netip.Prefix, error) {
+func parseTrustedProxies(value string) ([]netip.Prefix, []string, error) {
 	if strings.TrimSpace(value) == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	prefixes := make([]netip.Prefix, 0)
+	warnings := make([]string, 0)
 	for _, raw := range strings.Split(value, ",") {
 		raw = strings.TrimSpace(raw)
 		prefix, err := netip.ParsePrefix(raw)
 		if err != nil {
-			return nil, errors.New("SESAME_TRUSTED_PROXIES must contain CIDR ranges")
+			return nil, nil, errors.New("SESAME_TRUSTED_PROXIES must contain CIDR ranges")
 		}
-		prefixes = append(prefixes, prefix.Masked())
+		prefix = prefix.Masked()
+		if prefix.Addr().Is4In6() {
+			return nil, nil, errors.New("SESAME_TRUSTED_PROXIES must not contain IPv4-mapped IPv6 ranges")
+		}
+		if !trustedProxyAddr(prefix.Addr()) || !trustedProxyAddr(lastAddrInPrefix(prefix)) {
+			return nil, nil, errors.New("SESAME_TRUSTED_PROXIES must stay inside loopback, private, or link-local addresses")
+		}
+		if warning := trustedProxyWidthWarning(prefix); warning != "" {
+			warnings = append(warnings, warning)
+		}
+		prefixes = append(prefixes, prefix)
 	}
-	return prefixes, nil
+	return prefixes, warnings, nil
 }
 
-func runMaintenance(ctx context.Context, store accounts.MaintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState) {
+func trustedProxyWidthWarning(prefix netip.Prefix) string {
+	if prefix.Addr().IsLoopback() {
+		return ""
+	}
+	limit := 64
+	if prefix.Addr().Is4() {
+		limit = 24
+	}
+	if prefix.Bits() >= limit {
+		return ""
+	}
+	return fmt.Sprintf("trusted proxy range %s is wider than /%d; pin the proxy network if possible", prefix, limit)
+}
+
+func trustedProxyAddr(addr netip.Addr) bool {
+	return addr.IsLoopback() || addr.IsPrivate() || addr.IsLinkLocalUnicast()
+}
+
+func lastAddrInPrefix(prefix netip.Prefix) netip.Addr {
+	addr := prefix.Addr()
+	raw := addr.As16()
+	start := prefix.Bits()
+	if addr.Is4() {
+		start += 96
+	}
+	for bit := start; bit < 128; bit++ {
+		raw[bit/8] |= 1 << (7 - bit%8)
+	}
+	if addr.Is4() {
+		var raw4 [4]byte
+		copy(raw4[:], raw[12:])
+		return netip.AddrFrom4(raw4)
+	}
+	return netip.AddrFrom16(raw)
+}
+
+type maintenanceStore interface {
+	accounts.MaintenanceStore
+	DB() *sql.DB
+}
+
+func runMaintenance(ctx context.Context, store maintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState, capabilityKey ed25519.PrivateKey, capabilityKeyID string) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -378,13 +443,13 @@ func runMaintenance(ctx context.Context, store accounts.MaintenanceStore, outbox
 			return
 		case <-ticker.C:
 			purgeContext, cancel := context.WithTimeout(ctx, 30*time.Second)
-			runMaintenanceOnce(purgeContext, store, outbox, maintenance)
+			runMaintenanceOnce(purgeContext, store, outbox, maintenance, capabilityKey, capabilityKeyID)
 			cancel()
 		}
 	}
 }
 
-func runMaintenanceOnce(ctx context.Context, store accounts.MaintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState) {
+func runMaintenanceOnce(ctx context.Context, store maintenanceStore, outbox notifications.Outbox, maintenance *httpapi.MaintenanceState, capabilityKey ed25519.PrivateKey, capabilityKeyID string) {
 	status := httpapi.OperationalReady
 	if err := store.PurgeExpired(ctx); err != nil {
 		slog.Warn("Sesame API could not purge expired security records", "error", err)
@@ -404,7 +469,47 @@ func runMaintenanceOnce(ctx context.Context, store accounts.MaintenanceStore, ou
 			slog.Info("purged failed email outbox records", "count", n)
 		}
 	}
+	status = verifyAuditChain(ctx, store.DB(), capabilityKey, capabilityKeyID, status)
 	maintenance.Record(status, time.Now().UTC())
+}
+
+func verifyAuditChain(ctx context.Context, db *sql.DB, capabilityKey ed25519.PrivateKey, capabilityKeyID string, status httpapi.OperationalStatus) httpapi.OperationalStatus {
+	report, err := adminstore.VerifyAuditChain(ctx, db)
+	if err != nil {
+		slog.Warn("Sesame API could not verify the admin audit chain", "error", err)
+		return httpapi.OperationalDegraded
+	}
+	if !report.Verified {
+		slog.Warn("Sesame API detected a broken admin audit chain", "seq", report.FirstBreak.Seq, "row", report.FirstBreak.ID, "reason", report.FirstBreak.Reason)
+		return httpapi.OperationalDegraded
+	}
+	publicKey, ok := capabilityKey.Public().(ed25519.PublicKey)
+	if !ok {
+		slog.Warn("Sesame API cannot verify admin audit checkpoints", "reason", "capability signing key is missing")
+		return httpapi.OperationalDegraded
+	}
+	checkpoints, err := adminstore.VerifyAuditCheckpoints(ctx, db, publicKey, capabilityKeyID)
+	if err != nil {
+		slog.Warn("Sesame API could not verify admin audit checkpoints", "error", err)
+		return httpapi.OperationalDegraded
+	}
+	if !checkpoints.Verified {
+		slog.Warn("Sesame API detected an invalid admin audit checkpoint", "reason", checkpoints.FirstBreak)
+		return httpapi.OperationalDegraded
+	}
+	checkpoint, err := adminstore.CheckpointAuditChain(ctx, db, capabilityKey, capabilityKeyID)
+	if err != nil {
+		slog.Warn("Sesame API could not write an admin audit checkpoint", "error", err)
+		return httpapi.OperationalDegraded
+	}
+	if checkpoint != nil {
+		slog.Info("wrote admin audit checkpoint",
+			"coverSeq", checkpoint.CoverSeq,
+			"chainHash", hex.EncodeToString(checkpoint.ChainHash),
+			"keyId", checkpoint.KeyID,
+			"signature", hex.EncodeToString(checkpoint.Signature))
+	}
+	return status
 }
 
 func buildPasskeys(origin, rpID, rpName string) *webauthn.WebAuthn {

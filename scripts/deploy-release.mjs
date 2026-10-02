@@ -7,7 +7,7 @@ import { pipeline } from 'node:stream/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fileIO } from './deploy-io.mjs'
-import { BACKUP_COMPLETE_MARKER, classifyDeployment, deployRelease, parseBackupRecipients, parseRelease, pgDumpArguments, readDeployedState, rehearsalEnvFile, rollbackRelease, writeEncryptedBackup } from './deploy-release-lib.mjs'
+import { attestationArgs, BACKUP_COMPLETE_MARKER, classifyDeployment, deployRelease, parseBackupRecipients, parseRelease, pgDumpArguments, readDeployedState, rehearsalEnvFile, rollbackRelease, writeEncryptedBackup } from './deploy-release-lib.mjs'
 import { parseEnvText } from './setup-lib.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -31,6 +31,16 @@ const io = {
     if (result.status !== 0) return null
     const image = JSON.parse(result.stdout)
     return { repoDigests: image.RepoDigests ?? [], labels: image.Config?.Labels ?? {} }
+  },
+  verifyImageAttestation: (target) => {
+    const { reference, repository, signerWorkflow, sourceRef } = target
+    const result = spawnSync('gh', attestationArgs(target), { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
+    if (result.error) {
+      throw new Error(`The GitHub CLI could not check the provenance of ${reference}: ${result.error.message}. Install gh and run gh auth login on this host; a host without GitHub access cannot deploy.`)
+    }
+    if (result.status !== 0) {
+      throw new Error(`The provenance attestation for ${reference} did not verify against ${repository} at ${sourceRef} from ${signerWorkflow}: ${lastLine(result.stderr)}. A missing or mismatched attestation stops the deploy.`)
+    }
   },
   takeBackup: (destination, recipients) => takeStreamingBackup(destination, recipients),
   rehearse: ({ candidateRef, previousRef }) => rehearseMigrations({ candidateRef, previousRef }),

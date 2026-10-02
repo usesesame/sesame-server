@@ -16,8 +16,8 @@ if (!existsSync(envFile)) {
 
 const composeEnvironment = parseEnvText(readFileSync(envFile, 'utf8'))
 const fromCompose = (name, fallback) => process.env[name] || composeEnvironment.get(name) || fallback
-const databasePassword = fromCompose('SESAME_DATABASE_PASSWORD', 'sesame-development-only')
-const localDatabaseUrl = `postgres://sesame:${encodeURIComponent(databasePassword)}@127.0.0.1:5432/sesame?sslmode=disable`
+const databasePassword = fromCompose('SESAME_DATABASE_APP_PASSWORD', 'sesame-development-only')
+const localDatabaseUrl = `postgres://sesame_app:${encodeURIComponent(databasePassword)}@127.0.0.1:5432/sesame?sslmode=disable`
 
 const environment = {
   ...process.env,
@@ -51,6 +51,7 @@ if (!process.env.DATABASE_URL) {
   // containerized API and keep its PostgreSQL volume intact.
   runCompose(['stop', 'api'])
   runCompose(['up', '-d', '--wait', 'db'])
+  runCompose(['exec', '-T', 'db', 'sh', '/docker-entrypoint-initdb.d/10-roles.sh'])
 }
 
 console.log(`Starting Sesame API at http://${environment.SESAME_API_ADDR}`)

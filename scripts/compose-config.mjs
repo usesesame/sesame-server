@@ -4,6 +4,9 @@ import { digestReference } from './release-contract.mjs'
 const digest = `sha256:${'0'.repeat(64)}`
 const common = {
   SESAME_DATABASE_PASSWORD: 'sesame-config-only',
+  SESAME_DATABASE_OWNER_PASSWORD: 'sesame-config-owner',
+  SESAME_DATABASE_APP_PASSWORD: 'sesame-config-app',
+  SESAME_DATABASE_BACKUP_PASSWORD: 'sesame-config-backup',
   SESAME_CAPABILITY_SIGNING_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   SESAME_CAPABILITY_PUBLIC_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
   SESAME_ADMIN_ENCRYPTION_KEY: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
@@ -15,7 +18,7 @@ const common = {
   SESAME_SITE_ORIGIN: 'https://website.test.invalid',
   SESAME_REGISTRATION_MODE: 'closed',
   SESAME_RP_ID: 'account.test.invalid',
-  SESAME_TRUSTED_PROXIES: '172.16.0.0/12',
+  SESAME_TRUSTED_PROXIES: '172.30.0.0/24',
   SESAME_SERVER_CONTEXT: '../..',
 }
 
@@ -60,6 +63,95 @@ digestReference(candidate.services['candidate-api']?.image, 'Candidate check')
 if (candidate.services['candidate-api']?.build) throw new Error('The candidate check must not contain a build context.')
 if (candidate.networks?.default?.name !== 'sesame-prod_default' || candidate.networks?.default?.external !== true) {
   throw new Error('The candidate check must join the production network as an external network.')
+}
+const productionNetwork = production.networks?.default
+if (productionNetwork?.name !== 'sesame-prod_default') {
+  throw new Error('The production stack must pin the network name the candidate check joins.')
+}
+const productionSubnets = (productionNetwork?.ipam?.config ?? []).map((entry) => entry.subnet)
+if (productionSubnets.length !== 1 || productionSubnets[0] !== productionValues.SESAME_TRUSTED_PROXIES) {
+  throw new Error('The production network subnet and SESAME_TRUSTED_PROXIES must be the same range.')
+}
+if (production.services.api?.environment?.SESAME_TRUSTED_PROXIES !== productionValues.SESAME_TRUSTED_PROXIES) {
+  throw new Error('The production API must receive the pinned trusted proxy range.')
+}
+if ((production.services.api?.extra_hosts ?? []).some((entry) => /mail\.usesesame\.app/.test(entry))) {
+  throw new Error('The production stack must not ship a deployment-specific mail host mapping.')
+}
+
+const applicationServices = ['migrate', 'api', 'account', 'admin', 'gateway']
+for (const service of applicationServices) {
+  const definition = production.services[service]
+  if (!definition) throw new Error(`Production ${service} is missing from the stack.`)
+  if (definition.read_only !== true) throw new Error(`Production ${service} must keep a read-only root filesystem.`)
+  if (!definition.tmpfs?.some((entry) => entry === '/tmp' || entry.startsWith('/tmp:'))) {
+    throw new Error(`Production ${service} must keep a writable tmpfs at /tmp.`)
+  }
+  if (!definition.cap_drop?.includes('ALL')) throw new Error(`Production ${service} must keep cap_drop: [ALL].`)
+  if (!definition.security_opt?.includes('no-new-privileges:true')) {
+    throw new Error(`Production ${service} must keep no-new-privileges:true.`)
+  }
+  if (!Number.isInteger(Number(definition.pids_limit)) || Number(definition.pids_limit) < 1) {
+    throw new Error(`Production ${service} must keep a positive pids limit.`)
+  }
+  if (!Number.isFinite(Number(definition.mem_limit)) || Number(definition.mem_limit) < 64 * 1024 * 1024) {
+    throw new Error(`Production ${service} must keep a memory limit of at least 64 MiB.`)
+  }
+}
+for (const service of ['account', 'admin']) {
+  const tmpfs = production.services[service].tmpfs ?? []
+  for (const mount of ['/var/cache/nginx', '/run']) {
+    if (!tmpfs.some((entry) => entry === mount || entry.startsWith(`${mount}:`))) {
+      throw new Error(`Production ${service} must keep a writable tmpfs at ${mount} for nginx.`)
+    }
+  }
+}
+if (production.services.db?.read_only === true) throw new Error('PostgreSQL must keep a writable root filesystem.')
+if (production.services.db?.cap_drop?.includes('ALL')) {
+  throw new Error('PostgreSQL must keep the capabilities its entrypoint needs to prepare the data directory.')
+}
+if (!production.services.db?.security_opt?.includes('no-new-privileges:true')) {
+  throw new Error('PostgreSQL must keep no-new-privileges:true.')
+}
+if (!Number.isInteger(Number(production.services.db?.pids_limit)) || Number(production.services.db.pids_limit) < 1) {
+  throw new Error('PostgreSQL must keep a positive pids limit.')
+}
+if (!Number.isFinite(Number(production.services.db?.mem_limit)) || Number(production.services.db.mem_limit) < 256 * 1024 * 1024) {
+  throw new Error('PostgreSQL must keep a memory limit of at least 256 MiB.')
+}
+for (const service of ['api', 'account', 'admin', 'gateway']) {
+  const ports = production.services[service]?.ports ?? []
+  if (ports.length !== 1 || ports[0]?.host_ip !== '127.0.0.1') {
+    throw new Error(`Production ${service} must keep its single loopback port binding.`)
+  }
+}
+
+const ownerDatabaseURL = `postgres://sesame_owner:${common.SESAME_DATABASE_OWNER_PASSWORD}@db:5432/sesame?sslmode=disable`
+const applicationDatabaseURL = `postgres://sesame_app:${common.SESAME_DATABASE_APP_PASSWORD}@db:5432/sesame?sslmode=disable`
+assertDatabaseRoles(development, 'Development', 'api')
+assertDatabaseRoles(production, 'Production', 'api')
+if (candidate.services['candidate-api']?.environment?.DATABASE_URL !== applicationDatabaseURL) {
+  throw new Error('The candidate check must connect through the application role.')
+}
+
+function assertDatabaseRoles(stack, label, apiService) {
+  const databaseEnvironment = stack.services.db?.environment ?? {}
+  if (databaseEnvironment.POSTGRES_USER !== 'sesame' || databaseEnvironment.POSTGRES_PASSWORD !== common.SESAME_DATABASE_PASSWORD) {
+    throw new Error(`${label} PostgreSQL must keep the bootstrap superuser for role creation.`)
+  }
+  for (const name of ['SESAME_DATABASE_OWNER_PASSWORD', 'SESAME_DATABASE_APP_PASSWORD', 'SESAME_DATABASE_BACKUP_PASSWORD']) {
+    if (!databaseEnvironment[name]) throw new Error(`${label} PostgreSQL must receive ${name} to create the roles.`)
+  }
+  const initMounts = (stack.services.db?.volumes ?? []).filter((volume) => volume.target === '/docker-entrypoint-initdb.d')
+  if (initMounts.length !== 1 || initMounts[0].type !== 'bind' || initMounts[0].read_only !== true) {
+    throw new Error(`${label} PostgreSQL must mount the role init script read-only.`)
+  }
+  if (stack.services.migrate?.environment?.DATABASE_URL !== ownerDatabaseURL) {
+    throw new Error(`${label} migrations must connect through the owner role.`)
+  }
+  if (stack.services[apiService]?.environment?.DATABASE_URL !== applicationDatabaseURL) {
+    throw new Error(`${label} API must connect through the application role.`)
+  }
 }
 
 function check(files, values) {

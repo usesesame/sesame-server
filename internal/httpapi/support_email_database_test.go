@@ -186,13 +186,10 @@ func TestSupportReplyEmailEnqueueFailureRollsBack(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = accountStore.Close() })
 	lockDatabaseTests(t, accountStore.DB())
-	if _, err := accountStore.DB().ExecContext(ctx, `
+	truncateAuditTables(t, accountStore.DB(), `
 		TRUNCATE sesame_email_outbox, sesame_support_requests, sesame_support_messages, sesame_support_notes,
 		         sesame_admin_audit_log, sesame_admin_sessions, sesame_admin_accounts
-		RESTART IDENTITY CASCADE
-	`); err != nil {
-		t.Fatalf("clear support tables: %v", err)
-	}
+		RESTART IDENTITY CASCADE`)
 	adminService, err := adminstore.Open(ctx, databaseURL, bytes.Repeat([]byte{5}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)

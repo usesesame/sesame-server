@@ -39,9 +39,22 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	accountStore, err := accounts.Open(ctx, databaseURL)
+	accountStore, err := accounts.OpenWithoutMigrate(ctx, databaseURL)
 	if err != nil {
-		slog.Error("could not migrate account database", "error", err)
+		slog.Error("could not open the account database", "error", err)
+		os.Exit(1)
+	}
+	pendingMigrations, err := accountStore.PendingMigrations(ctx)
+	if err != nil {
+		_ = accountStore.Close()
+		slog.Error("could not verify the account database schema", "error", err)
+		os.Exit(1)
+	}
+	if len(pendingMigrations) > 0 {
+		_ = accountStore.Close()
+		slog.Error("the account database schema is not current",
+			"pending", strings.Join(pendingMigrations, ", "),
+			"fix", "run the migrate job for this release first")
 		os.Exit(1)
 	}
 	_ = accountStore.Close()
