@@ -13,15 +13,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
-    environment: server-release
     permissions:
-      contents: write
-      packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
+      contents: read
+    outputs:
+      version: ${{ steps.contract.outputs.version }}
+      commit: ${{ steps.contract.outputs.commit }}
     services:
       postgres:
         image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
@@ -38,13 +36,11 @@ jobs:
           --health-retries 10
     env:
       SESAME_TEST_DATABASE_URL: postgres://sesame:sesame-test-only@127.0.0.1:5432/sesame_test?sslmode=disable
-      API_REPOSITORY: ghcr.io/${{ github.repository }}-api
-      ACCOUNT_REPOSITORY: ghcr.io/${{ github.repository }}-account
-      ADMIN_REPOSITORY: ghcr.io/${{ github.repository }}-admin
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
@@ -61,13 +57,6 @@ jobs:
         run: node scripts/release-contract.mjs github "$GITHUB_REF_NAME" "$GITHUB_SHA"
 
       - run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
-
-      - run: |
-          echo "SESAME_RELEASE_VERSION=${{ steps.contract.outputs.version }}" >> "$GITHUB_ENV"
-          echo "SESAME_RELEASE_COMMIT=${{ steps.contract.outputs.commit }}" >> "$GITHUB_ENV"
-          echo "SESAME_API_IMAGE=${API_REPOSITORY}:${{ steps.contract.outputs.version }}" >> "$GITHUB_ENV"
-          echo "SESAME_ACCOUNT_IMAGE=${ACCOUNT_REPOSITORY}:${{ steps.contract.outputs.version }}" >> "$GITHUB_ENV"
-          echo "SESAME_ADMIN_IMAGE=${ADMIN_REPOSITORY}:${{ steps.contract.outputs.version }}" >> "$GITHUB_ENV"
 
       - run: npm ci
       - run: npm run ci
@@ -95,35 +84,147 @@ jobs:
 
       - run: npm run compose:config
 
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: server-release
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ needs.verify.outputs.version }}
+      commit: ${{ needs.verify.outputs.commit }}
+      images_sha256: ${{ steps.digests.outputs.images_sha256 }}
+      api_sbom_sha256: ${{ steps.digests.outputs.api_sbom_sha256 }}
+      account_sbom_sha256: ${{ steps.digests.outputs.account_sbom_sha256 }}
+      admin_sbom_sha256: ${{ steps.digests.outputs.admin_sbom_sha256 }}
+    env:
+      SESAME_RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+      SESAME_RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+      SESAME_RELEASE_SOURCE_URL: https://github.com/${{ github.repository }}
+      SESAME_RELEASE_API_ORIGIN: ${{ vars.SESAME_API_ORIGIN }}
+      SESAME_RELEASE_SITE_ORIGIN: ${{ vars.SESAME_PUBLIC_SITE_ORIGIN }}
+      SESAME_RELEASE_CAPABILITY_PUBLIC_KEY: ${{ vars.SESAME_CAPABILITY_PUBLIC_KEY }}
+      SESAME_API_IMAGE: ghcr.io/${{ github.repository }}-api:${{ needs.verify.outputs.version }}
+      SESAME_ACCOUNT_IMAGE: ghcr.io/${{ github.repository }}-account:${{ needs.verify.outputs.version }}
+      SESAME_ADMIN_IMAGE: ghcr.io/${{ github.repository }}-admin:${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+
       - run: npm run release:images:build
-        env:
-          SESAME_RELEASE_SOURCE_URL: https://github.com/${{ github.repository }}
-          SESAME_RELEASE_API_ORIGIN: ${{ vars.SESAME_API_ORIGIN }}
-          SESAME_RELEASE_SITE_ORIGIN: ${{ vars.SESAME_PUBLIC_SITE_ORIGIN }}
-          SESAME_RELEASE_CAPABILITY_PUBLIC_KEY: ${{ vars.SESAME_CAPABILITY_PUBLIC_KEY }}
 
       - run: npm run compose:smoke
 
       - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
         with:
-          image: ${{ env.API_REPOSITORY }}:${{ steps.contract.outputs.version }}
+          image: ${{ env.SESAME_API_IMAGE }}
           format: spdx-json
           output-file: api.spdx.json
           upload-artifact: false
 
       - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
         with:
-          image: ${{ env.ACCOUNT_REPOSITORY }}:${{ steps.contract.outputs.version }}
+          image: ${{ env.SESAME_ACCOUNT_IMAGE }}
           format: spdx-json
           output-file: account.spdx.json
           upload-artifact: false
 
       - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
         with:
-          image: ${{ env.ADMIN_REPOSITORY }}:${{ steps.contract.outputs.version }}
+          image: ${{ env.SESAME_ADMIN_IMAGE }}
           format: spdx-json
           output-file: admin.spdx.json
           upload-artifact: false
+
+      - run: docker save --output release-images.tar "$SESAME_API_IMAGE" "$SESAME_ACCOUNT_IMAGE" "$SESAME_ADMIN_IMAGE"
+
+      - id: digests
+        name: Record the release artifact digests
+        run: |
+          set -euo pipefail
+          record() {
+            local name="$1" file="$2" digest
+            digest=$(sha256sum -- "$file" | cut -d ' ' -f 1)
+            printf '%s=%s\n' "$name" "$digest" >> "$GITHUB_OUTPUT"
+          }
+          record images_sha256 release-images.tar
+          record api_sbom_sha256 api.spdx.json
+          record account_sbom_sha256 account.spdx.json
+          record admin_sbom_sha256 admin.spdx.json
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-images-${{ needs.verify.outputs.version }}
+          path: |
+            release-images.tar
+            api.spdx.json
+            account.spdx.json
+            admin.spdx.json
+          if-no-files-found: error
+
+  publish:
+    needs: images
+    runs-on: ubuntu-latest
+    environment: server-release
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      API_REPOSITORY: ghcr.io/${{ github.repository }}-api
+      ACCOUNT_REPOSITORY: ghcr.io/${{ github.repository }}-account
+      ADMIN_REPOSITORY: ghcr.io/${{ github.repository }}-admin
+      SESAME_RELEASE_VERSION: ${{ needs.images.outputs.version }}
+      SESAME_RELEASE_COMMIT: ${{ needs.images.outputs.commit }}
+      SESAME_API_IMAGE: ghcr.io/${{ github.repository }}-api:${{ needs.images.outputs.version }}
+      SESAME_ACCOUNT_IMAGE: ghcr.io/${{ github.repository }}-account:${{ needs.images.outputs.version }}
+      SESAME_ADMIN_IMAGE: ghcr.io/${{ github.repository }}-admin:${{ needs.images.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        with:
+          name: release-images-${{ needs.images.outputs.version }}
+
+      - name: Verify the release artifact digests
+        env:
+          EXPECTED_IMAGES_SHA256: ${{ needs.images.outputs.images_sha256 }}
+          EXPECTED_API_SBOM_SHA256: ${{ needs.images.outputs.api_sbom_sha256 }}
+          EXPECTED_ACCOUNT_SBOM_SHA256: ${{ needs.images.outputs.account_sbom_sha256 }}
+          EXPECTED_ADMIN_SBOM_SHA256: ${{ needs.images.outputs.admin_sbom_sha256 }}
+        run: |
+          set -euo pipefail
+          verify() {
+            local file="$1" expected="$2" actual
+            if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "release digest for $file is malformed: expected 64 lowercase hex characters" >&2
+              exit 1
+            fi
+            actual=$(sha256sum -- "$file" | cut -d ' ' -f 1)
+            if [[ "$actual" != "$expected" ]]; then
+              echo "release digest mismatch for $file: expected $expected, got $actual" >&2
+              exit 1
+            fi
+          }
+          verify release-images.tar "$EXPECTED_IMAGES_SHA256"
+          verify api.spdx.json "$EXPECTED_API_SBOM_SHA256"
+          verify account.spdx.json "$EXPECTED_ACCOUNT_SBOM_SHA256"
+          verify admin.spdx.json "$EXPECTED_ADMIN_SBOM_SHA256"
+
+      - run: docker load --input release-images.tar
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
@@ -189,7 +290,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: server-release-${{ steps.contract.outputs.version }}
+          name: server-release-${{ needs.images.outputs.version }}
           path: |
             server-release.json
             api.spdx.json

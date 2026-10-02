@@ -60,10 +60,12 @@ not rebuild source on the host.
 
 These values matter most. The comments in the example explain them as well.
 
-- `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret.
-  If it changes, those secrets become unreadable and sign-in fails with the
-  same message a wrong password gets. Back it up somewhere that survives
-  this disk.
+- `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret and
+  every queued account-email action link. If it changes, those secrets become
+  unreadable and sign-in fails with the same message a wrong password gets,
+  and queued email can never be delivered. The API refuses to start when SMTP
+  is configured without this key. Back it up somewhere that survives this
+  disk.
 - `SESAME_RP_ID` must be the account portal's registrable domain. Changing
   it later invalidates every passkey already registered.
 - `SESAME_TRUSTED_PROXIES` must name the proxy's network and nothing wider.
@@ -161,7 +163,14 @@ administrator registration, and no session is issued until TOTP is
 configured.
 
 Every administrator mutation writes its audit row in the same database
-transaction as the change.
+transaction as the change. A database trigger chains each row with a SHA-256
+hash over its stored values, so inserts from an earlier revision during an
+upgrade are chained too. The hourly maintenance run verifies the chain and
+writes a signed checkpoint, covering the newest row, with the capability
+signing key whenever new rows exist. It logs the covered sequence, the chain
+hash, the signing key id and the signature in hex. Keep that log line outside
+the database. It proves the covered history was not rewritten after the
+checkpoint. It does not prove the entries were accurate.
 
 ## Updating to a new release
 
@@ -271,6 +280,17 @@ separately, somewhere other than this host.
 
 ## Operating notes
 
+- **Email action links are sealed, never stored in plaintext.** The API seals
+  each queued action link with a key derived from
+  `SESAME_ADMIN_ENCRYPTION_KEY`, and the delivery worker opens it only to send
+  the message. A delivered or failed outbox row,
+  including its sealed link, is purged seven days after its last update; an
+  undelivered row expires at its own deadline first. Verification links live
+  24 hours, recovery and email-change links 30 minutes, and support access
+  links seven days. Deploying this release fails every queued action email
+  that carries a single-use token and clears its link, so those users request
+  a new one. Queued notifications without a token stay pending and send, with
+  their link cleared.
 - **Registration** defaults to `invite`. With the administration portal
   running, the `registration_mode` feature flag in the database wins over
   the environment variable.

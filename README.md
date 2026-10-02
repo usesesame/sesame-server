@@ -94,9 +94,9 @@ Account-action email is disabled unless SMTP is configured. When configured,
 outbound messages are written to a durable `sesame_email_outbox` table and
 delivered by a background worker with bounded exponential backoff. The SMTP
 transport requires STARTTLS and never logs action URLs. Registration remains
-possible for an eligible user when mail is temporarily unavailable, but the
-response reports `verificationQueued: false` and signed downloads remain
-unavailable until the email is verified.
+possible for an eligible user when mail is temporarily unavailable, and signed
+downloads remain unavailable until the email is verified. The registration
+response does not report whether the address already has an account.
 
 ## Migrations and deployment
 
@@ -170,4 +170,6 @@ See [API.md](./API.md) for the detailed closed request and response schemas,
 recent-authentication rules, email-token lifetimes, desktop-link states,
 release metadata, and support intake restrictions. Account password changes
 and password-recovery completion update the password and revoke/replace
-browser sessions inside one PostgreSQL transaction.
+browser sessions inside one PostgreSQL transaction. Email verification also
+replaces the browser session and revokes passkeys, desktop connections, and
+pending desktop-link codes that were created while the account was unverified.

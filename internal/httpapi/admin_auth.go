@@ -35,11 +35,17 @@ type adminSetupRequest struct {
 	Code     string `json:"code,omitempty"`
 }
 
+type adminStepUpRequest struct {
+	Password string `json:"password,omitempty"`
+	Code     string `json:"code,omitempty"`
+}
+
 func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	admin := routePolicy{audience: audienceAdminConsole}
 	a.route(mux, admin, "GET /v1/admin/auth/csrf", a.adminCSRF)
 	a.route(mux, admin, "POST /v1/admin/auth/login", a.adminLogin)
 	a.route(mux, admin, "POST /v1/admin/auth/logout", a.adminLogout)
+	a.route(mux, admin, "POST /v1/admin/auth/step-up", a.adminStepUp)
 	a.route(mux, admin, "GET /v1/admin/auth/me", a.adminMe)
 	a.route(mux, admin, "POST /v1/admin/auth/setup/begin", a.adminSetupBegin)
 	a.route(mux, admin, "POST /v1/admin/auth/setup/complete", a.adminSetupComplete)
@@ -258,22 +264,28 @@ func (a *api) adminSetupComplete(response http.ResponseWriter, request *http.Req
 }
 
 func (a *api) adminForRequest(response http.ResponseWriter, request *http.Request) (adminstore.Account, bool) {
+	account, _, _, ok := a.adminSessionForRequest(response, request)
+	return account, ok
+}
+
+func (a *api) adminSessionForRequest(response http.ResponseWriter, request *http.Request) (adminstore.Account, []byte, time.Time, bool) {
 	store, ok := a.requireAdminStore(response)
 	if !ok {
-		return adminstore.Account{}, false
+		return adminstore.Account{}, nil, time.Time{}, false
 	}
 	cookie, err := request.Cookie(adminSessionCookie)
 	if err != nil || cookie.Value == "" {
 		writeError(response, http.StatusUnauthorized, "admin_not_authenticated", "Sign in with an admin account to continue.")
-		return adminstore.Account{}, false
+		return adminstore.Account{}, nil, time.Time{}, false
 	}
-	account, err := store.AccountBySession(request.Context(), adminstore.HashToken(cookie.Value))
+	tokenHash := adminstore.HashToken(cookie.Value)
+	account, authenticatedAt, err := store.AccountBySession(request.Context(), tokenHash)
 	if err != nil {
 		a.clearAdminSessionCookie(response)
 		writeError(response, http.StatusUnauthorized, "admin_not_authenticated", "The admin session is invalid or expired.")
-		return adminstore.Account{}, false
+		return adminstore.Account{}, nil, time.Time{}, false
 	}
-	return account, true
+	return account, tokenHash, authenticatedAt, true
 }
 
 func (a *api) requireAdminPermission(response http.ResponseWriter, request *http.Request, permission adminstore.Permission) (adminstore.Account, bool) {
@@ -286,6 +298,81 @@ func (a *api) requireAdminPermission(response http.ResponseWriter, request *http
 		return adminstore.Account{}, false
 	}
 	return account, true
+}
+
+func (a *api) requireAdminStepUp(response http.ResponseWriter, request *http.Request, permission adminstore.Permission) (adminstore.Account, bool) {
+	account, _, authenticatedAt, ok := a.adminSessionForRequest(response, request)
+	if !ok {
+		return adminstore.Account{}, false
+	}
+	if !adminstore.Allowed(account.Role, permission) {
+		writeError(response, http.StatusForbidden, "admin_forbidden", "Your admin role cannot perform this action.")
+		return adminstore.Account{}, false
+	}
+	if time.Since(authenticatedAt) > a.config.AdminStepUpTTL {
+		writeError(response, http.StatusForbidden, "admin_step_up_required", "Re-enter your admin password or MFA code to continue.")
+		return adminstore.Account{}, false
+	}
+	return account, true
+}
+
+func (a *api) adminStepUp(response http.ResponseWriter, request *http.Request) {
+	store, ok := a.requireAdminStore(response)
+	if !ok {
+		return
+	}
+	account, tokenHash, _, ok := a.adminSessionForRequest(response, request)
+	if !ok {
+		return
+	}
+	if !a.allowIdentity(response, request, "admin-step-up", account.ID, identityGuessLimit, identityGuessWindow) {
+		return
+	}
+	if !a.allowRequest(response, request, "admin-step-up-peer", 20, time.Minute) {
+		return
+	}
+	var input adminStepUpRequest
+	if !decodeAdminJSON(response, request, &input) {
+		return
+	}
+	if (input.Password == "") == (input.Code == "") {
+		writeError(response, http.StatusBadRequest, "invalid_admin_step_up", "Send either the admin password or a current six-digit MFA code.")
+		return
+	}
+	now := time.Now().UTC()
+	totpCounter := int64(0)
+	if input.Password != "" {
+		passwordHash, err := store.PasswordHash(request.Context(), account.ID)
+		if err != nil {
+			writeError(response, http.StatusServiceUnavailable, "admin_step_up_unavailable", "Admin re-authentication is temporarily unavailable.")
+			return
+		}
+		if !accounts.VerifyPassword(passwordHash, input.Password) {
+			writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "The admin password or MFA code is incorrect.")
+			return
+		}
+	} else {
+		secret, lastUsedCounter, err := store.TOTPSecret(request.Context(), account.ID)
+		if err != nil {
+			writeError(response, http.StatusServiceUnavailable, "admin_step_up_unavailable", "Admin re-authentication is temporarily unavailable.")
+			return
+		}
+		counter, totpOK := adminstore.VerifyTOTP(secret, input.Code, now)
+		if !totpOK || counter <= lastUsedCounter {
+			writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "The admin password or MFA code is incorrect.")
+			return
+		}
+		totpCounter = counter
+	}
+	if err := store.MarkSessionAuthenticated(request.Context(), account, tokenHash, a.adminIPHash(request), now, totpCounter); err != nil {
+		if errors.Is(err, adminstore.ErrTOTPReplay) {
+			writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "The admin password or MFA code is incorrect.")
+			return
+		}
+		adminStoreError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"stepUpExpiresAt": now.Add(a.config.AdminStepUpTTL), "windowSeconds": int(a.config.AdminStepUpTTL.Seconds())})
 }
 
 func (a *api) adminMe(response http.ResponseWriter, request *http.Request) {

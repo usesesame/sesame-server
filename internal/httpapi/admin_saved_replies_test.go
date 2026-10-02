@@ -137,3 +137,28 @@ func TestAdminSavedRepliesGuardCRUDAndReplyPath(t *testing.T) {
 		t.Fatalf("saved replies after delete = %+v", replies)
 	}
 }
+
+func TestAdminSavedRepliesRejectNewSecretShapes(t *testing.T) {
+	env := newSupportTestEnv(t)
+	support := env.seedAdmin(t, "admin-saved-reply-shapes", "support@example.invalid", adminstore.RoleSupport)
+	env.seedTicket(t, "ticket-saved-reply-shapes", "", "guest@example.invalid")
+	shapes := map[string]string{
+		"pwd assignment":  "The pwd: correct-horse-battery should be removed from the log.",
+		"pin number":      "The lock screen shows PIN 482913 after the last update.",
+		"seed phrase":     "The seed phrase is apple banana cherry dog eagle fence grape house igloo jacket kite lemon.",
+		"base64 key":      "The exported key ejgFI6bjzttikWD1325ZdjhohM88ycZWJS84RCntRdU= will not import.",
+		"fullwidth colon": "The password：correct-horse-battery is in the log.",
+	}
+	for name, body := range shapes {
+		t.Run(name, func(t *testing.T) {
+			response := env.adminRequest(t, support, http.MethodPost, "/v1/admin/saved-replies", map[string]any{"title": "Fictional guidance", "body": body})
+			if response.Code != http.StatusBadRequest || errorCode(t, response) != "secret_shaped_content" {
+				t.Fatalf("saved reply = %d %q, want 400 secret_shaped_content", response.Code, errorCode(t, response))
+			}
+			response = env.adminRequest(t, support, http.MethodPost, "/v1/admin/support/ticket-saved-reply-shapes/reply", map[string]any{"body": body})
+			if response.Code != http.StatusBadRequest || errorCode(t, response) != "secret_shaped_content" {
+				t.Fatalf("reply = %d %q, want 400 secret_shaped_content", response.Code, errorCode(t, response))
+			}
+		})
+	}
+}

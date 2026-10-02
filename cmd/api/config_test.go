@@ -1,10 +1,28 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"usesesame.app/backend/internal/httpapi"
 )
+
+func TestBuildEmailSenderRequiresTheEncryptionKey(t *testing.T) {
+	t.Setenv("SESAME_SMTP_ADDR", "smtp.example.invalid:587")
+	t.Setenv("SESAME_SMTP_FROM", "Sesame <accounts@example.invalid>")
+	sender, outbox, worker, err := buildEmailSender(context.Background(), nil, nil)
+	if err == nil || sender != nil || outbox != nil || worker != nil {
+		t.Fatalf("buildEmailSender without a key = %v, %v, %v, %v; want a refusal", sender, outbox, worker, err)
+	}
+}
+
+func TestBuildEmailSenderStaysOffWithoutSMTP(t *testing.T) {
+	t.Setenv("SESAME_SMTP_ADDR", "")
+	sender, outbox, worker, err := buildEmailSender(context.Background(), nil, nil)
+	if err != nil || sender != nil || outbox != nil || worker != nil {
+		t.Fatalf("buildEmailSender without SMTP = %v, %v, %v, %v; want it disabled", sender, outbox, worker, err)
+	}
+}
 
 func TestParseTrustedProxies(t *testing.T) {
 	cases := []struct {
