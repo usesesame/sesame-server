@@ -1,10 +1,14 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
 import { readFile } from 'node:fs/promises'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fileIO } from './deploy-io.mjs'
-import { attestationArgs, classifyDeployment, deployRelease, parseRelease, readDeployedState, rehearsalEnvFile, rehearsalRoleBootstrapSql, rollbackRelease, writeCompressedBackup } from './deploy-release-lib.mjs'
+import { attestationArgs, BACKUP_COMPLETE_MARKER, classifyDeployment, deployRelease, parseBackupRecipients, parseRelease, pgDumpArguments, readDeployedState, rehearsalEnvFile, rollbackRelease, writeEncryptedBackup } from './deploy-release-lib.mjs'
+import { parseEnvText } from './setup-lib.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const stateRoot = join(repoRoot, 'deploy', 'state')
@@ -38,8 +42,9 @@ const io = {
       throw new Error(`The provenance attestation for ${reference} did not verify against ${repository} at ${sourceRef} from ${signerWorkflow}: ${lastLine(result.stderr)}. A missing or mismatched attestation stops the deploy.`)
     }
   },
-  takeBackup: (destination) => takeStreamingBackup(destination),
-  rehearse: ({ backupFile, candidateRef, previousRef }) => rehearseMigrations({ backupFile, candidateRef, previousRef }),
+  takeBackup: (destination, recipients) => takeStreamingBackup(destination, recipients),
+  rehearse: ({ candidateRef, previousRef }) => rehearseMigrations({ candidateRef, previousRef }),
+  backupRecipients: async () => parseBackupRecipients(parseEnvText(await readFile(prodEnvPath, 'utf8')).get('SESAME_BACKUP_AGE_RECIPIENTS')),
   runMigrations: (stagingEnvPath) => {
     const result = spawnSync('docker', ['compose', '--file', prodCompose, '--env-file', stagingEnvPath, 'run', '--rm', 'migrate'], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
     if (result.status !== 0) return { ok: false, error: lastLine(result.stderr) }
@@ -95,22 +100,58 @@ async function main(args) {
   throw new Error('Usage: deploy-release.mjs <plan|deploy|rollback|status> [server-release.json] [version] [--wait-timeout seconds]')
 }
 
-async function takeStreamingBackup(destination) {
-  const child = spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', 'pg_dump', '-U', 'sesame_backup', 'sesame'], { stdio: ['ignore', 'pipe', 'pipe'] })
-  let stderr = ''
-  child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-8192) })
-  let spawnError = null
-  child.on('error', (error) => { spawnError = error })
-  const completed = new Promise((resolveDone) => child.on('close', (code) => resolveDone(code)))
+function spawnDump({ stripOwnership = false } = {}) {
+  return spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', ...pgDumpArguments({ stripOwnership })], { stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+async function takeStreamingBackup(destination, recipients) {
+  const child = spawnDump()
+  const outcome = childOutcome(child)
   try {
-    return await writeCompressedBackup(child.stdout, destination, async () => {
-      const code = await completed
-      if (spawnError || code !== 0) throw new Error(`The pre-deployment pg_dump failed${stderr ? `: ${lastLine(stderr)}` : '.'}`)
+    return await writeEncryptedBackup(child.stdout, destination, {
+      recipients,
+      encrypt: (source, staging) => encryptBackupWithAge(source, staging, recipients),
+      confirmSource: async () => {
+        const code = await outcome.exited
+        if (outcome.error || code !== 0) throw new Error(`The pre-deployment pg_dump failed${outcome.stderr ? `: ${lastLine(outcome.stderr)}` : '.'}`)
+      },
     })
   } catch (error) {
     child.kill()
     throw error
   }
+}
+
+async function encryptBackupWithAge(source, destination, recipients) {
+  const child = spawn('age', recipients.flatMap((recipient) => ['-r', recipient]), { stdio: ['pipe', 'pipe', 'pipe'] })
+  const outcome = childOutcome(child)
+  const digest = createHash('sha256')
+  let bytes = 0
+  const meter = new Transform({
+    transform(chunk, encoding, callback) {
+      digest.update(chunk)
+      bytes += chunk.length
+      callback(null, chunk)
+    },
+  })
+  const feed = pipeline(source, child.stdin)
+  const collect = pipeline(child.stdout, meter, createWriteStream(destination, { flags: 'wx', mode: 0o600 }))
+  const [feedResult, collectResult, exitResult] = await Promise.allSettled([feed, collect, outcome.exited])
+  if (outcome.error) throw outcome.error
+  if (collectResult.status === 'rejected') throw collectResult.reason
+  if (exitResult.status === 'fulfilled' && exitResult.value !== 0) {
+    throw new Error(`age exited with status ${exitResult.value}${outcome.stderr ? `: ${lastLine(outcome.stderr)}` : '.'}`)
+  }
+  if (feedResult.status === 'rejected') throw feedResult.reason
+  return { sha256: digest.digest('hex'), bytes }
+}
+
+function childOutcome(child) {
+  const outcome = { error: null, stderr: '', exited: null }
+  child.on('error', (error) => { outcome.error = error })
+  child.stderr.on('data', (chunk) => { outcome.stderr = `${outcome.stderr}${chunk}`.slice(-8192) })
+  outcome.exited = new Promise((resolveExit) => child.on('close', (code) => resolveExit(code)))
+  return outcome
 }
 
 async function plan(releasePath) {
@@ -192,7 +233,7 @@ async function composeApiEnvironment() {
   return model?.services?.api?.environment ?? null
 }
 
-async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
+async function rehearseMigrations({ candidateRef, previousRef }) {
   const password = randomBytes(24).toString('base64url')
   const scratchURL = `postgres://sesame:${encodeURIComponent(password)}@127.0.0.1:5432/sesame?sslmode=disable`
   try {
@@ -204,10 +245,7 @@ async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
       spawnSync('sleep', ['1'])
       return spawnSync('docker', ['exec', scratchDatabase, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0
     }, 'the rehearsal database never became ready', 90, 1000)
-    const roles = spawnSync('docker', ['exec', '-i', scratchDatabase, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'sesame', '-d', 'sesame'], { input: rehearsalRoleBootstrapSql(), encoding: 'utf8', stdio: ['pipe', 'ignore', 'pipe'] })
-    if (roles.status !== 0) return { ok: false, error: `creating the scratch database roles failed: ${lastLine(roles.stderr)}` }
-    const restore = spawnSync('sh', ['-c', `umask 077; gunzip -c "$1" > /tmp/sesame-restore.$$.sql || { rm -f /tmp/sesame-restore.$$.sql; exit 1; }; docker exec -i ${scratchDatabase} psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame < /tmp/sesame-restore.$$.sql; status=$?; rm -f /tmp/sesame-restore.$$.sql; exit $status`, 'sh', backupFile], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
-    if (restore.status !== 0) return { ok: false, error: `restoring the backup into the rehearsal database failed: ${lastLine(restore.stderr)}` }
+    await restoreFreshDump(scratchDatabase)
     const migrate = spawnSync('docker', ['run', '--rm', '--entrypoint', '/sesame-migrate', '--network', `container:${scratchDatabase}`, '-e', `DATABASE_URL=${scratchURL}`, candidateRef], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })
     if (migrate.status !== 0) return { ok: false, error: `the candidate migration failed on restored data: ${lastLine(migrate.stderr)}` }
     if (previousRef) {
@@ -241,6 +279,31 @@ async function waitFor(condition, message, attempts = 60, delayMs = 1000) {
     await new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs))
   }
   throw new Error(`${message} within the rehearsal time budget.`)
+}
+
+async function restoreFreshDump(container) {
+  const dump = spawnDump({ stripOwnership: true })
+  const psql = spawn('docker', ['exec', '-i', container, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'sesame', '-d', 'sesame'], { stdio: ['pipe', 'ignore', 'pipe'] })
+  const dumpOutcome = childOutcome(dump)
+  const psqlOutcome = childOutcome(psql)
+  const tail = { value: Buffer.alloc(0) }
+  const collector = new Transform({
+    transform(chunk, encoding, callback) {
+      tail.value = Buffer.concat([tail.value, chunk]).subarray(-4096)
+      callback(null, chunk)
+    },
+  })
+  const [streamResult, dumpExit, psqlExit] = await Promise.allSettled([
+    pipeline(dump.stdout, collector, psql.stdin),
+    dumpOutcome.exited,
+    psqlOutcome.exited,
+  ])
+  if (dumpOutcome.error) throw dumpOutcome.error
+  if (psqlOutcome.error) throw psqlOutcome.error
+  if (dumpExit.value !== 0) throw new Error(`streaming a rehearsal copy of the database failed: ${lastLine(dumpOutcome.stderr)}`)
+  if (psqlExit.value !== 0) throw new Error(`restoring the rehearsal copy failed: ${lastLine(psqlOutcome.stderr)}`)
+  if (streamResult.status === 'rejected') throw streamResult.reason
+  if (!tail.value.includes(BACKUP_COMPLETE_MARKER)) throw new Error('the rehearsal copy of the database ended before pg_dump finished')
 }
 
 function docker(args) {
