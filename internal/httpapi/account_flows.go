@@ -193,7 +193,7 @@ func (a *api) requestPasswordRecovery(response http.ResponseWriter, request *htt
 		response.WriteHeader(http.StatusAccepted)
 		return
 	}
-	if !a.identityWithinBudget(request, "password-recovery-peer", email+"\x00"+a.clientIP(request), recoveryPeerLimit, identityMailWindow) {
+	if !a.identityWithinBudget(request, "password-recovery-peer", email+"\x00"+a.clientLimitKey(request), recoveryPeerLimit, identityMailWindow) {
 		response.WriteHeader(http.StatusAccepted)
 		return
 	}
