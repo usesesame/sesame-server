@@ -59,14 +59,17 @@ if (fileKey && process.env.SESAME_ADMIN_ENCRYPTION_KEY?.trim() && fileKey !== pr
   process.exit(2)
 }
 
+function localDatabaseUrl() {
+  const appPassword = fileValues.get('SESAME_DATABASE_APP_PASSWORD')
+  if (appPassword) return `postgres://sesame_app:${appPassword}@127.0.0.1:5432/sesame?sslmode=disable`
+  const legacyPassword = fileValues.get('SESAME_DATABASE_PASSWORD')
+  if (legacyPassword) return `postgres://sesame:${legacyPassword}@127.0.0.1:5432/sesame?sslmode=disable`
+  return 'postgres://sesame:sesame-development-only@127.0.0.1:5432/sesame?sslmode=disable'
+}
+
 const environment = {
   ...process.env,
-  DATABASE_URL:
-    process.env.DATABASE_URL ||
-    fileValues.get('DATABASE_URL') ||
-    (fileValues.get('SESAME_DATABASE_PASSWORD')
-      ? `postgres://sesame:${fileValues.get('SESAME_DATABASE_PASSWORD')}@127.0.0.1:5432/sesame?sslmode=disable`
-      : 'postgres://sesame:sesame-development-only@127.0.0.1:5432/sesame?sslmode=disable'),
+  DATABASE_URL: process.env.DATABASE_URL || fileValues.get('DATABASE_URL') || localDatabaseUrl(),
   SESAME_ADMIN_ORIGIN:
     process.env.SESAME_ADMIN_ORIGIN || fileValues.get('SESAME_ADMIN_ORIGIN') || 'http://localhost:4174',
   SESAME_WEB_ORIGIN:

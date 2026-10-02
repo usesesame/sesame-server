@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { fileIO } from './deploy-io.mjs'
-import { attestationArgs, classifyDeployment, deployRelease, parseRelease, readDeployedState, rehearsalEnvFile, rollbackRelease, writeCompressedBackup } from './deploy-release-lib.mjs'
+import { attestationArgs, classifyDeployment, deployRelease, parseRelease, readDeployedState, rehearsalEnvFile, rehearsalRoleBootstrapSql, rollbackRelease, writeCompressedBackup } from './deploy-release-lib.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const stateRoot = join(repoRoot, 'deploy', 'state')
@@ -96,7 +96,7 @@ async function main(args) {
 }
 
 async function takeStreamingBackup(destination) {
-  const child = spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', 'pg_dump', '-U', 'sesame', 'sesame'], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const child = spawn('docker', ['compose', '--file', prodCompose, '--env-file', prodEnvPath, 'exec', '-T', 'db', 'pg_dump', '-U', 'sesame_backup', 'sesame'], { stdio: ['ignore', 'pipe', 'pipe'] })
   let stderr = ''
   child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-8192) })
   let spawnError = null
@@ -204,6 +204,8 @@ async function rehearseMigrations({ backupFile, candidateRef, previousRef }) {
       spawnSync('sleep', ['1'])
       return spawnSync('docker', ['exec', scratchDatabase, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0
     }, 'the rehearsal database never became ready', 90, 1000)
+    const roles = spawnSync('docker', ['exec', '-i', scratchDatabase, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'sesame', '-d', 'sesame'], { input: rehearsalRoleBootstrapSql(), encoding: 'utf8', stdio: ['pipe', 'ignore', 'pipe'] })
+    if (roles.status !== 0) return { ok: false, error: `creating the scratch database roles failed: ${lastLine(roles.stderr)}` }
     const restore = spawnSync('sh', ['-c', `umask 077; gunzip -c "$1" > /tmp/sesame-restore.$$.sql || { rm -f /tmp/sesame-restore.$$.sql; exit 1; }; docker exec -i ${scratchDatabase} psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame < /tmp/sesame-restore.$$.sql; status=$?; rm -f /tmp/sesame-restore.$$.sql; exit $status`, 'sh', backupFile], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'], maxBuffer: 64 * 1024 * 1024 })
     if (restore.status !== 0) return { ok: false, error: `restoring the backup into the rehearsal database failed: ${lastLine(restore.stderr)}` }
     const migrate = spawnSync('docker', ['run', '--rm', '--entrypoint', '/sesame-migrate', '--network', `container:${scratchDatabase}`, '-e', `DATABASE_URL=${scratchURL}`, candidateRef], { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] })

@@ -19,7 +19,7 @@ services:
     image: ${SESAME_API_IMAGE:?set to an immutable API digest}
     entrypoint: ["/sesame-migrate"]
     environment:
-      DATABASE_URL: postgres://sesame:${SESAME_DATABASE_PASSWORD:?set in the env file}@db:5432/sesame?sslmode=disable
+      DATABASE_URL: postgres://sesame_owner:${SESAME_DATABASE_OWNER_PASSWORD:?set in the env file}@db:5432/sesame?sslmode=disable
     depends_on:
       db:
         condition: service_healthy
@@ -79,7 +79,7 @@ services:
       SESAME_CAPABILITY_SIGNING_KEY: ${SESAME_CAPABILITY_SIGNING_KEY:?}
       SESAME_ADMIN_ENCRYPTION_KEY: ${SESAME_ADMIN_ENCRYPTION_KEY:?}
       SESAME_ADMIN_IP_PEPPER: ${SESAME_ADMIN_IP_PEPPER:?}
-      DATABASE_URL: postgres://sesame:${SESAME_DATABASE_PASSWORD}@db:5432/sesame?sslmode=disable
+      DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD:?set in the env file}@db:5432/sesame?sslmode=disable
     extra_hosts:
       - "${SESAME_SMTP_HOST_GATEWAY:-sesame-smtp-gateway.invalid}:host-gateway"
     ports:
@@ -164,12 +164,16 @@ services:
       POSTGRES_DB: sesame
       POSTGRES_USER: sesame
       POSTGRES_PASSWORD: ${SESAME_DATABASE_PASSWORD}
+      SESAME_DATABASE_OWNER_PASSWORD: ${SESAME_DATABASE_OWNER_PASSWORD:?set in the env file}
+      SESAME_DATABASE_APP_PASSWORD: ${SESAME_DATABASE_APP_PASSWORD:?set in the env file}
+      SESAME_DATABASE_BACKUP_PASSWORD: ${SESAME_DATABASE_BACKUP_PASSWORD:?set in the env file}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 12
     volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
       # PostgreSQL 18 stores data in a major-version subdirectory, so the mount
       # belongs one level up.
       - database:/var/lib/postgresql

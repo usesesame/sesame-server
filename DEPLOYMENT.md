@@ -54,12 +54,22 @@ cp deploy/compose/.env.production.example deploy/compose/.env.production
 chmod 600 deploy/compose/.env.production
 ```
 
-Fill in `.env.production`. Copy the four generated secrets from
+Fill in `.env.production`. Copy the generated secrets from
 `deploy/compose/.env`. Copy the API, account, and admin digest references
 from `server-release.json` into the three image fields. Get
 `server-release.json` from the protected server release workflow for the
 version being deployed. Production Compose has no build contexts and does
 not rebuild source on the host.
+
+`npm run setup` writes four database secrets: the bootstrap superuser
+password and one password for each of the three roles Compose creates. On
+the first start of an empty `database` volume, the `db` service runs
+`deploy/compose/initdb/10-roles.sh` as the bootstrap superuser and creates
+`sesame_owner`, `sesame_app`, and `sesame_backup`. The `migrate` service
+connects as `sesame_owner` and owns schema changes, the API connects as
+`sesame_app` and can only write data, and `pg_dump` connects as
+`sesame_backup`. The bootstrap superuser only starts PostgreSQL and creates
+the roles; no service uses it at run time.
 
 These values matter most. The comments in the example explain them as well.
 
@@ -210,7 +220,24 @@ credentials never enter the release job.
 
 Deploy one release artifact set end to end. Check out the release tag on the
 host and run the tool with Node. The tool imports only Node builtins, so it
-needs no install step:
+needs no install step.
+
+A deployment that predates the database roles needs one migration step
+first. Add `SESAME_DATABASE_OWNER_PASSWORD`, `SESAME_DATABASE_APP_PASSWORD`,
+and `SESAME_DATABASE_BACKUP_PASSWORD` from `deploy/compose/.env` to
+`.env.production`, start the database, and run the role script once:
+
+```bash
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production up -d --wait db
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production \
+  exec -T db sh /docker-entrypoint-initdb.d/10-roles.sh
+```
+
+The script is idempotent. It creates the three roles and hands the existing
+tables and functions to `sesame_owner` so the deploy tool can migrate them.
+Then run the deploy:
 
 ```bash
 git fetch --tags
@@ -295,8 +322,33 @@ Two things matter, and they fail differently.
 ```bash
 docker compose -f deploy/compose/compose.prod.yaml \
   --env-file deploy/compose/.env.production \
-  exec -T db pg_dump -U sesame sesame | gzip > sesame-$(date +%F).sql.gz
+  exec -T db pg_dump -U sesame_backup sesame | gzip > sesame-$(date +%F).sql.gz
 ```
+
+A scratch database has only the bootstrap superuser. The dump carries
+`OWNER TO` and grant statements for `sesame_owner`, `sesame_app`, and
+`sesame_backup`, and `pg_dump` does not dump roles, so create them in the
+scratch database before the load:
+
+```bash
+docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame <<'SQL'
+CREATE ROLE sesame_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE sesame_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE sesame_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT pg_read_all_data TO sesame_backup;
+GRANT CREATE, USAGE ON SCHEMA public TO sesame_owner;
+SQL
+```
+
+Then decompress the backup and load it:
+
+```bash
+gunzip -c sesame-<date>.sql.gz \
+  | docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame
+```
+
+Check the schema version and a known account row. Restoring over the live
+database destroys it, so rehearse first.
 
 A lost database loses accounts. A lost `SESAME_ADMIN_ENCRYPTION_KEY` locks
 every administrator out while the database stays perfectly intact, which is

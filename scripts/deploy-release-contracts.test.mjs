@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
@@ -21,6 +22,7 @@ import {
   parseRelease,
   readDeployedState,
   rehearsalEnvFile,
+  rehearsalRoleBootstrapSql,
   rewriteEnvImages,
   rollbackRelease,
   writeCompressedBackup,
@@ -741,6 +743,146 @@ test('rollback refuses unknown versions, missing snapshots, and a already-servin
   const nothing = fakeIO()
   seedEnvironment(nothing)
   await assert.rejects(() => rollbackRelease(nothing, inputs), /Nothing is recorded as deployed/)
+})
+
+test('the production stack connects each service through its own database role', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const read = (file) => readFileSync(join(root, 'deploy', 'compose', file), 'utf8')
+  const production = read('compose.prod.yaml')
+  assert.ok(production.includes('DATABASE_URL: postgres://sesame_owner:${SESAME_DATABASE_OWNER_PASSWORD'), 'production migrations do not use the owner role')
+  assert.ok(production.includes('DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD'), 'the production API does not use the application role')
+  assert.ok(production.includes('POSTGRES_PASSWORD: ${SESAME_DATABASE_PASSWORD}'), 'production dropped the bootstrap superuser password')
+  assert.ok(production.includes('./initdb:/docker-entrypoint-initdb.d:ro'), 'production does not mount the role init script')
+  const development = read('compose.yaml')
+  assert.ok(development.includes('DATABASE_URL: postgres://sesame_owner:${SESAME_DATABASE_OWNER_PASSWORD'), 'development migrations do not use the owner role')
+  assert.ok(development.includes('DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD'), 'the development API does not use the application role')
+  const candidate = read('compose.candidate-check.yaml')
+  assert.ok(candidate.includes('postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD'), 'the candidate check does not use the application role')
+  const smoke = read('compose.release-smoke.yaml')
+  assert.ok(smoke.includes('postgres://sesame_owner:sesame-smoke-owner'), 'the smoke migration does not use the owner role')
+  assert.ok(smoke.includes('postgres://sesame_app:sesame-smoke-app'), 'the smoke API does not use the application role')
+  assert.ok(smoke.includes('./initdb:/docker-entrypoint-initdb.d:ro'), 'the smoke database does not mount the role init script')
+})
+
+test('the role init script is idempotent and least privileged', async () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const path = join(root, 'deploy', 'compose', 'initdb', '10-roles.sh')
+  const script = readFileSync(path, 'utf8')
+  assert.ok((await stat(path)).mode & 0o111, 'the role init script must be executable')
+  for (const marker of [
+    'IF NOT EXISTS (SELECT 1 FROM pg_roles',
+    'NOSUPERUSER',
+    'NOCREATEDB',
+    'NOCREATEROLE',
+    'GRANT CREATE, USAGE ON SCHEMA public TO sesame_owner',
+    'GRANT pg_read_all_data TO sesame_backup',
+    'ALTER FUNCTION %s OWNER TO sesame_owner',
+  ]) {
+    assert.ok(script.includes(marker), `the role init script is missing "${marker}"`)
+  }
+  assert.ok(!/PASSWORD\s*'/.test(script), 'the role init script must not hardcode a password')
+})
+
+test('the deploy tool dumps through the backup role', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const source = readFileSync(join(root, 'scripts', 'deploy-release.mjs'), 'utf8')
+  assert.ok(source.includes(`'pg_dump', '-U', 'sesame_backup'`), 'the deploy tool does not dump through the backup role')
+  assert.ok(!source.includes(`'pg_dump', '-U', 'sesame'`), 'the deploy tool still dumps through the bootstrap role')
+})
+
+test('the rehearsal creates the split database roles before restoring the backup', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const source = readFileSync(join(root, 'scripts', 'deploy-release.mjs'), 'utf8')
+  const sql = rehearsalRoleBootstrapSql()
+  for (const role of ['sesame_owner', 'sesame_app', 'sesame_backup']) {
+    assert.ok(sql.includes(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;`), `the rehearsal does not create ${role}`)
+  }
+  assert.ok(sql.includes('GRANT pg_read_all_data TO sesame_backup;'), 'the rehearsal does not grant the backup role read access')
+  assert.ok(!sql.includes('PASSWORD'), 'the rehearsal role bootstrap must not set role passwords')
+  const bootstrapAt = source.indexOf('input: rehearsalRoleBootstrapSql()')
+  const restoreAt = source.indexOf('restoring the backup into the rehearsal database failed')
+  assert.ok(bootstrapAt >= 0, 'the rehearsal never creates the scratch database roles')
+  assert.ok(restoreAt > bootstrapAt, 'the rehearsal restores the backup before the roles exist')
+  assert.ok(source.includes(`'-v', 'ON_ERROR_STOP=1'`), 'the rehearsal restore does not stop on the first error')
+})
+
+test('the rehearsal role bootstrap matches the production role script', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const script = readFileSync(join(root, 'deploy', 'compose', 'initdb', '10-roles.sh'), 'utf8')
+  const sql = rehearsalRoleBootstrapSql()
+  for (const role of ['sesame_owner', 'sesame_app', 'sesame_backup']) {
+    assert.ok(script.includes(`'${role}'`), `the production role script does not create ${role}`)
+    assert.ok(sql.includes(`CREATE ROLE ${role} `), `the rehearsal bootstrap does not create ${role}`)
+  }
+  assert.ok(script.includes('GRANT pg_read_all_data TO sesame_backup'), 'the production role script does not grant the backup role read access')
+  assert.ok(sql.includes('GRANT pg_read_all_data TO sesame_backup'), 'the rehearsal bootstrap does not grant the backup role read access')
+})
+
+const livePostgresImage = 'postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2'
+const livePostgresSkip = spawnSync('docker', ['version', '--format', '{{.Server.Version}}'], { stdio: 'ignore' }).status !== 0
+  ? 'docker is not available'
+  : spawnSync('docker', ['image', 'inspect', livePostgresImage], { stdio: 'ignore' }).status !== 0
+    ? 'the pinned rehearsal database image is not present'
+    : false
+
+test('the rehearsal roles let a role-split dump restore into a scratch database', { skip: livePostgresSkip, timeout: 180000 }, async () => {
+  const suffix = `${process.pid}-${randomBytes(4).toString('hex')}`
+  const production = `sesame-contract-production-${suffix}`
+  const scratch = `sesame-contract-scratch-${suffix}`
+  const password = randomBytes(12).toString('hex')
+  const docker = (args, options = {}) => spawnSync('docker', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, ...options })
+  const psql = (container, input, database = 'sesame') => docker(['exec', '-i', container, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'sesame', '-d', database], { input })
+  try {
+    for (const name of [production, scratch]) {
+      const started = docker(['run', '-d', '--name', name, '-e', 'POSTGRES_USER=sesame', '-e', `POSTGRES_PASSWORD=${password}`, '-e', 'POSTGRES_DB=sesame', '--tmpfs', '/var/lib/postgresql', livePostgresImage])
+      assert.equal(started.status, 0, `could not start ${name}: ${started.stderr}`)
+    }
+    for (const name of [production, scratch]) {
+      let ready = false
+      for (let attempt = 0; attempt < 90 && !ready; attempt += 1) {
+        if (docker(['exec', name, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0) {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 1000))
+          ready = docker(['exec', name, 'pg_isready', '-q', '-U', 'sesame', '-d', 'sesame']).status === 0
+        } else {
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, 500))
+        }
+      }
+      assert.ok(ready, `${name} never became ready`)
+    }
+    assert.equal(psql(production, rehearsalRoleBootstrapSql()).status, 0)
+    assert.equal(psql(production, [
+      'CREATE TABLE sesame_restore_fixture (id integer);',
+      'ALTER TABLE sesame_restore_fixture OWNER TO sesame_owner;',
+      'GRANT SELECT ON sesame_restore_fixture TO sesame_app;',
+      '',
+    ].join('\n')).status, 0)
+    const dump = docker(['exec', production, 'pg_dump', '-U', 'sesame_backup', 'sesame'])
+    assert.equal(dump.status, 0, `pg_dump failed: ${dump.stderr}`)
+    assert.match(dump.stdout, /OWNER TO sesame_owner/)
+    assert.match(dump.stdout, /TO sesame_app/)
+
+    const withoutRoles = psql(scratch, dump.stdout)
+    assert.notEqual(withoutRoles.status, 0, 'the restore must fail before the roles exist')
+    assert.match(withoutRoles.stderr, /role "sesame_owner" does not exist/)
+
+    assert.equal(docker(['exec', scratch, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'sesame', '-d', 'postgres', '-c', 'DROP DATABASE sesame', '-c', 'CREATE DATABASE sesame']).status, 0)
+    assert.equal(psql(scratch, rehearsalRoleBootstrapSql()).status, 0)
+    const restored = psql(scratch, dump.stdout)
+    assert.equal(restored.status, 0, `the restore failed after the roles existed: ${restored.stderr}`)
+
+    const owner = docker(['exec', scratch, 'psql', '-tAc', `SELECT tableowner FROM pg_tables WHERE tablename = 'sesame_restore_fixture'`, '-U', 'sesame', '-d', 'sesame'])
+    assert.equal(owner.stdout.trim(), 'sesame_owner')
+    const grants = docker(['exec', scratch, 'psql', '-tAc', `SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_name = 'sesame_restore_fixture' AND grantee = 'sesame_app' AND privilege_type = 'SELECT'`, '-U', 'sesame', '-d', 'sesame'])
+    assert.equal(grants.stdout.trim(), '1')
+  } finally {
+    docker(['rm', '-f', production, scratch])
+  }
+})
+
+test('the migration entrypoint reconciles the application role', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const source = readFileSync(join(root, 'cmd', 'migrate', 'main.go'), 'utf8')
+  assert.ok(source.includes('ReconcileRuntimeRole'), 'the migrate job does not apply the application role privileges')
 })
 
 test('rollback verifies the recorded attestations before it restores the target', async () => {

@@ -5,7 +5,7 @@ services:
     image: ${SESAME_API_IMAGE:?}
     entrypoint: ["/sesame-migrate"]
     environment:
-      DATABASE_URL: postgres://sesame:sesame-smoke-only@db:5432/sesame?sslmode=disable
+      DATABASE_URL: postgres://sesame_owner:sesame-smoke-owner@db:5432/sesame?sslmode=disable
     depends_on:
       db:
         condition: service_healthy
@@ -25,7 +25,7 @@ services:
       SESAME_CAPABILITY_SIGNING_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
       SESAME_ADMIN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
       SESAME_ADMIN_IP_PEPPER: sesame-smoke-only
-      DATABASE_URL: postgres://sesame:sesame-smoke-only@db:5432/sesame?sslmode=disable
+      DATABASE_URL: postgres://sesame_app:sesame-smoke-app@db:5432/sesame?sslmode=disable
     ports:
       - "127.0.0.1::8787"
     healthcheck:
@@ -71,10 +71,15 @@ services:
       POSTGRES_DB: sesame
       POSTGRES_USER: sesame
       POSTGRES_PASSWORD: sesame-smoke-only
+      SESAME_DATABASE_OWNER_PASSWORD: sesame-smoke-owner
+      SESAME_DATABASE_APP_PASSWORD: sesame-smoke-app
+      SESAME_DATABASE_BACKUP_PASSWORD: sesame-smoke-backup
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 2s
       timeout: 4s
       retries: 30
+    volumes:
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     tmpfs:
       - /var/lib/postgresql
