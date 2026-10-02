@@ -94,9 +94,8 @@ func (a *api) register(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusServiceUnavailable, "registration_unavailable", "Account registration is temporarily unavailable.")
 		return
 	}
-	token, tokenHash, err := accounts.NewSessionToken()
-	verificationToken, verificationHash, verificationErr := accounts.NewSessionToken()
-	if err != nil || verificationErr != nil {
+	verificationToken, verificationHash, err := accounts.NewSessionToken()
+	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, "registration_unavailable", "Account registration is temporarily unavailable.")
 		return
 	}
@@ -106,8 +105,7 @@ func (a *api) register(response http.ResponseWriter, request *http.Request) {
 	}
 	now := time.Now().UTC()
 	user, err := store.RegisterEligible(request.Context(), accounts.Registration{
-		Email: email, PasswordHash: passwordHash, SessionTokenHash: tokenHash,
-		SessionExpiresAt: now.Add(a.config.SessionDuration), SessionLabel: browserLabel(request),
+		Email: email, PasswordHash: passwordHash,
 		VerificationTokenHash: verificationHash, VerificationExpiresAt: now.Add(emailVerificationTTL),
 		InviteHash: inviteHash, AllowPublic: registrationMode == "public",
 		TermsAcceptedAt: now, TermsVersion: termsVersion,
@@ -117,20 +115,14 @@ func (a *api) register(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusForbidden, "registration_not_eligible", "This beta invitation is unavailable or does not match that email address.")
 		return
 	}
-	if errors.Is(err, accounts.ErrEmailTaken) {
-		writeError(response, http.StatusConflict, "account_unavailable", "That email address cannot be registered.")
-		return
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, accounts.ErrEmailTaken) && !errors.Is(err, accounts.ErrRegistrationNotCreated) {
 		writeError(response, http.StatusServiceUnavailable, "registration_unavailable", "Account registration is temporarily unavailable.")
 		return
 	}
-	a.setSessionCookie(response, token)
-	verificationQueued := false
-	if a.config.EmailSender != nil {
-		verificationQueued = a.sendAccountEmail(request.Context(), "verify-email", user.Email, verificationToken, now.Add(emailVerificationTTL)) == nil
+	if err == nil && a.config.EmailSender != nil {
+		_ = a.sendAccountEmail(request.Context(), false, "verify-email", user.Email, verificationToken, now.Add(emailVerificationTTL))
 	}
-	writeJSON(response, http.StatusCreated, map[string]any{"user": user, "verificationQueued": verificationQueued})
+	response.WriteHeader(http.StatusAccepted)
 }
 
 func (a *api) login(response http.ResponseWriter, request *http.Request) {
@@ -294,12 +286,16 @@ func (a *api) recordAccountEvent(ctx context.Context, accountID, eventType, labe
 }
 
 func (a *api) sendSecurityNotification(ctx context.Context, user accounts.User, kind, subject, body string) {
-	if a.config.EmailSender == nil || user.Email == "" {
+	a.sendSecurityEmail(ctx, user.Email, kind, subject, body)
+}
+
+func (a *api) sendSecurityEmail(ctx context.Context, to, kind, subject, body string) {
+	if a.config.EmailSender == nil || to == "" {
 		return
 	}
 	// Mandatory; contains no action link, token, vault identifier, or raw network address.
 	if err := a.config.EmailSender.SendAccountEmail(ctx, AccountEmail{
-		Kind: kind, To: user.Email, Subject: subject, Body: body,
+		Kind: kind, To: to, Subject: subject, Body: body,
 		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
 	}); err != nil {
 		slog.Warn("Sesame security notification could not be sent", "kind", kind)
