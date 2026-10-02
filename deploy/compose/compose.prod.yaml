@@ -24,6 +24,15 @@ services:
       db:
         condition: service_healthy
     restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 128m
 
   api:
     image: ${SESAME_API_IMAGE:?set to an immutable API digest}
@@ -87,6 +96,15 @@ services:
       migrate:
         condition: service_completed_successfully
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 256m
 
   account:
     image: ${SESAME_ACCOUNT_IMAGE:?set to an immutable account image digest}
@@ -101,6 +119,18 @@ services:
       timeout: 5s
       retries: 12
     restart: unless-stopped
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+      - /var/cache/nginx:uid=101,gid=101,mode=0700
+      - /run:uid=101,gid=101,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 64m
 
   admin:
     image: ${SESAME_ADMIN_IMAGE:?set to an immutable admin image digest}
@@ -115,6 +145,18 @@ services:
       timeout: 5s
       retries: 12
     restart: unless-stopped
+    user: "101:101"
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+      - /var/cache/nginx:uid=101,gid=101,mode=0700
+      - /run:uid=101,gid=101,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 64m
 
   db:
     image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
@@ -132,6 +174,10 @@ services:
       # belongs one level up.
       - database:/var/lib/postgresql
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g
 
   # Serves release files that the API has signed a short-lived download URL
   # for. Disabled without the signing key; every other request is refused.
@@ -150,6 +196,15 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 128m
 
 volumes:
   database:

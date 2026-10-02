@@ -76,6 +76,53 @@ if ((production.services.api?.extra_hosts ?? []).some((entry) => /mail\.usesesam
   throw new Error('The production stack must not ship a deployment-specific mail host mapping.')
 }
 
+const applicationServices = ['migrate', 'api', 'account', 'admin', 'gateway']
+for (const service of applicationServices) {
+  const definition = production.services[service]
+  if (!definition) throw new Error(`Production ${service} is missing from the stack.`)
+  if (definition.read_only !== true) throw new Error(`Production ${service} must keep a read-only root filesystem.`)
+  if (!definition.tmpfs?.some((entry) => entry === '/tmp' || entry.startsWith('/tmp:'))) {
+    throw new Error(`Production ${service} must keep a writable tmpfs at /tmp.`)
+  }
+  if (!definition.cap_drop?.includes('ALL')) throw new Error(`Production ${service} must keep cap_drop: [ALL].`)
+  if (!definition.security_opt?.includes('no-new-privileges:true')) {
+    throw new Error(`Production ${service} must keep no-new-privileges:true.`)
+  }
+  if (!Number.isInteger(Number(definition.pids_limit)) || Number(definition.pids_limit) < 1) {
+    throw new Error(`Production ${service} must keep a positive pids limit.`)
+  }
+  if (!Number.isFinite(Number(definition.mem_limit)) || Number(definition.mem_limit) < 64 * 1024 * 1024) {
+    throw new Error(`Production ${service} must keep a memory limit of at least 64 MiB.`)
+  }
+}
+for (const service of ['account', 'admin']) {
+  const tmpfs = production.services[service].tmpfs ?? []
+  for (const mount of ['/var/cache/nginx', '/run']) {
+    if (!tmpfs.some((entry) => entry === mount || entry.startsWith(`${mount}:`))) {
+      throw new Error(`Production ${service} must keep a writable tmpfs at ${mount} for nginx.`)
+    }
+  }
+}
+if (production.services.db?.read_only === true) throw new Error('PostgreSQL must keep a writable root filesystem.')
+if (production.services.db?.cap_drop?.includes('ALL')) {
+  throw new Error('PostgreSQL must keep the capabilities its entrypoint needs to prepare the data directory.')
+}
+if (!production.services.db?.security_opt?.includes('no-new-privileges:true')) {
+  throw new Error('PostgreSQL must keep no-new-privileges:true.')
+}
+if (!Number.isInteger(Number(production.services.db?.pids_limit)) || Number(production.services.db.pids_limit) < 1) {
+  throw new Error('PostgreSQL must keep a positive pids limit.')
+}
+if (!Number.isFinite(Number(production.services.db?.mem_limit)) || Number(production.services.db.mem_limit) < 256 * 1024 * 1024) {
+  throw new Error('PostgreSQL must keep a memory limit of at least 256 MiB.')
+}
+for (const service of ['api', 'account', 'admin', 'gateway']) {
+  const ports = production.services[service]?.ports ?? []
+  if (ports.length !== 1 || ports[0]?.host_ip !== '127.0.0.1') {
+    throw new Error(`Production ${service} must keep its single loopback port binding.`)
+  }
+}
+
 function check(files, values) {
   const fileArgs = (Array.isArray(files) ? files : [files]).flatMap((file) => ['--file', file])
   const result = spawnSync('docker', ['compose', ...fileArgs, 'config', '--format', 'json'], {
