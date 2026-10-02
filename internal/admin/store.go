@@ -384,20 +384,90 @@ func (s *Store) CreateSessionAfterSetup(ctx context.Context, actor Account, toke
 	return tx.Commit()
 }
 
-func (s *Store) AccountBySession(ctx context.Context, tokenHash []byte) (Account, error) {
+func (s *Store) AccountBySession(ctx context.Context, tokenHash []byte) (Account, time.Time, error) {
 	var account Account
+	var authenticatedAt time.Time
 	err := s.db.QueryRowContext(ctx, `
 		SELECT admin.id, admin.email, admin.role, admin.totp_verified, admin.suspended,
-			admin.created_at, COALESCE(admin.last_login_at, '0001-01-01'::timestamptz)
+			admin.created_at, COALESCE(admin.last_login_at, '0001-01-01'::timestamptz),
+			session.authenticated_at
 		FROM sesame_admin_sessions session
 		JOIN sesame_admin_accounts admin ON admin.id = session.admin_id
 		WHERE session.token_hash = $1 AND session.expires_at > NOW() AND admin.suspended = FALSE AND admin.totp_verified = TRUE
-	`, tokenHash).Scan(&account.ID, &account.Email, &account.Role, &account.MFAVerified, &account.Suspended, &account.CreatedAt, &account.LastLoginAt)
+	`, tokenHash).Scan(&account.ID, &account.Email, &account.Role, &account.MFAVerified, &account.Suspended, &account.CreatedAt, &account.LastLoginAt, &authenticatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Account{}, ErrNotFound
+		return Account{}, time.Time{}, ErrNotFound
+	}
+	if err != nil {
+		return Account{}, time.Time{}, err
 	}
 	account.Permissions = EffectivePermissions(account.Role)
-	return account, err
+	return account, authenticatedAt, nil
+}
+
+func (s *Store) PasswordHash(ctx context.Context, id string) (string, error) {
+	var passwordHash string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT password_hash FROM sesame_admin_accounts
+		WHERE id = $1 AND suspended = FALSE AND totp_verified = TRUE
+	`, id).Scan(&passwordHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return passwordHash, err
+}
+
+func (s *Store) TOTPSecret(ctx context.Context, id string) (string, int64, error) {
+	var encrypted []byte
+	var lastUsedCounter int64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT totp_secret, totp_last_used_counter FROM sesame_admin_accounts
+		WHERE id = $1 AND suspended = FALSE AND totp_verified = TRUE
+	`, id).Scan(&encrypted, &lastUsedCounter)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", 0, ErrNotFound
+	}
+	if err != nil {
+		return "", 0, err
+	}
+	plain, err := decryptSecret(s.encryptionKey, encrypted)
+	if err != nil {
+		return "", 0, fmt.Errorf("%w: %w", ErrSecretUnreadable, err)
+	}
+	return string(plain), lastUsedCounter, nil
+}
+
+func (s *Store) MarkSessionAuthenticated(ctx context.Context, actor Account, tokenHash []byte, ipHash string, now time.Time, totpCounter int64) error {
+	detail := map[string]any{"method": "password"}
+	if totpCounter > 0 {
+		detail = map[string]any{"method": "totp", "totp_counter": totpCounter}
+	}
+	return s.mutate(ctx, actor, "admin.step_up", "admin", actor.ID, ipHash, detail, func(tx *sql.Tx) error {
+		if err := affected(tx.ExecContext(ctx, `
+			UPDATE sesame_admin_sessions SET authenticated_at = $2
+			WHERE token_hash = $1 AND admin_id = $3 AND expires_at > $2
+		`, tokenHash, now, actor.ID)); err != nil {
+			return err
+		}
+		if totpCounter <= 0 {
+			return nil
+		}
+		result, err := tx.ExecContext(ctx, `
+			UPDATE sesame_admin_accounts SET totp_last_used_counter = $2
+			WHERE id = $1 AND suspended = FALSE AND totp_last_used_counter < $2
+		`, actor.ID, totpCounter)
+		if err != nil {
+			return err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if updated != 1 {
+			return ErrTOTPReplay
+		}
+		return nil
+	})
 }
 
 func (s *Store) DeleteSession(ctx context.Context, actor Account, tokenHash []byte, ipHash string) error {

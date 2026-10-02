@@ -1938,6 +1938,43 @@
         "x-sesame-registration-pattern": "/v1/admin/auth/setup/complete"
       }
     },
+    "/v1/admin/auth/step-up": {
+      "post": {
+        "operationId": "postV1AdminAuthStepUp",
+        "summary": "POST admin step up",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminOrigin": [],
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminStepUp",
+        "x-sesame-registration-pattern": "/v1/admin/auth/step-up"
+      }
+    },
     "/v1/admin/extension-publications": {
       "get": {
         "operationId": "getV1AdminExtensionPublications",
@@ -5310,5 +5347,5 @@
     "internal/httpapi/sync_routes.go"
   ],
   "x-sesame-deployment-profile": "project",
-  "x-sesame-operation-count": 128
+  "x-sesame-operation-count": 129
 }

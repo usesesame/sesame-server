@@ -103,6 +103,7 @@ func main() {
 		os.Exit(1)
 	}
 	var adminService *adminstore.Store
+	var adminKey []byte
 	adminKeyValue := strings.TrimSpace(os.Getenv("SESAME_ADMIN_ENCRYPTION_KEY"))
 	adminOrigin := ""
 	adminSecure := envBool("SESAME_ADMIN_SESSION_SECURE", sessionSecure)
@@ -122,11 +123,12 @@ func main() {
 			slog.Error("Sesame admin configuration is invalid", "error", err)
 			os.Exit(1)
 		}
-		adminKey, keyErr := adminstore.ParseEncryptionKey(adminKeyValue)
+		parsedKey, keyErr := adminstore.ParseEncryptionKey(adminKeyValue)
 		if keyErr != nil {
 			slog.Error("Sesame admin configuration is invalid", "error", keyErr)
 			os.Exit(1)
 		}
+		adminKey = parsedKey
 		if strings.HasPrefix(adminOrigin, "https://") && !adminSecure {
 			slog.Error("Sesame admin configuration is invalid", "error", "Secure admin cookies are required for an HTTPS admin origin")
 			os.Exit(1)
@@ -150,7 +152,7 @@ func main() {
 	} else {
 		slog.Warn("Sesame admin API is disabled", "reason", "SESAME_ADMIN_ENCRYPTION_KEY is not configured")
 	}
-	emailSender, outbox, worker, err := buildEmailSender(ctx, store.DB())
+	emailSender, outbox, worker, err := buildEmailSender(ctx, store.DB(), adminKey)
 	if err != nil {
 		slog.Error("Sesame API email configuration is invalid", "error", err)
 		os.Exit(1)
@@ -323,10 +325,17 @@ func supportNotifyAddress(value string) (string, error) {
 	return value, nil
 }
 
-func buildEmailSender(ctx context.Context, db *sql.DB) (httpapi.EmailSender, notifications.Outbox, *notifications.Worker, error) {
+func buildEmailSender(ctx context.Context, db *sql.DB, encryptionKey []byte) (httpapi.EmailSender, notifications.Outbox, *notifications.Worker, error) {
 	address := strings.TrimSpace(os.Getenv("SESAME_SMTP_ADDR"))
 	if address == "" {
 		return nil, nil, nil, nil
+	}
+	if len(encryptionKey) == 0 {
+		return nil, nil, nil, errors.New("SESAME_ADMIN_ENCRYPTION_KEY is required to seal email outbox action links")
+	}
+	sealer, err := notifications.NewActionURLSealer(encryptionKey)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	from := strings.TrimSpace(os.Getenv("SESAME_SMTP_FROM"))
 	localCapture := envBool("SESAME_SMTP_ALLOW_INSECURE_LOCAL", false)
@@ -337,7 +346,6 @@ func buildEmailSender(ctx context.Context, db *sql.DB) (httpapi.EmailSender, not
 		return nil, nil, nil, errors.New("local SMTP capture must not use SMTP credentials")
 	}
 	var sender *notifications.SMTP
-	var err error
 	if localCapture {
 		sender, err = notifications.NewSMTPForLocalDevelopment(address, from)
 	} else {
@@ -346,8 +354,8 @@ func buildEmailSender(ctx context.Context, db *sql.DB) (httpapi.EmailSender, not
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	outbox := notifications.NewPostgresOutbox(db)
-	worker := notifications.NewWorker(outbox, sender)
+	outbox := notifications.NewPostgresOutbox(db, sealer)
+	worker := notifications.NewWorker(outbox, sender, sealer)
 	if err := outbox.Ping(ctx); err != nil {
 		return nil, nil, nil, err
 	}
