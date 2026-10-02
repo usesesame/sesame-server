@@ -54,9 +54,6 @@ var _ AccountSecurityStore = (*PostgresStore)(nil)
 type Registration struct {
 	Email                 string
 	PasswordHash          string
-	SessionTokenHash      []byte
-	SessionExpiresAt      time.Time
-	SessionLabel          string
 	VerificationTokenHash []byte
 	VerificationExpiresAt time.Time
 	InviteHash            []byte
@@ -221,35 +218,50 @@ func (s *PostgresStore) RegisterEligible(ctx context.Context, input Registration
 	defer tx.Rollback()
 
 	eligible := input.AllowPublic
-	revoked := false
+	uniform := false
 	if !eligible {
 		var status string
 		err = tx.QueryRowContext(ctx, `SELECT status FROM sesame_beta_eligibility WHERE email = $1 FOR UPDATE`, input.Email).Scan(&status)
-		eligible = err == nil && status == "eligible"
-		revoked = err == nil && status == "revoked"
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
 			return User{}, err
+		case status == "registered":
+			uniform = true
+		case status == "revoked":
+			return User{}, ErrNotEligible
+		default:
+			eligible = status == "eligible"
 		}
-	}
-	if revoked {
-		return User{}, ErrNotEligible
 	}
 	inviteUsed := false
-	if !eligible && len(input.InviteHash) > 0 {
+	if !eligible && !uniform && len(input.InviteHash) > 0 {
 		var inviteEmail sql.NullString
-		var uses, maxUses int
+		var exhausted, expired, revoked bool
 		err = tx.QueryRowContext(ctx, `
-			SELECT email, uses, max_uses
+			SELECT email, uses >= max_uses, expires_at <= NOW(), revoked_at IS NOT NULL
 			FROM sesame_beta_invites
-			WHERE code_hash = $1 AND expires_at > NOW() AND revoked_at IS NULL AND uses < max_uses
+			WHERE code_hash = $1
 			FOR UPDATE
-		`, input.InviteHash).Scan(&inviteEmail, &uses, &maxUses)
-		if err == nil && (!inviteEmail.Valid || inviteEmail.String == input.Email) {
+		`, input.InviteHash).Scan(&inviteEmail, &exhausted, &expired, &revoked)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return User{}, ErrNotEligible
+		case err != nil:
+			return User{}, err
+		case expired || revoked:
+			return User{}, ErrNotEligible
+		case exhausted:
+			uniform = true
+		case !inviteEmail.Valid || inviteEmail.String == input.Email:
 			eligible = true
 			inviteUsed = true
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return User{}, err
+		default:
+			return User{}, ErrNotEligible
 		}
+	}
+	if uniform {
+		return User{}, ErrRegistrationNotCreated
 	}
 	if !eligible {
 		return User{}, ErrNotEligible
@@ -274,9 +286,6 @@ func (s *PostgresStore) RegisterEligible(ctx context.Context, input Registration
 		return User{}, ErrEmailTaken
 	}
 	if err != nil {
-		return User{}, err
-	}
-	if err := insertSessionTx(ctx, tx, user.ID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, time.Now().UTC()); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -419,7 +428,14 @@ func (s *PostgresStore) CreatePasswordRecovery(ctx context.Context, email string
 	err := s.db.QueryRowContext(ctx, `SELECT id, email, email_verified_at IS NOT NULL, beta_access FROM sesame_accounts WHERE email = $1 AND suspended_at IS NULL`, email).
 		Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess)
 	if errors.Is(err, sql.ErrNoRows) {
-		return User{}, false, nil
+		throwawayID, idErr := newID()
+		if idErr != nil {
+			return User{}, false, idErr
+		}
+		if err := s.replaceAccountToken(ctx, throwawayID, TokenRecoverPassword, "", tokenHash, expiresAt); err != nil {
+			return User{}, false, err
+		}
+		return User{Email: email}, false, nil
 	}
 	if err != nil {
 		return User{}, false, err
@@ -1141,7 +1157,11 @@ func (s *PostgresStore) replaceAccountToken(ctx context.Context, accountID, purp
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_account_tokens WHERE account_id = $1 AND purpose = $2 AND used_at IS NULL`, accountID, purpose); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sesame_account_tokens (token_hash, account_id, purpose, payload, expires_at) VALUES ($1, $2, $3, $4, $5)`, tokenHash, accountID, purpose, payload, expiresAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sesame_account_tokens (token_hash, account_id, purpose, payload, expires_at)
+		SELECT $1, $2, $3, $4, $5
+		WHERE EXISTS (SELECT 1 FROM sesame_accounts WHERE id = $2)
+	`, tokenHash, accountID, purpose, payload, expiresAt); err != nil {
 		return err
 	}
 	return tx.Commit()

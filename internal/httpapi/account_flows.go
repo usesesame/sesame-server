@@ -39,6 +39,7 @@ type AccountEmail struct {
 	Subject          string
 	Body             string
 	SupportMessageID string
+	Discard          bool
 }
 
 type tokenRequest struct {
@@ -117,7 +118,7 @@ func (a *api) requestEmailVerification(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusServiceUnavailable, "email_verification_unavailable", "Email verification is temporarily unavailable.")
 		return
 	}
-	if err := a.sendAccountEmail(request.Context(), "verify-email", user.Email, token, expiresAt); err != nil {
+	if err := a.sendAccountEmail(request.Context(), false, "verify-email", user.Email, token, expiresAt); err != nil {
 		writeError(response, http.StatusServiceUnavailable, "email_delivery_unavailable", "Account email is temporarily unavailable.")
 		return
 	}
@@ -194,10 +195,8 @@ func (a *api) requestPasswordRecovery(response http.ResponseWriter, request *htt
 		writeError(response, http.StatusServiceUnavailable, "password_recovery_unavailable", "Password recovery is temporarily unavailable.")
 		return
 	}
-	if found {
-		// Delivery failures are deliberately not reflected: the response must not reveal whether the address has an account.
-		_ = a.sendAccountEmail(request.Context(), "recover-password", user.Email, token, expiresAt)
-	}
+	// Delivery failures are deliberately not reflected: the response must not reveal whether the address has an account.
+	_ = a.sendAccountEmail(request.Context(), !found, "recover-password", user.Email, token, expiresAt)
 	response.WriteHeader(http.StatusAccepted)
 }
 
@@ -318,7 +317,7 @@ func (a *api) requestEmailChange(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusServiceUnavailable, "email_change_unavailable", "Changing your email is temporarily unavailable.")
 		return
 	}
-	if err := a.sendAccountEmail(request.Context(), "change-email", newEmail, token, expiresAt); err != nil {
+	if err := a.sendAccountEmail(request.Context(), false, "change-email", newEmail, token, expiresAt); err != nil {
 		writeError(response, http.StatusServiceUnavailable, "email_delivery_unavailable", "Account email is temporarily unavailable.")
 		return
 	}
@@ -857,7 +856,7 @@ func (a *api) recentSessionForRequest(response http.ResponseWriter, request *htt
 	return user, session, tokenHash, true
 }
 
-func (a *api) sendAccountEmail(ctx context.Context, kind, email, token string, expiresAt time.Time) error {
+func (a *api) sendAccountEmail(ctx context.Context, discard bool, kind, email, token string, expiresAt time.Time) error {
 	if a.config.EmailSender == nil {
 		return errors.New("account email is not configured")
 	}
@@ -868,7 +867,7 @@ func (a *api) sendAccountEmail(ctx context.Context, kind, email, token string, e
 	}[kind]
 	// Token in the URL fragment: never sent in the request line, access logs, or Referer.
 	actionURL := strings.TrimSuffix(a.config.WebBaseURL, "/") + path + "#token=" + url.QueryEscape(token)
-	return a.config.EmailSender.SendAccountEmail(ctx, AccountEmail{Kind: kind, To: email, ActionURL: actionURL, ExpiresAt: expiresAt.UTC()})
+	return a.config.EmailSender.SendAccountEmail(ctx, AccountEmail{Kind: kind, To: email, ActionURL: actionURL, ExpiresAt: expiresAt.UTC(), Discard: discard})
 }
 
 func validActionToken(token string) bool {

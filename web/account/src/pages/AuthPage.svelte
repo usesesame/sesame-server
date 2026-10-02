@@ -16,6 +16,7 @@
   let submitting = false
   let registrationLoading = mode === 'register'
   let registration: RegistrationStatus | null = null
+  let registered = false
   let error = ''
   let legalAccepted = false
 
@@ -57,14 +58,17 @@
     submitting = true
     error = ''
     try {
-      const account = isRegistering
-        ? await register(email, password, inviteCode.trim() || undefined, {
-            termsAccepted: true,
-            termsVersion: LEGAL_VERSION,
-            privacyAcknowledged: true,
-            privacyVersion: LEGAL_VERSION,
-          })
-        : await signIn(email, password)
+      if (isRegistering) {
+        await register(email, password, inviteCode.trim() || undefined, {
+          termsAccepted: true,
+          termsVersion: LEGAL_VERSION,
+          privacyAcknowledged: true,
+          privacyVersion: LEGAL_VERSION,
+        })
+        registered = true
+        return
+      }
+      const account = await signIn(email, password)
       onAuthenticated(account)
       window.location.assign('/account')
     } catch (reason) {
@@ -91,6 +95,12 @@
     <div class="auth-form card registration-closed">
       <h2>Accounts are invite-only</h2>
       <p>There is no public waitlist yet. Existing testers can sign in; new invitations include a private registration link. To ask about early access, use the <a href="/support">support page</a>.</p>
+      <a class="button button-soft" href="/login">Back to sign in</a>
+    </div>
+  {:else if registered}
+    <div class="auth-form card">
+      <h2>Check your email</h2>
+      <p>If that address can be registered, a verification link is on its way. Open it, then sign in. This page never confirms whether an address already has an account.</p>
       <a class="button button-soft" href="/login">Back to sign in</a>
     </div>
   {:else}
