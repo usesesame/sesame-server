@@ -67,9 +67,9 @@ test('shows the sign-in failure and clears the password', async () => {
   expect((screen.getByLabelText(/password/i) as HTMLInputElement).value).toBe('')
 })
 
-test('requires legal acceptance before creating an invited account', async () => {
+test('creates an invited account without a session and asks for email verification', async () => {
   auth.getRegistrationStatus.mockResolvedValue({ mode: 'invite', enabled: true, requiresInvite: true })
-  auth.register.mockResolvedValue(account)
+  auth.register.mockResolvedValue(undefined)
   const onAuthenticated = vi.fn()
   render(AuthPage, { mode: 'register', onAuthenticated })
   await screen.findByLabelText('Invitation code')
@@ -83,13 +83,29 @@ test('requires legal acceptance before creating an invited account', async () =>
   await fireEvent.click(screen.getByRole('checkbox'))
   expect(submit.disabled).toBe(false)
   await fireEvent.click(submit)
-  await vi.waitFor(() => expect(onAuthenticated).toHaveBeenCalledWith(account))
+  expect(await screen.findByText('Check your email')).toBeTruthy()
+  expect(onAuthenticated).not.toHaveBeenCalled()
+  expect(assign).not.toHaveBeenCalled()
   expect(auth.register).toHaveBeenCalledWith('tester@example.invalid', 'correct horse battery staple', 'INVITE-TEST', {
     termsAccepted: true,
     termsVersion: LEGAL_VERSION,
     privacyAcknowledged: true,
     privacyVersion: LEGAL_VERSION,
   })
+})
+
+test('shows the registration failure without claiming an account was created', async () => {
+  auth.getRegistrationStatus.mockResolvedValue({ mode: 'invite', enabled: true, requiresInvite: true })
+  auth.register.mockRejectedValue(new Error('This beta invitation is unavailable or does not match that email address.'))
+  render(AuthPage, { mode: 'register', onAuthenticated: vi.fn() })
+  await screen.findByLabelText('Invitation code')
+  await fireEvent.input(screen.getByLabelText('Email'), { target: { value: 'tester@example.invalid' } })
+  await fireEvent.input(screen.getByLabelText('Invitation code'), { target: { value: 'INVITE-TEST' } })
+  await fireEvent.input(screen.getByLabelText(/password/i), { target: { value: 'correct horse battery staple' } })
+  await fireEvent.click(screen.getByRole('checkbox'))
+  await fireEvent.click(screen.getByRole('button', { name: 'Create beta account' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('This beta invitation is unavailable or does not match that email address.')
+  expect(screen.queryByText('Check your email')).toBeNull()
 })
 
 test('shows the invite-only notice when registration is closed', async () => {

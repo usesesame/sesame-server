@@ -9,6 +9,14 @@ export class APIError extends Error {
   constructor(message: string, public status: number, public code = '') { super(message) }
 }
 
+type StepUpHandler = () => Promise<boolean>
+
+let stepUpHandler: StepUpHandler | null = null
+
+export function onStepUpRequired(handler: StepUpHandler | null) {
+  stepUpHandler = handler
+}
+
 async function timedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
@@ -61,6 +69,10 @@ async function perform<T>(path: string, init: RequestInit, allowRetry: boolean):
     if (response.status === 403 && body.error?.code === 'invalid_csrf') {
       csrf = ''
       if (allowRetry) return perform<T>(path, init, false)
+    }
+    if (response.status === 403 && body.error?.code === 'admin_step_up_required' && allowRetry && stepUpHandler) {
+      if (await stepUpHandler()) return perform<T>(path, init, false)
+      throw new APIError('The action was cancelled.', response.status, 'admin_step_up_cancelled')
     }
     throw new APIError(body.error?.message || 'The request could not be completed.', response.status, body.error?.code)
   }

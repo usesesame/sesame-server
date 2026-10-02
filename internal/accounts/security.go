@@ -27,11 +27,11 @@ type AccountSecurityStore interface {
 	RevokeAllSessions(context.Context, string) error
 	ChangePasswordAndRotateSession(context.Context, PasswordRotation) error
 	CreateEmailVerification(context.Context, string, []byte, time.Time) error
-	VerifyEmail(context.Context, []byte, time.Time) (User, error)
+	VerifyEmail(context.Context, TokenSessionRotation) (User, error)
 	CreatePasswordRecovery(context.Context, string, []byte, time.Time) (User, bool, error)
 	ResetPasswordAndRotateSession(context.Context, TokenPasswordRotation) (User, error)
 	CreateEmailChange(context.Context, string, string, []byte, time.Time) error
-	ConfirmEmailChangeAndRotateSession(context.Context, TokenSessionRotation) (User, error)
+	ConfirmEmailChangeAndRotateSession(context.Context, TokenSessionRotation) (EmailChangeResult, error)
 	AccountAccess(context.Context, string) (Access, error)
 	SignedDownloads(context.Context, string) ([]DownloadRelease, error)
 	CreateOrRefreshDownloadTicket(context.Context, DownloadTicketRequest) (DownloadTicket, error)
@@ -54,9 +54,6 @@ var _ AccountSecurityStore = (*PostgresStore)(nil)
 type Registration struct {
 	Email                 string
 	PasswordHash          string
-	SessionTokenHash      []byte
-	SessionExpiresAt      time.Time
-	SessionLabel          string
 	VerificationTokenHash []byte
 	VerificationExpiresAt time.Time
 	InviteHash            []byte
@@ -102,6 +99,11 @@ type TokenSessionRotation struct {
 	SessionExpiresAt time.Time
 	SessionLabel     string
 	AuthenticatedAt  time.Time
+}
+
+type EmailChangeResult struct {
+	User          User
+	PreviousEmail string
 }
 
 type Licence struct {
@@ -216,35 +218,50 @@ func (s *PostgresStore) RegisterEligible(ctx context.Context, input Registration
 	defer tx.Rollback()
 
 	eligible := input.AllowPublic
-	revoked := false
+	uniform := false
 	if !eligible {
 		var status string
 		err = tx.QueryRowContext(ctx, `SELECT status FROM sesame_beta_eligibility WHERE email = $1 FOR UPDATE`, input.Email).Scan(&status)
-		eligible = err == nil && status == "eligible"
-		revoked = err == nil && status == "revoked"
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
 			return User{}, err
+		case status == "registered":
+			uniform = true
+		case status == "revoked":
+			return User{}, ErrNotEligible
+		default:
+			eligible = status == "eligible"
 		}
-	}
-	if revoked {
-		return User{}, ErrNotEligible
 	}
 	inviteUsed := false
-	if !eligible && len(input.InviteHash) > 0 {
+	if !eligible && !uniform && len(input.InviteHash) > 0 {
 		var inviteEmail sql.NullString
-		var uses, maxUses int
+		var exhausted, expired, revoked bool
 		err = tx.QueryRowContext(ctx, `
-			SELECT email, uses, max_uses
+			SELECT email, uses >= max_uses, expires_at <= NOW(), revoked_at IS NOT NULL
 			FROM sesame_beta_invites
-			WHERE code_hash = $1 AND expires_at > NOW() AND revoked_at IS NULL AND uses < max_uses
+			WHERE code_hash = $1
 			FOR UPDATE
-		`, input.InviteHash).Scan(&inviteEmail, &uses, &maxUses)
-		if err == nil && (!inviteEmail.Valid || inviteEmail.String == input.Email) {
+		`, input.InviteHash).Scan(&inviteEmail, &exhausted, &expired, &revoked)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return User{}, ErrNotEligible
+		case err != nil:
+			return User{}, err
+		case expired || revoked:
+			return User{}, ErrNotEligible
+		case exhausted:
+			uniform = true
+		case !inviteEmail.Valid || inviteEmail.String == input.Email:
 			eligible = true
 			inviteUsed = true
-		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return User{}, err
+		default:
+			return User{}, ErrNotEligible
 		}
+	}
+	if uniform {
+		return User{}, ErrRegistrationNotCreated
 	}
 	if !eligible {
 		return User{}, ErrNotEligible
@@ -269,9 +286,6 @@ func (s *PostgresStore) RegisterEligible(ctx context.Context, input Registration
 		return User{}, ErrEmailTaken
 	}
 	if err != nil {
-		return User{}, err
-	}
-	if err := insertSessionTx(ctx, tx, user.ID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, time.Now().UTC()); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -351,7 +365,22 @@ func (s *PostgresStore) DeleteSessionForAccount(ctx context.Context, accountID, 
 }
 
 func (s *PostgresStore) RevokeAllSessions(ctx context.Context, accountID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
+		return err
+	}
+	if err := deleteDesktopConnectionsTx(ctx, tx, accountID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func deleteDesktopConnectionsTx(ctx context.Context, tx *sql.Tx, accountID string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM sesame_desktop_connections WHERE account_id = $1`, accountID)
 	return err
 }
 
@@ -371,6 +400,12 @@ func (s *PostgresStore) ChangePasswordAndRotateSession(ctx context.Context, inpu
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, input.AccountID); err != nil {
 		return err
 	}
+	if err := deletePendingAccountTokens(ctx, tx, input.AccountID, TokenChangeEmail); err != nil {
+		return err
+	}
+	if err := deleteDesktopConnectionsTx(ctx, tx, input.AccountID); err != nil {
+		return err
+	}
 	if err := insertSessionTx(ctx, tx, input.AccountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
 		return err
 	}
@@ -381,23 +416,38 @@ func (s *PostgresStore) CreateEmailVerification(ctx context.Context, accountID s
 	return s.replaceAccountToken(ctx, accountID, TokenVerifyEmail, "", tokenHash, expiresAt)
 }
 
-func (s *PostgresStore) VerifyEmail(ctx context.Context, tokenHash []byte, now time.Time) (User, error) {
+func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotation) (User, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return User{}, err
 	}
 	defer tx.Rollback()
-	accountID, _, err := consumeAccountToken(ctx, tx, tokenHash, TokenVerifyEmail, now)
+	accountID, _, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenVerifyEmail, input.AuthenticatedAt)
 	if err != nil {
+		return User{}, err
+	}
+	var wasVerified bool
+	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1`, accountID).Scan(&wasVerified); err != nil {
 		return User{}, err
 	}
 	var user User
 	err = tx.QueryRowContext(ctx, `
-		UPDATE sesame_accounts SET email_verified_at = COALESCE(email_verified_at, $2)
+		UPDATE sesame_accounts SET email_verified_at = COALESCE(email_verified_at, NOW())
 		WHERE id = $1
 		RETURNING id, email, TRUE, beta_access
-	`, accountID, now).Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess)
+	`, accountID).Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess)
 	if err != nil {
+		return User{}, err
+	}
+	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
+		return User{}, err
+	}
+	if !wasVerified {
+		if _, err := tx.ExecContext(ctx, `UPDATE sesame_accounts SET password_hash = '' WHERE id = $1`, accountID); err != nil {
+			return User{}, err
+		}
+	}
+	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
 		return User{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -411,7 +461,14 @@ func (s *PostgresStore) CreatePasswordRecovery(ctx context.Context, email string
 	err := s.db.QueryRowContext(ctx, `SELECT id, email, email_verified_at IS NOT NULL, beta_access FROM sesame_accounts WHERE email = $1 AND suspended_at IS NULL`, email).
 		Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess)
 	if errors.Is(err, sql.ErrNoRows) {
-		return User{}, false, nil
+		throwawayID, idErr := newID()
+		if idErr != nil {
+			return User{}, false, idErr
+		}
+		if err := s.replaceAccountToken(ctx, throwawayID, TokenRecoverPassword, "", tokenHash, expiresAt); err != nil {
+			return User{}, false, err
+		}
+		return User{Email: email}, false, nil
 	}
 	if err != nil {
 		return User{}, false, err
@@ -432,6 +489,10 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	if err != nil {
 		return User{}, err
 	}
+	var wasVerified bool
+	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1`, accountID).Scan(&wasVerified); err != nil {
+		return User{}, err
+	}
 	result, err := tx.ExecContext(ctx, `UPDATE sesame_accounts SET password_hash = $2 WHERE id = $1 AND suspended_at IS NULL`, accountID, input.PasswordHash)
 	if err != nil {
 		return User{}, err
@@ -439,7 +500,16 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	if err := affectedOrNotFound(result); err != nil {
 		return User{}, err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
+	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_desktop_connections WHERE account_id = $1`, accountID); err != nil {
+		return User{}, err
+	}
+	if err := deletePendingAccountTokens(ctx, tx, accountID, TokenChangeEmail); err != nil {
+		return User{}, err
+	}
+	if err := deleteDesktopConnectionsTx(ctx, tx, accountID); err != nil {
 		return User{}, err
 	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
@@ -453,6 +523,35 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 		return User{}, err
 	}
 	return user, nil
+}
+
+func revokePreVerificationCredentials(ctx context.Context, tx *sql.Tx, accountID string, accountWasVerified bool) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
+		return err
+	}
+	if accountWasVerified {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM sesame_webauthn_credentials
+		WHERE account_id = $1 AND created_at < COALESCE((SELECT email_verified_at FROM sesame_accounts WHERE id = $1), NOW())
+	`, accountID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM sesame_desktop_connections
+		WHERE account_id = $1 AND created_at < COALESCE((SELECT email_verified_at FROM sesame_accounts WHERE id = $1), NOW())
+	`, accountID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE sesame_desktop_link_codes SET cancelled_at = NOW()
+		WHERE account_id = $1 AND used_at IS NULL AND cancelled_at IS NULL
+			AND created_at < COALESCE((SELECT email_verified_at FROM sesame_accounts WHERE id = $1), NOW())
+	`, accountID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *PostgresStore) CreateEmailChange(ctx context.Context, accountID, newEmail string, tokenHash []byte, expiresAt time.Time) error {
@@ -466,37 +565,47 @@ func (s *PostgresStore) CreateEmailChange(ctx context.Context, accountID, newEma
 	return s.replaceAccountToken(ctx, accountID, TokenChangeEmail, newEmail, tokenHash, expiresAt)
 }
 
-func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, input TokenSessionRotation) (User, error) {
+func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, input TokenSessionRotation) (EmailChangeResult, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
 	defer tx.Rollback()
 	accountID, newEmail, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenChangeEmail, input.AuthenticatedAt)
 	if err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
+	}
+	var previousEmail string
+	if err := tx.QueryRowContext(ctx, `SELECT email FROM sesame_accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&previousEmail); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return EmailChangeResult{}, ErrNotFound
+		}
+		return EmailChangeResult{}, err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE sesame_accounts SET email = $2, email_verified_at = $3 WHERE id = $1`, accountID, newEmail, input.AuthenticatedAt)
 	if isUniqueViolation(err) {
-		return User{}, ErrEmailTaken
+		return EmailChangeResult{}, ErrEmailTaken
 	}
 	if err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
+	}
+	if err := deletePendingAccountTokens(ctx, tx, accountID, TokenRecoverPassword); err != nil {
+		return EmailChangeResult{}, err
 	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
 	user, err := userByIDTx(ctx, tx, accountID)
 	if err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
-	return user, nil
+	return EmailChangeResult{User: user, PreviousEmail: previousEmail}, nil
 }
 
 func (s *PostgresStore) AccountAccess(ctx context.Context, accountID string) (Access, error) {
@@ -1120,10 +1229,19 @@ func (s *PostgresStore) replaceAccountToken(ctx context.Context, accountID, purp
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_account_tokens WHERE account_id = $1 AND purpose = $2 AND used_at IS NULL`, accountID, purpose); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sesame_account_tokens (token_hash, account_id, purpose, payload, expires_at) VALUES ($1, $2, $3, $4, $5)`, tokenHash, accountID, purpose, payload, expiresAt); err != nil {
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sesame_account_tokens (token_hash, account_id, purpose, payload, expires_at)
+		SELECT $1, $2, $3, $4, $5
+		WHERE EXISTS (SELECT 1 FROM sesame_accounts WHERE id = $2)
+	`, tokenHash, accountID, purpose, payload, expiresAt); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func deletePendingAccountTokens(ctx context.Context, tx *sql.Tx, accountID, purpose string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM sesame_account_tokens WHERE account_id = $1 AND purpose = $2 AND used_at IS NULL`, accountID, purpose)
+	return err
 }
 
 func consumeAccountToken(ctx context.Context, tx *sql.Tx, tokenHash []byte, purpose string, now time.Time) (string, string, error) {

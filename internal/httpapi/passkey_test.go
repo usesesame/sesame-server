@@ -163,6 +163,11 @@ func (c *passkeyTestClient) begin(registration bool) {
 
 func (c *passkeyTestClient) body(registration bool, flags byte, origin string, invalidSignature bool) []byte {
 	c.t.Helper()
+	return c.bodyWithCounter(registration, flags, origin, invalidSignature, 1)
+}
+
+func (c *passkeyTestClient) bodyWithCounter(registration bool, flags byte, origin string, invalidSignature bool, counter uint32) []byte {
+	c.t.Helper()
 	ceremonyType := "webauthn.get"
 	if registration {
 		ceremonyType = "webauthn.create"
@@ -174,7 +179,7 @@ func (c *passkeyTestClient) body(registration bool, flags byte, origin string, i
 	rpHash := sha256.Sum256([]byte(passkeyTestRP))
 	auth := append([]byte(nil), rpHash[:]...)
 	auth = append(auth, flags)
-	auth = binary.BigEndian.AppendUint32(auth, 1)
+	auth = binary.BigEndian.AppendUint32(auth, counter)
 	encode := base64.RawURLEncoding.EncodeToString
 	response := map[string]any{"clientDataJSON": encode(client)}
 	if registration {
