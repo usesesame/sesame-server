@@ -134,7 +134,9 @@ body.
 
 Verification tokens live for 24 hours. Recovery and email-change tokens live
 for 30 minutes. Only SHA-256 token hashes are stored. Tokens are single-use;
-creating another token for the same purpose invalidates the previous one.
+creating another token for the same purpose invalidates the previous one. A
+password change or password reset invalidates every pending email-change
+token, and a completed email change invalidates every pending recovery token.
 
 Action emails contain links such as `/verify-email#token={token}`. The token
 is in the URL fragment so it is never sent to the server in the request line,
@@ -144,7 +146,8 @@ of the confirmation endpoint.
 
 `user` is `{id,email,emailVerified,betaAccess}`. Confirming an email change or
 password recovery revokes every older browser session in the same transaction
-that applies the account change.
+that applies the account change. A completed email change also queues a
+security notice to the previous address.
 
 ## Recent authentication and browser sessions
 

@@ -31,7 +31,7 @@ type AccountSecurityStore interface {
 	CreatePasswordRecovery(context.Context, string, []byte, time.Time) (User, bool, error)
 	ResetPasswordAndRotateSession(context.Context, TokenPasswordRotation) (User, error)
 	CreateEmailChange(context.Context, string, string, []byte, time.Time) error
-	ConfirmEmailChangeAndRotateSession(context.Context, TokenSessionRotation) (User, error)
+	ConfirmEmailChangeAndRotateSession(context.Context, TokenSessionRotation) (EmailChangeResult, error)
 	AccountAccess(context.Context, string) (Access, error)
 	SignedDownloads(context.Context, string) ([]DownloadRelease, error)
 	CreateOrRefreshDownloadTicket(context.Context, DownloadTicketRequest) (DownloadTicket, error)
@@ -99,6 +99,11 @@ type TokenSessionRotation struct {
 	SessionExpiresAt time.Time
 	SessionLabel     string
 	AuthenticatedAt  time.Time
+}
+
+type EmailChangeResult struct {
+	User          User
+	PreviousEmail string
 }
 
 type Licence struct {
@@ -380,6 +385,9 @@ func (s *PostgresStore) ChangePasswordAndRotateSession(ctx context.Context, inpu
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, input.AccountID); err != nil {
 		return err
 	}
+	if err := deletePendingAccountTokens(ctx, tx, input.AccountID, TokenChangeEmail); err != nil {
+		return err
+	}
 	if err := insertSessionTx(ctx, tx, input.AccountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
 		return err
 	}
@@ -458,6 +466,9 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
 		return User{}, err
 	}
+	if err := deletePendingAccountTokens(ctx, tx, accountID, TokenChangeEmail); err != nil {
+		return User{}, err
+	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
 		return User{}, err
 	}
@@ -482,37 +493,47 @@ func (s *PostgresStore) CreateEmailChange(ctx context.Context, accountID, newEma
 	return s.replaceAccountToken(ctx, accountID, TokenChangeEmail, newEmail, tokenHash, expiresAt)
 }
 
-func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, input TokenSessionRotation) (User, error) {
+func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, input TokenSessionRotation) (EmailChangeResult, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
 	defer tx.Rollback()
 	accountID, newEmail, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenChangeEmail, input.AuthenticatedAt)
 	if err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
+	}
+	var previousEmail string
+	if err := tx.QueryRowContext(ctx, `SELECT email FROM sesame_accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&previousEmail); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return EmailChangeResult{}, ErrNotFound
+		}
+		return EmailChangeResult{}, err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE sesame_accounts SET email = $2, email_verified_at = $3 WHERE id = $1`, accountID, newEmail, input.AuthenticatedAt)
 	if isUniqueViolation(err) {
-		return User{}, ErrEmailTaken
+		return EmailChangeResult{}, ErrEmailTaken
 	}
 	if err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
+	}
+	if err := deletePendingAccountTokens(ctx, tx, accountID, TokenRecoverPassword); err != nil {
+		return EmailChangeResult{}, err
 	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
 	user, err := userByIDTx(ctx, tx, accountID)
 	if err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return User{}, err
+		return EmailChangeResult{}, err
 	}
-	return user, nil
+	return EmailChangeResult{User: user, PreviousEmail: previousEmail}, nil
 }
 
 func (s *PostgresStore) AccountAccess(ctx context.Context, accountID string) (Access, error) {
@@ -1144,6 +1165,11 @@ func (s *PostgresStore) replaceAccountToken(ctx context.Context, accountID, purp
 		return err
 	}
 	return tx.Commit()
+}
+
+func deletePendingAccountTokens(ctx context.Context, tx *sql.Tx, accountID, purpose string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM sesame_account_tokens WHERE account_id = $1 AND purpose = $2 AND used_at IS NULL`, accountID, purpose)
+	return err
 }
 
 func consumeAccountToken(ctx context.Context, tx *sql.Tx, tokenHash []byte, purpose string, now time.Time) (string, string, error) {

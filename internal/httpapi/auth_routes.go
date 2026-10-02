@@ -286,12 +286,16 @@ func (a *api) recordAccountEvent(ctx context.Context, accountID, eventType, labe
 }
 
 func (a *api) sendSecurityNotification(ctx context.Context, user accounts.User, kind, subject, body string) {
-	if a.config.EmailSender == nil || user.Email == "" {
+	a.sendSecurityEmail(ctx, user.Email, kind, subject, body)
+}
+
+func (a *api) sendSecurityEmail(ctx context.Context, to, kind, subject, body string) {
+	if a.config.EmailSender == nil || to == "" {
 		return
 	}
 	// Mandatory; contains no action link, token, vault identifier, or raw network address.
 	if err := a.config.EmailSender.SendAccountEmail(ctx, AccountEmail{
-		Kind: kind, To: user.Email, Subject: subject, Body: body,
+		Kind: kind, To: to, Subject: subject, Body: body,
 		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
 	}); err != nil {
 		slog.Warn("Sesame security notification could not be sent", "kind", kind)
