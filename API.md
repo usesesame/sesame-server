@@ -480,6 +480,26 @@ cookie, session table, CSRF token and eight-hour TTL. Password plus TOTP is
 required. There is no public admin registration; `cmd/adminctl bootstrap`
 creates the first one-time setup link.
 
+Destructive actions also require a fresh credential check: user deletion,
+owner release and beta changes, suspension, session and device revocation,
+feature-flag changes, release publication, rollout, emergency stop and
+withdrawal, extension publication acceptance and transition, plan changes, and
+administrator creation, update and deletion. The admin session must have
+re-authenticated within the last five minutes. Sign-in and setup count as a
+fresh re-authentication. A missing or expired check returns
+`403 admin_step_up_required` and commits no change.
+
+- `POST /v1/admin/auth/step-up` renews the re-authentication of the caller's
+  own admin session. Send exactly one of `password` or `code`; the code is a
+  current six-digit TOTP value and is rejected if its time step was already
+  used. Sign-in and step-up share the same counter, so a code used to sign in
+  cannot be reused for step-up. The pending action still enforces its role
+  permission separately. A wrong password or code returns
+  `401 invalid_admin_credentials`. Success
+  returns the `200` receipt `{"stepUpExpiresAt": "...", "windowSeconds": 300}`.
+  A successful check writes one `admin.step_up` audit entry naming the method,
+  and the route is rate limited per administrator and per peer.
+
 The API exposes role-checked routes for account support, feature flags,
 release metadata, product plans, administrators, aggregated system status and
 the append-only audit log. Every mutation writes its audit entry in the same
