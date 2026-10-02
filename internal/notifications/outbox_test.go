@@ -24,7 +24,7 @@ type outboxRowState struct {
 	leaseUntil    sql.NullTime
 }
 
-func testOutbox(t *testing.T) (*PostgresOutbox, *sql.DB) {
+func testOutbox(t *testing.T) (*PostgresOutbox, *ActionURLSealer, *sql.DB) {
 	t.Helper()
 	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -41,7 +41,8 @@ func testOutbox(t *testing.T) (*PostgresOutbox, *sql.DB) {
 	if _, err := db.ExecContext(ctx, `TRUNCATE sesame_email_outbox`); err != nil {
 		t.Fatalf("clear email outbox: %v", err)
 	}
-	return NewPostgresOutbox(db), db
+	sealer := testActionURLSealer(t)
+	return NewPostgresOutbox(db, sealer), sealer, db
 }
 
 func lockDatabaseTest(t *testing.T, db *sql.DB) {
@@ -91,7 +92,7 @@ func readOutboxRow(t *testing.T, db *sql.DB, id string) outboxRowState {
 }
 
 func TestPollExpiresMessagesPastTheirDeadline(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	ctx := context.Background()
 	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(-time.Minute))
 
@@ -116,7 +117,7 @@ func TestPollExpiresMessagesPastTheirDeadline(t *testing.T) {
 }
 
 func TestPollExpiresAClaimedMessagePastItsDeadline(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	ctx := context.Background()
 	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
 	if _, err := db.ExecContext(ctx, `UPDATE sesame_email_outbox SET status = 'processing', lease_until = now() + interval '5 minutes' WHERE id = $1`, id); err != nil {
@@ -139,7 +140,7 @@ func TestPollExpiresAClaimedMessagePastItsDeadline(t *testing.T) {
 }
 
 func TestPollReturnsOnlyDueMessagesAndMarksDelivery(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, sealer, db := testOutbox(t)
 	ctx := context.Background()
 	due := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
 	notYetDue := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
@@ -159,7 +160,13 @@ func TestPollReturnsOnlyDueMessagesAndMarksDelivery(t *testing.T) {
 	if item.Kind != "verify-email" || item.To != outboxTestRecipient || item.Subject != "Verify your Sesame account email" || item.Body != "Open this link to verify your Sesame account." {
 		t.Fatalf("claimed item = %+v", item)
 	}
-	if item.ActionURL != "https://account.example.invalid/verify?token=fictional" || item.Attempts != 0 {
+	if item.SealedActionURL == "https://account.example.invalid/verify?token=fictional" || strings.Contains(item.SealedActionURL, "fictional") {
+		t.Fatalf("claimed item kept a plaintext action URL: %+v", item)
+	}
+	if opened, err := sealer.Open("verify-email", outboxTestRecipient, item.SealedActionURL); err != nil || opened != "https://account.example.invalid/verify?token=fictional" {
+		t.Fatalf("claimed action URL opened to %q, %v", opened, err)
+	}
+	if item.Attempts != 0 {
 		t.Fatalf("claimed item = %+v", item)
 	}
 	if time.Until(item.ExpiresAt) < 50*time.Minute {
@@ -201,8 +208,52 @@ func TestPollReturnsOnlyDueMessagesAndMarksDelivery(t *testing.T) {
 	}
 }
 
+func TestEnqueueStoresASealedActionURL(t *testing.T) {
+	outbox, sealer, db := testOutbox(t)
+	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
+
+	var stored string
+	if err := db.QueryRowContext(context.Background(), `SELECT action_url FROM sesame_email_outbox WHERE id = $1`, id).Scan(&stored); err != nil {
+		t.Fatalf("read stored action URL: %v", err)
+	}
+	if stored == "" || stored == "https://account.example.invalid/verify?token=fictional" || strings.Contains(stored, "fictional") {
+		t.Fatalf("stored action URL = %q, want a sealed value without the token", stored)
+	}
+	opened, err := sealer.Open("verify-email", outboxTestRecipient, stored)
+	if err != nil || opened != "https://account.example.invalid/verify?token=fictional" {
+		t.Fatalf("stored action URL opened to %q, %v", opened, err)
+	}
+}
+
+func TestPollClearsActionURLsThatAreNotSealed(t *testing.T) {
+	outbox, _, db := testOutbox(t)
+	ctx := context.Background()
+	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
+	if _, err := db.ExecContext(ctx, `
+		UPDATE sesame_email_outbox
+		SET action_url = 'https://account.example.invalid/verify-email#token=fictional-legacy'
+		WHERE id = $1`, id); err != nil {
+		t.Fatalf("plant a plaintext action URL: %v", err)
+	}
+	items, err := outbox.Poll(ctx, 10)
+	if err != nil || len(items) != 0 {
+		t.Fatalf("poll over a plaintext action URL = %+v, %v; want no messages", items, err)
+	}
+	state := readOutboxRow(t, db, id)
+	if state.status != "failed" || state.attempts != 0 || state.errorMessage.String != "action_url_not_sealed" {
+		t.Fatalf("plaintext row = %+v, want failed without an attempt", state)
+	}
+	var stored string
+	if err := db.QueryRowContext(ctx, `SELECT action_url FROM sesame_email_outbox WHERE id = $1`, id).Scan(&stored); err != nil {
+		t.Fatalf("read stored action URL: %v", err)
+	}
+	if stored != "" {
+		t.Fatalf("stored action URL = %q, want it cleared", stored)
+	}
+}
+
 func TestMarkFailedBacksOffRetriesAndCapsTheInterval(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	outbox.maxAttempts = 100
 	outbox.maxRetryInterval = 90 * time.Second
 	ctx := context.Background()
@@ -262,7 +313,7 @@ func TestMarkFailedBacksOffRetriesAndCapsTheInterval(t *testing.T) {
 }
 
 func TestMarkFailedStopsAtTheAttemptCutoff(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	outbox.maxAttempts = 3
 	ctx := context.Background()
 	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
@@ -301,7 +352,7 @@ func TestMarkFailedStopsAtTheAttemptCutoff(t *testing.T) {
 }
 
 func TestPollReclaimsAMessageAfterItsLeaseExpires(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	ctx := context.Background()
 	id := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
 
@@ -329,7 +380,7 @@ func TestPollReclaimsAMessageAfterItsLeaseExpires(t *testing.T) {
 }
 
 func TestConcurrentPollsClaimEachMessageOnce(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	ctx := context.Background()
 	const messages = 20
 	expected := map[string]bool{}
@@ -389,7 +440,7 @@ func TestConcurrentPollsClaimEachMessageOnce(t *testing.T) {
 }
 
 func TestPingAndOperationalSummaryReportOutboxState(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	ctx := context.Background()
 	if err := outbox.Ping(ctx); err != nil {
 		t.Fatalf("ping: %v", err)
@@ -415,7 +466,7 @@ func TestPingAndOperationalSummaryReportOutboxState(t *testing.T) {
 }
 
 func TestOutboxEmailSenderQueuesTheMessage(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	sender := NewOutboxEmailSender(outbox)
 	if err := sender.SendAccountEmail(context.Background(), httpapi.AccountEmail{
 		Kind:      "recover-password",
@@ -437,7 +488,7 @@ func TestOutboxEmailSenderQueuesTheMessage(t *testing.T) {
 }
 
 func TestOutboxEmailSenderSkipsDiscardedMessages(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	sender := NewOutboxEmailSender(outbox)
 	if err := sender.SendAccountEmail(context.Background(), httpapi.AccountEmail{
 		Kind:      "recover-password",
@@ -460,7 +511,7 @@ func TestOutboxEmailSenderSkipsDiscardedMessages(t *testing.T) {
 }
 
 func TestPurgeRemovesOldDeliveredAndFailedMessages(t *testing.T) {
-	outbox, db := testOutbox(t)
+	outbox, _, db := testOutbox(t)
 	ctx := context.Background()
 	delivered := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))
 	failed := enqueueTestMessage(t, outbox, time.Now().UTC().Add(time.Hour))

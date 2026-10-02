@@ -28,31 +28,36 @@ type TransactionalOutbox interface {
 }
 
 type OutboxItem struct {
-	ID        string
-	Kind      string
-	To        string
-	ActionURL string
-	Subject   string
-	Body      string
-	ExpiresAt time.Time
-	Attempts  int
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID              string
+	Kind            string
+	To              string
+	SealedActionURL string
+	Subject         string
+	Body            string
+	ExpiresAt       time.Time
+	Attempts        int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type PostgresOutbox struct {
 	db               *sql.DB
+	sealer           *ActionURLSealer
 	maxRetryInterval time.Duration
 	leaseDuration    time.Duration
 	maxAttempts      int
 }
 
-func NewPostgresOutbox(db *sql.DB) *PostgresOutbox {
+func NewPostgresOutbox(db *sql.DB, sealer *ActionURLSealer) *PostgresOutbox {
 	if db == nil {
 		panic("outbox requires a non-nil *sql.DB")
 	}
+	if sealer == nil {
+		panic("outbox requires a non-nil action URL sealer")
+	}
 	return &PostgresOutbox{
 		db:               db,
+		sealer:           sealer,
 		maxRetryInterval: 24 * time.Hour,
 		leaseDuration:    5 * time.Minute,
 		maxAttempts:      8,
@@ -84,25 +89,29 @@ func (o *PostgresOutbox) OperationalSummary(ctx context.Context) (httpapi.Operat
 }
 
 func (o *PostgresOutbox) Enqueue(ctx context.Context, message httpapi.AccountEmail) (string, error) {
-	return enqueueOutboxMessage(ctx, o.db, message)
+	return enqueueOutboxMessage(ctx, o.db, o.sealer, message)
 }
 
 func (o *PostgresOutbox) EnqueueTx(ctx context.Context, tx *sql.Tx, message httpapi.AccountEmail) (string, error) {
-	return enqueueOutboxMessage(ctx, tx, message)
+	return enqueueOutboxMessage(ctx, tx, o.sealer, message)
 }
 
 type outboxInserter interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func enqueueOutboxMessage(ctx context.Context, db outboxInserter, message httpapi.AccountEmail) (string, error) {
+func enqueueOutboxMessage(ctx context.Context, db outboxInserter, sealer *ActionURLSealer, message httpapi.AccountEmail) (string, error) {
+	sealedActionURL, err := sealer.Seal(message.Kind, message.To, message.ActionURL)
+	if err != nil {
+		return "", fmt.Errorf("seal email outbox action URL: %w", err)
+	}
 	var id string
-	err := db.QueryRowContext(ctx, `
+	err = db.QueryRowContext(ctx, `
 		INSERT INTO sesame_email_outbox (kind, to_email, action_url, expires_at, subject, body, support_message_id, status, next_attempt_at)
 		SELECT $1, $2, $3, $4, $5, $6, NULLIF($7, ''), 'pending', now()
 		WHERE NOT $8
 		RETURNING id`,
-		message.Kind, message.To, message.ActionURL, message.ExpiresAt.UTC(), message.Subject, message.Body, message.SupportMessageID, message.Discard,
+		message.Kind, message.To, sealedActionURL, message.ExpiresAt.UTC(), message.Subject, message.Body, message.SupportMessageID, message.Discard,
 	).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
@@ -122,6 +131,12 @@ func (o *PostgresOutbox) Poll(ctx context.Context, limit int) ([]OutboxItem, err
 		SET status = 'failed', error_message = 'message_expired', lease_until = NULL, updated_at = now()
 		WHERE status IN ('pending', 'processing') AND expires_at <= now()`); err != nil {
 		return nil, fmt.Errorf("expire email outbox messages: %w", err)
+	}
+	if _, err := o.db.ExecContext(ctx, `
+		UPDATE sesame_email_outbox
+		SET status = 'failed', error_message = 'action_url_not_sealed', lease_until = NULL, action_url = '', updated_at = now()
+		WHERE status IN ('pending', 'processing') AND action_url <> '' AND action_url NOT LIKE $1`, actionURLSealedPrefix+"%"); err != nil {
+		return nil, fmt.Errorf("clear unsealed email outbox action URLs: %w", err)
 	}
 	rows, err := o.db.QueryContext(ctx, `
 		WITH candidates AS (
@@ -153,7 +168,7 @@ func (o *PostgresOutbox) Poll(ctx context.Context, limit int) ([]OutboxItem, err
 	var items []OutboxItem
 	for rows.Next() {
 		var item OutboxItem
-		if err := rows.Scan(&item.ID, &item.Kind, &item.To, &item.ActionURL, &item.Subject, &item.Body, &item.ExpiresAt, &item.Attempts, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Kind, &item.To, &item.SealedActionURL, &item.Subject, &item.Body, &item.ExpiresAt, &item.Attempts, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan email outbox row: %w", err)
 		}
 		items = append(items, item)
