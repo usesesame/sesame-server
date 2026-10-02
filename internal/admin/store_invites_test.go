@@ -36,9 +36,6 @@ func registrationWithInvite(email, code string) accounts.Registration {
 	return accounts.Registration{
 		Email:                 email,
 		PasswordHash:          "fictional-unused-hash",
-		SessionTokenHash:      accounts.HashSessionToken("fictional-session-" + email),
-		SessionExpiresAt:      now.Add(time.Hour),
-		SessionLabel:          "test",
 		VerificationTokenHash: accounts.HashSessionToken("fictional-verify-" + email),
 		VerificationExpiresAt: now.Add(time.Hour),
 		InviteHash:            accounts.HashSessionToken(code),

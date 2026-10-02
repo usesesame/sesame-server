@@ -77,6 +77,13 @@ details summary { cursor: pointer; }
 .message.error { border-color: var(--danger); color: var(--danger); }
 .message.success { border-color: var(--accent-link); color: var(--accent-link); }
 
+.stepup-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: var(--backdrop); }
+.stepup-panel { width: min(440px, 100%); padding: 28px; border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-modal); }
+.stepup-panel h2 { margin-bottom: 8px; font-size: var(--type-5); }
+.stepup-panel > p { color: var(--text-muted); font-size: var(--type-3); line-height: 1.6; }
+.stepup-panel .message { margin: 16px 0 0; }
+.stepup-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 235px minmax(0, 1fr); }
 .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 24px 17px; background: var(--admin-nav-bg); color: var(--admin-nav-text); }
 .sidebar :focus-visible { outline-color: var(--admin-nav-text); }
