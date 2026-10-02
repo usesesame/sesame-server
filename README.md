@@ -170,4 +170,6 @@ See [API.md](./API.md) for the detailed closed request and response schemas,
 recent-authentication rules, email-token lifetimes, desktop-link states,
 release metadata, and support intake restrictions. Account password changes
 and password-recovery completion update the password and revoke/replace
-browser sessions inside one PostgreSQL transaction.
+browser sessions inside one PostgreSQL transaction. Email verification also
+replaces the browser session and revokes passkeys, desktop connections, and
+pending desktop-link codes that were created while the account was unverified.

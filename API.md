@@ -123,7 +123,11 @@ body.
   upstream SMTP relay accepted it. Registration does not create a browser
   session.
 - `POST /v1/auth/email/verification/request` with no body returns `202`.
-- `POST /v1/auth/email/verification/confirm` with `{token}` returns `200 {user}`.
+- `POST /v1/auth/email/verification/confirm` with `{token}` returns
+  `200 {user}` and a replacement browser session. Verification revokes every
+  browser session, passkey, and desktop connection created while the account was
+  unverified, and cancels its pending desktop-link codes, in the same transaction
+  that marks the address verified.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
   malformed, and known emails receive the same response shape.
 - `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` returns
@@ -149,13 +153,19 @@ of the confirmation endpoint.
 password recovery revokes every older browser session in the same transaction
 that applies the account change. A password reset also revokes every linked
 desktop token in that transaction. A completed email change also queues a
-security notice to the previous address.
+security notice to the previous address. Recovery also revokes every passkey and
+desktop connection created while the account was unverified, cancels its
+pending desktop-link codes, and revokes every desktop connection regardless of
+when it was created. Credentials an attacker attached to an unverified account
+do not survive verification or recovery. Verification clears the password set
+at registration, so the address owner who did not start that registration sets
+a new password through password recovery.
 
 ## Recent authentication and browser sessions
 
-Password login, passkey login, recovery completion, and email change
-completion mark a browser session as recently authenticated. The default
-recent-auth window is ten minutes.
+Password login, passkey login, verification completion, recovery completion,
+and email change completion mark a browser session as recently authenticated.
+The default recent-auth window is ten minutes.
 
 - `POST /v1/account/reauthenticate` with `{password}` returns `204`.
 - `GET /v1/account/sessions` returns `{sessions:[Session]}`.

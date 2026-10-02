@@ -141,7 +141,19 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusBadRequest, "invalid_verification", "That verification link is invalid or expired.")
 		return
 	}
-	user, err := store.VerifyEmail(request.Context(), accounts.HashSessionToken(input.Token), time.Now().UTC())
+	token, sessionHash, tokenErr := accounts.NewSessionToken()
+	now := time.Now().UTC()
+	if tokenErr != nil {
+		writeError(response, http.StatusServiceUnavailable, "email_verification_unavailable", "Email verification is temporarily unavailable.")
+		return
+	}
+	user, err := store.VerifyEmail(request.Context(), accounts.TokenSessionRotation{
+		TokenHash:        accounts.HashSessionToken(input.Token),
+		SessionTokenHash: sessionHash,
+		SessionExpiresAt: now.Add(a.config.SessionDuration),
+		SessionLabel:     browserLabel(request),
+		AuthenticatedAt:  now,
+	})
 	if errors.Is(err, accounts.ErrTokenExpired) {
 		writeError(response, http.StatusBadRequest, "verification_expired", "That verification link is invalid or expired.")
 		return
@@ -150,6 +162,7 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusServiceUnavailable, "email_verification_unavailable", "Email verification is temporarily unavailable.")
 		return
 	}
+	a.setSessionCookie(response, token)
 	writeJSON(response, http.StatusOK, map[string]any{"user": user})
 }
 
