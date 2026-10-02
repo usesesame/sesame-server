@@ -365,7 +365,22 @@ func (s *PostgresStore) DeleteSessionForAccount(ctx context.Context, accountID, 
 }
 
 func (s *PostgresStore) RevokeAllSessions(ctx context.Context, accountID string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
+		return err
+	}
+	if err := deleteDesktopConnectionsTx(ctx, tx, accountID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func deleteDesktopConnectionsTx(ctx context.Context, tx *sql.Tx, accountID string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM sesame_desktop_connections WHERE account_id = $1`, accountID)
 	return err
 }
 
@@ -386,6 +401,9 @@ func (s *PostgresStore) ChangePasswordAndRotateSession(ctx context.Context, inpu
 		return err
 	}
 	if err := deletePendingAccountTokens(ctx, tx, input.AccountID, TokenChangeEmail); err != nil {
+		return err
+	}
+	if err := deleteDesktopConnectionsTx(ctx, tx, input.AccountID); err != nil {
 		return err
 	}
 	if err := insertSessionTx(ctx, tx, input.AccountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
@@ -467,6 +485,9 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 		return User{}, err
 	}
 	if err := deletePendingAccountTokens(ctx, tx, accountID, TokenChangeEmail); err != nil {
+		return User{}, err
+	}
+	if err := deleteDesktopConnectionsTx(ctx, tx, accountID); err != nil {
 		return User{}, err
 	}
 	if err := insertSessionTx(ctx, tx, accountID, input.SessionTokenHash, input.SessionExpiresAt, input.SessionLabel, input.AuthenticatedAt); err != nil {
