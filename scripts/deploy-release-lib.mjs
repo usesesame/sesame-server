@@ -167,13 +167,13 @@ export async function writeEncryptedBackup(source, destination, { recipients, en
       gzip,
     )
     let result
+    const encrypted = Promise.resolve().then(() => encrypt(gzip, staging))
     try {
-      const encrypted = encrypt(gzip, staging)
       const [, encryptedResult] = await Promise.all([compressed, encrypted])
       result = encryptedResult
     } catch (error) {
       gzip.destroy()
-      await compressed.catch(() => {})
+      await Promise.allSettled([compressed, encrypted])
       throw error
     }
     await confirmSource()

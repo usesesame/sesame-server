@@ -303,6 +303,33 @@ test('refuses to write a backup without recipients and without an encryption ste
   }
 })
 
+test('waits for a slow encryptor before it removes the staging file', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'sesame-stream-backup-slow-'))
+  const file = join(directory, 'backup.sql.gz.age')
+  let settled = false
+  const encrypt = async (source, staging) => {
+    try {
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 50))
+      await writeFile(staging, 'fictional partial ciphertext', { flag: 'wx', mode: 0o600 })
+      throw new Error('age stopped when its input closed')
+    } finally {
+      settled = true
+    }
+  }
+  async function* interrupted() {
+    yield backupPayload().subarray(0, 1024)
+    throw new Error('dump interrupted')
+  }
+  try {
+    await assert.rejects(() => writeEncryptedBackup(Readable.from(interrupted()), file, { recipients: RECIPIENTS, encrypt }), /dump interrupted|age stopped/)
+    assert.equal(settled, true, 'the backup writer returned while the encryptor was still running')
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100))
+    assert.deepEqual(await readdir(directory), [])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('refuses malformed and interrupted streamed backups without publishing a file', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'sesame-stream-backup-fail-'))
   const file = join(directory, 'backup.sql.gz.age')
