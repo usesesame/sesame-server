@@ -30,6 +30,7 @@ var (
 	ErrEmailTaken                 = errors.New("email already registered")
 	ErrNotFound                   = errors.New("account not found")
 	ErrNotEligible                = errors.New("account is not eligible for registration")
+	ErrRegistrationNotCreated     = errors.New("registration did not create an account")
 	ErrTokenExpired               = errors.New("account action token is invalid or expired")
 	ErrRecentAuthRequired         = errors.New("recent authentication is required")
 	ErrSupportTicketClosed        = errors.New("support ticket is closed")

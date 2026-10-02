@@ -108,10 +108,14 @@ func enqueueOutboxMessage(ctx context.Context, db outboxInserter, sealer *Action
 	var id string
 	err = db.QueryRowContext(ctx, `
 		INSERT INTO sesame_email_outbox (kind, to_email, action_url, expires_at, subject, body, support_message_id, status, next_attempt_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), 'pending', now())
+		SELECT $1, $2, $3, $4, $5, $6, NULLIF($7, ''), 'pending', now()
+		WHERE NOT $8
 		RETURNING id`,
-		message.Kind, message.To, sealedActionURL, message.ExpiresAt.UTC(), message.Subject, message.Body, message.SupportMessageID,
+		message.Kind, message.To, sealedActionURL, message.ExpiresAt.UTC(), message.Subject, message.Body, message.SupportMessageID, message.Discard,
 	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
 	if err != nil {
 		return "", fmt.Errorf("enqueue email outbox message: %w", err)
 	}

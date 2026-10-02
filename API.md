@@ -114,26 +114,35 @@ body.
 
 - `GET /v1/auth/registration` returns
   `{mode:"closed"|"invite"|"public",enabled,requiresInvite,emailDeliveryAvailable}`.
-- `POST /v1/auth/register` with `{email,password,inviteCode?}` returns `201`
-  `{user,verificationQueued}` and a browser-session cookie. The server enforces
-  the registration mode and consumes eligibility/invites transactionally.
-  `verificationQueued` is `true` when the verification email has been written
-  to the durable outbox; it does not mean the message has been accepted by the
-  upstream SMTP relay yet.
+- `POST /v1/auth/register` with `{email,password,inviteCode?}` returns `202`
+  with an empty body. The server enforces the registration mode and consumes
+  eligibility/invites transactionally. An address that already has an account,
+  an invitation that was already used, and an eligible new address all receive
+  the same response. Only a new account receives a verification email, and the
+  outbox result does not change the response; a queued message does not mean the
+  upstream SMTP relay accepted it. Registration does not create a browser
+  session.
 - `POST /v1/auth/email/verification/request` with no body returns `202`.
-- `POST /v1/auth/email/verification/confirm` with `{token}` returns `200 {user}`.
+- `POST /v1/auth/email/verification/confirm` with `{token}` returns
+  `200 {user}` and a replacement browser session. Verification revokes every
+  browser session, passkey, and desktop connection created while the account was
+  unverified, and cancels its pending desktop-link codes, in the same transaction
+  that marks the address verified.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
   malformed, and known emails receive the same response shape.
 - `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` returns
-  `200 {user,otherSessionsRevoked:true}` and a replacement session.
+  `200 {user,otherSessionsRevoked:true}` and a replacement session. Every
+  linked desktop token is revoked with the old browser sessions.
 - `POST /v1/account/email/change/request` with `{newEmail}` returns `202`.
 - `POST /v1/account/email/change/confirm` with `{token}` returns
   `200 {user,otherSessionsRevoked:true}` and a replacement session.
 
 Verification tokens live for 24 hours. Recovery and email-change tokens live
 for 30 minutes. Only SHA-256 token hashes are stored. Tokens are single-use;
-creating another token for the same purpose invalidates the previous one. The
-queued action email stores its link sealed with the deployment's admin
+creating another token for the same purpose invalidates the previous one. A
+password change or password reset invalidates every pending email-change
+token, and a completed email change invalidates every pending recovery token.
+The queued action email stores its link sealed with the deployment's admin
 encryption key, never in plaintext; a delivered or failed outbox row is
 purged seven days after its last update.
 
@@ -145,17 +154,26 @@ of the confirmation endpoint.
 
 `user` is `{id,email,emailVerified,betaAccess}`. Confirming an email change or
 password recovery revokes every older browser session in the same transaction
-that applies the account change.
+that applies the account change. A password reset also revokes every linked
+desktop token in that transaction. A completed email change also queues a
+security notice to the previous address. Recovery also revokes every passkey and
+desktop connection created while the account was unverified, cancels its
+pending desktop-link codes, and revokes every desktop connection regardless of
+when it was created. Credentials an attacker attached to an unverified account
+do not survive verification or recovery. Verification clears the password set
+at registration, so the address owner who did not start that registration sets
+a new password through password recovery.
 
 ## Recent authentication and browser sessions
 
-Password login, passkey login, registration, recovery completion, and email
-change completion mark a browser session as recently authenticated. The default
-recent-auth window is ten minutes.
+Password login, passkey login, verification completion, recovery completion,
+and email change completion mark a browser session as recently authenticated.
+The default recent-auth window is ten minutes.
 
 - `POST /v1/account/reauthenticate` with `{password}` returns `204`.
 - `GET /v1/account/sessions` returns `{sessions:[Session]}`.
-- `DELETE /v1/account/sessions` returns `204` and revokes every website session.
+- `DELETE /v1/account/sessions` returns `204` and revokes every website session
+  and every linked desktop token.
 - `DELETE /v1/account/sessions/{id}` returns `204`.
 
 `Session` is
@@ -170,8 +188,8 @@ and browser-session revocation. A stale request receives
 original operation once.
 
 `POST /v1/account/password` accepts `{currentPassword,newPassword}`. The new
-password, revocation of every old session, and creation of the replacement
-current session are one database transaction.
+password, revocation of every old session and every linked desktop token, and
+creation of the replacement current session are one database transaction.
 
 ## Passkeys
 
@@ -185,7 +203,9 @@ current session are one database transaction.
 
 A passkey authenticates the website account only. It never unlocks,
 identifies, or touches a local vault, and no vault material is part of any
-ceremony.
+ceremony. If an authenticator reports a possible clone after a successful
+assertion, the API records a `passkey_clone_warning` security event and
+refuses the sign-in instead of creating a session.
 
 ## Account state and deletion
 
@@ -290,7 +310,10 @@ recorded in the account activity log without the raw ticket or artifact object k
 
 Link states are `none`, `pending`, `connected`, or `expired`. The raw code is
 returned once on creation and is never stored in recoverable form. A connected
-state remains briefly so the website can show a clear success result.
+state remains briefly so the website can show a clear success result. A
+password change, a password reset, and revoking every website session delete
+every linked desktop token in the same transaction. The desktop receives the
+normal authorization failure and must link again.
 
 ## Desktop updates
 
