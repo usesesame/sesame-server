@@ -108,6 +108,31 @@ test('signIn surfaces the API error for rejected credentials', async () => {
   })
 })
 
+test('register posts the legal acceptance without expecting an account back', async () => {
+  fetchMock.mockImplementation(async (url: string) => url.endsWith('/v1/auth/csrf')
+    ? jsonResponse({ token: 'csrf-test' })
+    : new Response(null, { status: 202 }))
+  const { register } = await import('../src/lib/auth')
+  await expect(register('tester@example.invalid', 'correct horse battery staple', undefined, {
+    termsAccepted: true,
+    termsVersion: '2026-08-18',
+    privacyAcknowledged: true,
+    privacyVersion: '2026-08-18',
+  })).resolves.toBeUndefined()
+  const [url, init] = fetchMock.mock.calls[1]
+  expect(url).toBe('https://api.test.invalid/v1/auth/register')
+  expect(init.method).toBe('POST')
+  expect(JSON.parse(init.body)).toEqual({
+    email: 'tester@example.invalid',
+    password: 'correct horse battery staple',
+    termsAccepted: true,
+    termsVersion: '2026-08-18',
+    privacyAcknowledged: true,
+    privacyVersion: '2026-08-18',
+  })
+  expect(new Headers(init.headers).get('X-Sesame-CSRF')).toBe('csrf-test')
+})
+
 test('signOut tolerates an already ended session', async () => {
   fetchMock.mockImplementation(async (url: string) => url.endsWith('/v1/auth/csrf')
     ? jsonResponse({ token: 'csrf-test' })

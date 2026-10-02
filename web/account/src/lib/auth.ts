@@ -155,14 +155,13 @@ export async function getRegistrationStatus(): Promise<RegistrationStatus> {
   return await response.json() as RegistrationStatus
 }
 
-export async function register(email: string, password: string, inviteCode: string | undefined, legal: LegalAcceptance): Promise<Account> {
+export async function register(email: string, password: string, inviteCode: string | undefined, legal: LegalAcceptance): Promise<void> {
   const response = await apiRequest(API_ROUTES.register, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password, ...legal, ...(inviteCode ? { inviteCode } : {}) }),
   })
   if (!response.ok) throw await requestError(response)
-  return (await response.json() as AuthResponse).user
 }
 
 export async function signIn(email: string, password: string): Promise<Account> {

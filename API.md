@@ -114,12 +114,14 @@ body.
 
 - `GET /v1/auth/registration` returns
   `{mode:"closed"|"invite"|"public",enabled,requiresInvite,emailDeliveryAvailable}`.
-- `POST /v1/auth/register` with `{email,password,inviteCode?}` returns `201`
-  `{user,verificationQueued}` and a browser-session cookie. The server enforces
-  the registration mode and consumes eligibility/invites transactionally.
-  `verificationQueued` is `true` when the verification email has been written
-  to the durable outbox; it does not mean the message has been accepted by the
-  upstream SMTP relay yet.
+- `POST /v1/auth/register` with `{email,password,inviteCode?}` returns `202`
+  with an empty body. The server enforces the registration mode and consumes
+  eligibility/invites transactionally. An address that already has an account,
+  an invitation that was already used, and an eligible new address all receive
+  the same response. Only a new account receives a verification email, and the
+  outbox result does not change the response; a queued message does not mean the
+  upstream SMTP relay accepted it. Registration does not create a browser
+  session.
 - `POST /v1/auth/email/verification/request` with no body returns `202`.
 - `POST /v1/auth/email/verification/confirm` with `{token}` returns `200 {user}`.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
@@ -133,7 +135,9 @@ body.
 
 Verification tokens live for 24 hours. Recovery and email-change tokens live
 for 30 minutes. Only SHA-256 token hashes are stored. Tokens are single-use;
-creating another token for the same purpose invalidates the previous one.
+creating another token for the same purpose invalidates the previous one. A
+password change or password reset invalidates every pending email-change
+token, and a completed email change invalidates every pending recovery token.
 
 Action emails contain links such as `/verify-email#token={token}`. The token
 is in the URL fragment so it is never sent to the server in the request line,
@@ -144,12 +148,13 @@ of the confirmation endpoint.
 `user` is `{id,email,emailVerified,betaAccess}`. Confirming an email change or
 password recovery revokes every older browser session in the same transaction
 that applies the account change. A password reset also revokes every linked
-desktop token in that transaction.
+desktop token in that transaction. A completed email change also queues a
+security notice to the previous address.
 
 ## Recent authentication and browser sessions
 
-Password login, passkey login, registration, recovery completion, and email
-change completion mark a browser session as recently authenticated. The default
+Password login, passkey login, recovery completion, and email change
+completion mark a browser session as recently authenticated. The default
 recent-auth window is ten minutes.
 
 - `POST /v1/account/reauthenticate` with `{password}` returns `204`.

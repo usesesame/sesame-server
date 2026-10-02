@@ -436,6 +436,29 @@ func TestOutboxEmailSenderQueuesTheMessage(t *testing.T) {
 	}
 }
 
+func TestOutboxEmailSenderSkipsDiscardedMessages(t *testing.T) {
+	outbox, db := testOutbox(t)
+	sender := NewOutboxEmailSender(outbox)
+	if err := sender.SendAccountEmail(context.Background(), httpapi.AccountEmail{
+		Kind:      "recover-password",
+		To:        outboxTestRecipient,
+		ActionURL: "https://account.example.invalid/reset-password?token=fictional",
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+		Subject:   "Reset your Sesame account password",
+		Body:      "Open this link to choose a new password.",
+		Discard:   true,
+	}); err != nil {
+		t.Fatalf("send discarded account email: %v", err)
+	}
+	var rows int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM sesame_email_outbox`).Scan(&rows); err != nil {
+		t.Fatalf("count outbox rows: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("outbox rows = %d, want 0", rows)
+	}
+}
+
 func TestPurgeRemovesOldDeliveredAndFailedMessages(t *testing.T) {
 	outbox, db := testOutbox(t)
 	ctx := context.Background()
