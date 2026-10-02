@@ -32,19 +32,22 @@ to loopback.
 - An SMTP relay that supports STARTTLS, at a provider or on this host.
   Without working mail there is no email verification, no password recovery,
   and no email change.
-- Node.js 24.20 to build the website.
+- Node.js 24.20 for the website build, the setup script, and the deploy tool.
+- The GitHub CLI, authenticated to github.com with `gh auth login`, so the deploy
+  tool can verify image provenance.
 
 ## 1. Configure
 
 ```bash
 git clone https://github.com/usesesame/sesame-server.git
 cd sesame-server
-npm ci
 npm run setup
 ```
 
 `npm run setup` generates this deployment's own secrets and resolves the
-build contexts. It writes `deploy/compose/.env`, the development file.
+build contexts. It writes `deploy/compose/.env`, the development file. The
+setup script and the deploy tool import only Node builtins, so the host needs
+no `npm install` step and no install scripts run on it.
 
 ```bash
 cp deploy/compose/.env.production.example deploy/compose/.env.production
@@ -181,6 +184,13 @@ records their digest references in `server-release.json`, and attaches a
 dependency SBOM and signed provenance to each digest. Production uses the
 digest references, never the version tags.
 
+Before it changes anything, the deploy tool verifies each image's provenance
+attestation with the GitHub CLI against the pinned release repository
+`usesesame/sesame-server`, the release workflow, and the release tag. An image
+whose attestation is missing, was signed for another ref, or names another
+repository stops the deploy. A host with no GitHub access cannot deploy;
+verification is not skippable.
+
 The GitHub `server-release` environment must require release approval and
 define `SESAME_API_ORIGIN`, `SESAME_PUBLIC_SITE_ORIGIN`, and
 `SESAME_CAPABILITY_PUBLIC_KEY`. The key is the public half of the
@@ -188,21 +198,24 @@ production capability signing key. GitHub supplies registry and
 attestation credentials only to the workflow. Host and deployment
 credentials never enter the release job.
 
-Deploy one release artifact set end to end. Run this on the host, from a
-checkout at or newer than the revision that built the images:
+Deploy one release artifact set end to end. Check out the release tag on the
+host and run the tool with Node. The tool imports only Node builtins, so it
+needs no install step:
 
 ```bash
-npm ci
-npm run deploy:release -- plan server-release.json     # what would happen, nothing changes
-npm run deploy:release -- deploy server-release.json
-npm run deploy:release -- status
-npm run deploy:release -- rollback [version]
+git fetch --tags
+git checkout v<version>
+node scripts/deploy-release.mjs plan server-release.json     # what would happen, nothing changes
+node scripts/deploy-release.mjs deploy server-release.json
+node scripts/deploy-release.mjs status
+node scripts/deploy-release.mjs rollback [version]
 ```
 
 The deploy tool runs these stages, and every stage is safe to retry after
 an interruption:
 
-1. Pull and verify all three images by digest and identity labels.
+1. Pull all three images and verify their digests, identity labels, and
+   GitHub provenance.
 2. Take a verified `pg_dump` backup.
 3. Restore that backup into a scratch database and run the candidate
    migration and the previous revision's API against it. This is the
@@ -216,6 +229,8 @@ an interruption:
 
 If a stage fails, the failure is contained and recorded:
 
+- A failed image verification stops the run before the backup, the rehearsal,
+  or any change.
 - A failed health check before the switch changes no traffic. The previous
   revision keeps serving, and the env file is untouched.
 - A failed health check after the switch rolls back automatically. The tool

@@ -13,6 +13,8 @@ import test from 'node:test'
 import { fileIO } from './deploy-io.mjs'
 import {
   assertUsableBackup,
+  attestationArgs,
+  attestationTarget,
   classifyDeployment,
   compareVersions,
   deployRelease,
@@ -27,6 +29,12 @@ import {
 const COMMIT = 'a'.repeat(40)
 const DIGEST = `sha256:${'b'.repeat(64)}`
 const DIGEST2 = `sha256:${'c'.repeat(64)}`
+const RELEASE_REPOSITORY = 'usesesame/sesame-server'
+const IMAGE_REPOSITORIES = {
+  api: `ghcr.io/${RELEASE_REPOSITORY}-api`,
+  account: `ghcr.io/${RELEASE_REPOSITORY}-account`,
+  admin: `ghcr.io/${RELEASE_REPOSITORY}-admin`,
+}
 const ENV_TEXT = [
   'SESAME_DATABASE_PASSWORD=secret-database',
   'SESAME_API_IMAGE=registry.test.invalid/api@sha256:' + '9'.repeat(64),
@@ -46,9 +54,9 @@ function manifest(version, digest = DIGEST) {
     version,
     commit: COMMIT,
     images: {
-      api: `registry.test.invalid/api@${digest}`,
-      account: `registry.test.invalid/account@${digest}`,
-      admin: `registry.test.invalid/admin@${digest}`,
+      api: `${IMAGE_REPOSITORIES.api}@${digest}`,
+      account: `${IMAGE_REPOSITORIES.account}@${digest}`,
+      admin: `${IMAGE_REPOSITORIES.admin}@${digest}`,
     },
   })
 }
@@ -61,7 +69,7 @@ const PROD_ENV = '/host/deploy/compose/.env.production'
 
 function fakeIO(overrides = {}) {
   const files = new Map()
-  const calls = { pull: 0, backup: 0, rehearse: 0, migrations: 0, candidate: 0, switch: 0, up: 0, live: 0 }
+  const calls = { pull: 0, backup: 0, rehearse: 0, migrations: 0, candidate: 0, switch: 0, up: 0, live: 0, attestation: 0, attestations: [] }
   const io = {
     files,
     calls,
@@ -94,6 +102,10 @@ function fakeIO(overrides = {}) {
     async inspectImage(reference) {
       const digest = reference.split('@')[1]
       return { repoDigests: [`${reference.split('@')[0]}@${digest}`], labels: { 'org.opencontainers.image.version': '1.1.0', 'org.opencontainers.image.revision': COMMIT } }
+    },
+    async verifyImageAttestation(target) {
+      calls.attestation += 1
+      calls.attestations.push(target)
     },
     async takeBackup(path) {
       calls.backup += 1
@@ -172,6 +184,9 @@ test('rejects malformed manifests', () => {
     '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":"registry.test.invalid/api:1.0.0","account":"registry.test.invalid/account@' + DIGEST + '","admin":"registry.test.invalid/admin@' + DIGEST + '"}}',
     '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":"registry.test.invalid/api@' + DIGEST + '","account":"registry.test.invalid/account@' + DIGEST + '"}}',
     '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":{"name":"registry.test.invalid/api","digest":"' + DIGEST + '"},"account":"registry.test.invalid/account@' + DIGEST + '","admin":"registry.test.invalid/admin@' + DIGEST + '"}}',
+    '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":{"reference":"registry.test.invalid/api@' + DIGEST + '","name":"registry.test.invalid/api"},"account":"registry.test.invalid/account@' + DIGEST + '","admin":"registry.test.invalid/admin@' + DIGEST + '"}}',
+    '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":{"reference":"registry.test.invalid/api@' + DIGEST + '","name":"registry.test.invalid/api","digest":"sha256:' + 'f'.repeat(64) + '"},"account":"registry.test.invalid/account@' + DIGEST + '","admin":"registry.test.invalid/admin@' + DIGEST + '"}}',
+    '{"schemaVersion":1,"version":"1.0.0","commit":"' + COMMIT + '","images":{"api":{"reference":"registry.test.invalid/api@' + DIGEST + '","name":"registry.test.invalid/other","digest":"' + DIGEST + '"},"account":"registry.test.invalid/account@' + DIGEST + '","admin":"registry.test.invalid/admin@' + DIGEST + '"}}',
   ]) {
     assert.throws(() => parseRelease(broken))
   }
@@ -314,7 +329,20 @@ test('a noop deploy converges a drifted pinned env to the release digests', asyn
   io.composeUp = async () => ({ ok: true })
   io.liveHealth = async () => ({ ok: true, version: '1.1.0', commit: COMMIT })
   await assert.rejects(() => deployRelease(io, { ...env, release }), /already the deployed revision/)
+  assert.equal(io.calls.attestation, 3)
   assert.ok(io.files.get(PROD_ENV).toString().includes(`SESAME_API_IMAGE=${release.images.api.reference}`))
+})
+
+test('a noop deploy refuses to converge a drifted env when attestation verification fails', async () => {
+  const release = releaseOf('1.1.0')
+  const current = { version: '1.1.0', commit: COMMIT, setDigest: release.setDigest, images: release.images, deployedAt: '', previous: null }
+  const io = fakeIO()
+  seedEnvironment(io, { current, history: [] })
+  io.files.set(PROD_ENV, Buffer.from(ENV_TEXT))
+  io.verifyImageAttestation = async ({ reference }) => { throw new Error(`The provenance attestation for ${reference} did not verify`) }
+  await assert.rejects(() => deployRelease(io, { ...env, release }), /did not verify/)
+  assert.equal(io.calls.up, 0)
+  assert.equal(await io.readText(PROD_ENV), ENV_TEXT)
 })
 
 test('a deploy whose target already serves converges the pinned env before recording', async () => {
@@ -361,6 +389,146 @@ test('refuses images whose local digest or identity does not match', async () =>
   io.inspectImage = async (reference) => ({ repoDigests: [reference], labels: { 'org.opencontainers.image.version': '0.9.0', 'org.opencontainers.image.revision': COMMIT } })
   await assert.rejects(() => deployRelease(io, { ...env, release }), /identity does not match/)
   assert.ok(!io.files.has('/state/pending.json'))
+})
+
+test('binds each image attestation to the release repository, workflow, and tag', () => {
+  const release = releaseOf('1.2.3-rc.1')
+  const target = attestationTarget(release, 'api')
+  assert.deepEqual(target, {
+    reference: `${IMAGE_REPOSITORIES.api}@${DIGEST}`,
+    repository: RELEASE_REPOSITORY,
+    signerWorkflow: `${RELEASE_REPOSITORY}/.github/workflows/release.yml`,
+    sourceRef: 'refs/tags/v1.2.3-rc.1',
+  })
+  assert.deepEqual(attestationArgs(target), [
+    'attestation',
+    'verify',
+    `oci://${IMAGE_REPOSITORIES.api}@${DIGEST}`,
+    '--repo',
+    RELEASE_REPOSITORY,
+    '--signer-workflow',
+    `${RELEASE_REPOSITORY}/.github/workflows/release.yml`,
+    '--source-ref',
+    'refs/tags/v1.2.3-rc.1',
+    '--deny-self-hosted-runners',
+  ])
+  assert.equal(attestationTarget(release, 'account').repository, RELEASE_REPOSITORY)
+  assert.equal(attestationTarget(release, 'admin').sourceRef, 'refs/tags/v1.2.3-rc.1')
+})
+
+test('refuses images that cannot carry a verifiable GitHub attestation', async () => {
+  const io = fakeIO()
+  seedEnvironment(io)
+  const foreignRegistry = parseRelease(manifest('1.1.0').replaceAll('ghcr.io/', 'registry.test.invalid/'))
+  await assert.rejects(() => deployRelease(io, { ...env, release: foreignRegistry }), /hosted on ghcr\.io/)
+  const misnamed = parseRelease(manifest('1.1.0').replace(IMAGE_REPOSITORIES.api, `ghcr.io/${RELEASE_REPOSITORY}-web`))
+  await assert.rejects(() => deployRelease(io, { ...env, release: misnamed }), /naming of a -api image/)
+  assert.equal(io.calls.pull, 0)
+  assert.equal(io.calls.backup, 0)
+  assert.ok(!io.files.has('/state/pending.json'))
+})
+
+test('verifies all three image attestations before a matching release deploys', async () => {
+  const io = fakeIO()
+  seedEnvironment(io)
+  const release = releaseOf('1.1.0')
+  await deployRelease(io, { ...env, release })
+  assert.equal(io.calls.attestation, 3)
+  assert.deepEqual(io.calls.attestations, ['api', 'account', 'admin'].map((component) => ({
+    reference: `${IMAGE_REPOSITORIES[component]}@${DIGEST}`,
+    repository: RELEASE_REPOSITORY,
+    signerWorkflow: `${RELEASE_REPOSITORY}/.github/workflows/release.yml`,
+    sourceRef: 'refs/tags/v1.1.0',
+  })))
+  const state = await readDeployedState(io, '/state')
+  assert.equal(state.current.version, '1.1.0')
+})
+
+test('refuses a deploy when an image attestation is missing', async () => {
+  const io = fakeIO()
+  seedEnvironment(io)
+  io.verifyImageAttestation = async ({ reference }) => {
+    throw new Error(`The provenance attestation for ${reference} did not verify: no attestations found.`)
+  }
+  await assert.rejects(() => deployRelease(io, { ...env, release: releaseOf('1.1.0') }), /no attestations found/)
+  assert.equal(io.calls.backup, 0)
+  assert.equal(io.calls.migrations, 0)
+  assert.ok(!io.files.has('/state/pending.json'))
+})
+
+test('attestationTarget refuses a manifest that names a lookalike release repository', () => {
+  const lookalike = parseRelease(manifest('1.1.0').replaceAll(`ghcr.io/${RELEASE_REPOSITORY}`, 'ghcr.io/usesesame-lookalike/sesame-server'))
+  for (const component of ['api', 'account', 'admin']) {
+    assert.throws(
+      () => attestationTarget(lookalike, component),
+      {
+        message: `The ${component} image ghcr.io/usesesame-lookalike/sesame-server-${component} names the release repository usesesame-lookalike/sesame-server, not the pinned repository ${RELEASE_REPOSITORY}, so its provenance cannot be verified.`,
+      },
+    )
+  }
+})
+
+test('a lookalike release repository stops the deploy before any pull or state change', async () => {
+  const io = fakeIO()
+  seedEnvironment(io)
+  const lookalike = parseRelease(manifest('1.1.0').replaceAll(`ghcr.io/${RELEASE_REPOSITORY}`, 'ghcr.io/usesesame-lookalike/sesame-server'))
+  await assert.rejects(() => deployRelease(io, { ...env, release: lookalike }), /not the pinned repository usesesame\/sesame-server/)
+  assert.equal(io.calls.pull, 0)
+  assert.equal(io.calls.attestation, 0)
+  assert.equal(io.calls.backup, 0)
+  assert.equal(io.calls.switch, 0)
+  assert.ok(!io.files.has('/state/pending.json'))
+})
+
+test('refuses a deploy when the published attestation names another repository', async () => {
+  const io = fakeIO()
+  seedEnvironment(io)
+  io.verifyImageAttestation = async (target) => {
+    io.calls.attestation += 1
+    io.calls.attestations.push(target)
+    throw new Error(`The provenance attestation names usesesame-lookalike/sesame-server, not ${RELEASE_REPOSITORY}.`)
+  }
+  await assert.rejects(() => deployRelease(io, { ...env, release: releaseOf('1.1.0') }), /usesesame-lookalike\/sesame-server, not usesesame\/sesame-server/)
+  assert.deepEqual(io.calls.attestations.map((target) => target.repository), [RELEASE_REPOSITORY])
+  assert.equal(io.calls.switch, 0)
+})
+
+test('refuses a deploy when the attestation source ref does not match the release tag', async () => {
+  const io = fakeIO()
+  seedEnvironment(io)
+  io.verifyImageAttestation = async (target) => {
+    io.calls.attestation += 1
+    io.calls.attestations.push(target)
+    throw new Error(`The published attestation is for refs/tags/v1.2.0, not ${target.sourceRef}.`)
+  }
+  await assert.rejects(() => deployRelease(io, { ...env, release: releaseOf('1.1.0') }), /refs\/tags\/v1\.2\.0, not refs\/tags\/v1\.1\.0/)
+  assert.deepEqual(io.calls.attestations.map((target) => target.sourceRef), ['refs/tags/v1.1.0'])
+  assert.equal(io.calls.switch, 0)
+})
+
+test('a resumed deploy verifies image attestations again', async () => {
+  const release = releaseOf('1.1.0')
+  const pending = {
+    schemaVersion: 1,
+    phase: 'prepared',
+    release: { version: release.version, commit: release.commit, setDigest: release.setDigest, images: release.images },
+    startedAt: '2026-09-07T00:00:00.000Z',
+    backup: { file: '/state/backups/sesame-1.1.0-20260907-000000.sql.gz', sha256: 'f'.repeat(64), bytes: 4096 },
+    rehearsal: { ok: true, at: '2026-09-07T00:00:00.000Z' },
+  }
+  const io = fakeIO()
+  seedEnvironment(io, { pending })
+  io.files.set(pending.backup.file, Buffer.from('gzip-bytes'))
+  io.verifyImageAttestation = async () => { throw new Error('no attestations found for the resumed release') }
+  await assert.rejects(() => deployRelease(io, { ...env, release }), /no attestations found/)
+  assert.equal(io.calls.switch, 0)
+  assert.ok(io.files.has('/state/pending.json'))
+})
+
+test('the deploy tool verifies image provenance through the GitHub CLI', () => {
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'deploy-release.mjs'), 'utf8')
+  assert.ok(source.includes("spawnSync('gh'"))
+  assert.ok(source.includes('attestationArgs'))
 })
 
 test('a failed rehearsal aborts before promotion and retries only the rehearsal', async () => {
@@ -545,9 +713,16 @@ test('rollback restores the previous revision and records it', async () => {
   const io = fakeIO()
   seedEnvironment(io, { current, history })
   io.files.set('/state/history/1.0.0/env.production', Buffer.from(ENV_TEXT))
+  io.inspectImage = async (reference) => ({ repoDigests: [reference], labels: { 'org.opencontainers.image.version': '1.0.0', 'org.opencontainers.image.revision': COMMIT } })
   io.liveHealth = async () => ({ ok: true, version: '1.0.0', commit: COMMIT })
   const result = await rollbackRelease(io, { root: '/state', prodEnvPath: PROD_ENV })
   assert.deepEqual({ rolledBack: result.rolledBack, from: result.from }, { rolledBack: '1.0.0', from: '1.1.0' })
+  assert.equal(io.calls.attestation, 3)
+  assert.deepEqual(io.calls.attestations.map((target) => [target.repository, target.sourceRef]), [
+    [RELEASE_REPOSITORY, 'refs/tags/v1.0.0'],
+    [RELEASE_REPOSITORY, 'refs/tags/v1.0.0'],
+    [RELEASE_REPOSITORY, 'refs/tags/v1.0.0'],
+  ])
   assert.equal(await io.readText(PROD_ENV), ENV_TEXT)
   const state = await readDeployedState(io, '/state')
   assert.equal(state.current.version, '1.0.0')
@@ -566,6 +741,38 @@ test('rollback refuses unknown versions, missing snapshots, and a already-servin
   const nothing = fakeIO()
   seedEnvironment(nothing)
   await assert.rejects(() => rollbackRelease(nothing, inputs), /Nothing is recorded as deployed/)
+})
+
+test('rollback verifies the recorded attestations before it restores the target', async () => {
+  const previousImages = releaseOf('1.0.0', DIGEST2).images
+  const current = { version: '1.1.0', commit: COMMIT, setDigest: 'new-digest', images: releaseOf('1.1.0').images, deployedAt: '', backup: null, previous: { version: '1.0.0', setDigest: 'old-digest', images: previousImages } }
+  const io = fakeIO()
+  seedEnvironment(io, {
+    current,
+    history: [{ action: 'bootstrap', version: '1.0.0', commit: COMMIT, setDigest: 'old-digest', images: previousImages, from: null, at: '', backup: null }],
+  })
+  io.files.set('/state/history/1.0.0/env.production', Buffer.from('SESAME_API_IMAGE=registry.test.invalid/old-api@' + DIGEST2))
+  io.inspectImage = async (reference) => ({ repoDigests: [reference], labels: { 'org.opencontainers.image.version': '1.0.0', 'org.opencontainers.image.revision': COMMIT } })
+  io.verifyImageAttestation = async ({ reference }) => { throw new Error(`The provenance attestation for ${reference} did not verify`) }
+  await assert.rejects(() => rollbackRelease(io, { root: '/state', prodEnvPath: PROD_ENV }), /did not verify/)
+  assert.equal(io.calls.up, 0)
+  assert.equal(await io.readText(PROD_ENV), ENV_TEXT)
+  const state = await readDeployedState(io, '/state')
+  assert.equal(state.current.version, '1.1.0')
+})
+
+test('rollback refuses a record that predates image attestations', async () => {
+  const current = { version: '1.1.0', commit: COMMIT, setDigest: 'new-digest', images: releaseOf('1.1.0').images, deployedAt: '', backup: null, previous: { version: '1.0.0', setDigest: 'old-digest' } }
+  const io = fakeIO()
+  seedEnvironment(io, {
+    current,
+    history: [{ action: 'bootstrap', version: '1.0.0', commit: COMMIT, setDigest: 'old-digest', from: null, at: '', backup: null }],
+  })
+  io.files.set('/state/history/1.0.0/env.production', Buffer.from('SESAME_API_IMAGE=registry.test.invalid/old-api@' + DIGEST2))
+  await assert.rejects(() => rollbackRelease(io, { root: '/state', prodEnvPath: PROD_ENV }), /predates image attestations/)
+  assert.equal(io.calls.pull, 0)
+  assert.equal(io.calls.up, 0)
+  assert.equal(await io.readText(PROD_ENV), ENV_TEXT)
 })
 
 test('the compose stack creates its own secrets before it starts', () => {
