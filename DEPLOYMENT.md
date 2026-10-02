@@ -29,8 +29,9 @@ to loopback.
 - DNS A and AAAA records for `usesesame.app`, `www`, `api`, `account`, and
   `admin`, all pointing at the host. Caddy cannot issue certificates until
   these resolve.
-- An SMTP account that supports STARTTLS. Without working mail there is no
-  email verification, no password recovery, and no email change.
+- An SMTP relay that supports STARTTLS, at a provider or on this host.
+  Without working mail there is no email verification, no password recovery,
+  and no email change.
 - Node.js 24.20 to build the website.
 
 ## 1. Configure
@@ -57,8 +58,7 @@ from `server-release.json` into the three image fields. Get
 version being deployed. Production Compose has no build contexts and does
 not rebuild source on the host.
 
-Three values are fixed by the product. The comments in the example explain
-them as well.
+These values matter most. The comments in the example explain them as well.
 
 - `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret and
   every queued account-email action link. If it changes, those secrets become
@@ -69,11 +69,18 @@ them as well.
 - `SESAME_RP_ID` must be the account portal's registrable domain. Changing
   it later invalidates every passkey already registered.
 - `SESAME_TRUSTED_PROXIES` must name the proxy's network and nothing wider.
-  Every request arrives through the proxy, so without it the rate limiter
-  and the admin audit log see a single client address for the entire
-  internet. Widening it to `0.0.0.0/0` lets any client forge its own
-  address and defeat rate limiting. Verify the network with
+  The production stack pins its Compose network to `SESAME_COMPOSE_SUBNET`,
+  which the example sets to `172.30.0.0/24`, and the two values must always
+  name the same range. Never widen it to `0.0.0.0/0`: any client could then
+  forge its own address and defeat rate limiting, and the API refuses to
+  start with a range that covers every address. Verify the range with
   `docker network inspect sesame-prod_default`.
+- `SESAME_SMTP_ADDR` points at your own STARTTLS relay. It is empty in the
+  example, which runs the stack without verification, recovery, or
+  email-change mail. Set the username and password unless that relay accepts
+  mail only from the pinned Compose network. A relay on this host is reached
+  by its certificate name when `SESAME_SMTP_HOST_GATEWAY` names it. Never
+  point the address at a relay operated for another deployment.
 
 ## 2. Start the stack
 
@@ -234,6 +241,27 @@ still a wanted rollback target. Secrets from `.env.production` are read by
 the tool, mode 0600, never printed, and copied into the per-version
 snapshots under `deploy/state/history/`. Back that directory up with the
 same care as the env file itself.
+
+## Upgrading an existing stack
+
+An existing `.env.production` keeps its own values. The deploy tool rewrites
+only the three image lines, so nothing narrows a wide
+`SESAME_TRUSTED_PROXIES` for you. Set it to the pinned Compose subnet,
+`172.30.0.0/24` in the example, and keep it equal to
+`SESAME_COMPOSE_SUBNET`. The API refuses to start when the value holds an
+address outside loopback, private, or link-local space, such as `0.0.0.0/0`,
+`0.0.0.0/1`, or `::ffff:0.0.0.0/96`. The old `172.16.0.0/12` still starts
+with a warning that the range is wider than `/24`, and it trusts every peer
+in that range, not only the proxy.
+
+Changing the Compose `ipam` subnet recreates the `sesame-prod_default`
+network on the next `up -d`. Docker stops and recreates every container
+attached to that network, including the database, so expect a short outage.
+
+The old `mail.usesesame.app:host-gateway` mapping is gone. When the relay
+runs on this host and must be reached by its certificate name, set
+`SESAME_SMTP_HOST_GATEWAY` to that name. Review host firewall and Postfix
+`mynetworks` rules written for the old bridge subnet. They no longer match.
 
 ## Backups
 

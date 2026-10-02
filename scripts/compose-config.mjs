@@ -15,7 +15,7 @@ const common = {
   SESAME_SITE_ORIGIN: 'https://website.test.invalid',
   SESAME_REGISTRATION_MODE: 'closed',
   SESAME_RP_ID: 'account.test.invalid',
-  SESAME_TRUSTED_PROXIES: '172.16.0.0/12',
+  SESAME_TRUSTED_PROXIES: '172.30.0.0/24',
   SESAME_SERVER_CONTEXT: '../..',
 }
 
@@ -60,6 +60,20 @@ digestReference(candidate.services['candidate-api']?.image, 'Candidate check')
 if (candidate.services['candidate-api']?.build) throw new Error('The candidate check must not contain a build context.')
 if (candidate.networks?.default?.name !== 'sesame-prod_default' || candidate.networks?.default?.external !== true) {
   throw new Error('The candidate check must join the production network as an external network.')
+}
+const productionNetwork = production.networks?.default
+if (productionNetwork?.name !== 'sesame-prod_default') {
+  throw new Error('The production stack must pin the network name the candidate check joins.')
+}
+const productionSubnets = (productionNetwork?.ipam?.config ?? []).map((entry) => entry.subnet)
+if (productionSubnets.length !== 1 || productionSubnets[0] !== productionValues.SESAME_TRUSTED_PROXIES) {
+  throw new Error('The production network subnet and SESAME_TRUSTED_PROXIES must be the same range.')
+}
+if (production.services.api?.environment?.SESAME_TRUSTED_PROXIES !== productionValues.SESAME_TRUSTED_PROXIES) {
+  throw new Error('The production API must receive the pinned trusted proxy range.')
+}
+if ((production.services.api?.extra_hosts ?? []).some((entry) => /mail\.usesesame\.app/.test(entry))) {
+  throw new Error('The production stack must not ship a deployment-specific mail host mapping.')
 }
 
 function check(files, values) {
