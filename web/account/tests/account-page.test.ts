@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import type { Account, AccountBootstrap } from '../src/lib/auth'
 
 const auth = vi.hoisted(() => ({
@@ -73,6 +73,13 @@ function mockAccess(data = bootstrap()) {
   })
   auth.getAccountDownloads.mockResolvedValue([])
 }
+
+beforeEach(() => {
+  vi.stubGlobal('ResizeObserver', class {
+    observe() {}
+    disconnect() {}
+  })
+})
 
 afterEach(() => {
   cleanup()

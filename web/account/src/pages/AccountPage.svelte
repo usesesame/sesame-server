@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { slidingSelection } from '../lib/sliding-selection'
   import { onDestroy, onMount } from 'svelte'
   import {
     cancelDesktopLink,
@@ -444,7 +445,7 @@
   </div>
 
   {#if account}
-    <div class="account-tabs" role="tablist" aria-label="Account sections">
+    <div class="account-tabs" role="tablist" aria-label="Account sections" use:slidingSelection>
       {#each visibleTabs as item, index (item.id)}
         <button id={`account-tab-${item.id}`} role="tab" type="button" class:active={tab === item.id} aria-selected={tab === item.id} aria-controls="account-panel" tabindex={tab === item.id ? 0 : -1} on:keydown={(event) => tabKeydown(event, index)} on:click={() => selectTab(item.id)}>{item.label}</button>
       {/each}
