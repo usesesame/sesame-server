@@ -14,7 +14,7 @@ ENV VITE_SESAME_API_URL=$VITE_SESAME_API_URL \
     VITE_SESAME_CAPABILITY_PUBLIC_KEY=$VITE_SESAME_CAPABILITY_PUBLIC_KEY
 RUN npm run build && node /tools/release-contract.mjs portal account "$SESAME_VERSION" "$SESAME_COMMIT" /src/dist/release.json
 
-FROM nginx:1.31@sha256:05b8cb60c354a44ab824ea6e7dc69b46d50762cdbe728a347a5b656e6fb3d7c4
+FROM nginx:1.31@sha256:abe47724e466aeab9a345d8e46a221c2fa8953c7848bb4a3bd9976a7199f8cf2
 ARG SESAME_VERSION=0.1.0-dev
 ARG SESAME_COMMIT=unknown
 ARG SESAME_SOURCE_URL=https://github.com/usesesame/sesame-server
