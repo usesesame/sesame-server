@@ -43,7 +43,8 @@ publishing deployments. Any other value stops startup instead of guessing.
 Under `operator`:
 
 - The release, extension-publication, and plan administration routes, the
-  owner-ring user action, and `POST /v1/release-candidates` are not registered.
+  owner-ring user action, `POST /v1/release-candidates`, and
+  `GET /v1/project/activity` are not registered.
   Every role, including `super`, receives `404 not_found`.
 - `GET /v1/plans` returns `{plans:[]}`.
 - `GET /v1/product/status` returns
@@ -97,6 +98,13 @@ body.
   including its optional `annualPrice`.
 - `GET /v1/product/status` returns current phase, platform, account, sign-in, sync,
   and download availability.
+- `GET /v1/project/activity` returns
+  `{generatedAt,windowDays,repositories:[{name,pushedAt,recentCommits}]}` for
+  the four Sesame repositories, counted on each default branch over the last
+  30 days. The API asks GitHub on start and every 15 minutes, and a request
+  only reads that copy. A failed refresh keeps the last good copy. Before the
+  first count it returns `503 project_activity_unavailable`. Project profile
+  only.
 - `GET /v1/releases/latest?platform=windows|linux` returns release availability for
   the platform. Stays unavailable until the full release set clears the gate:
   exact-workflow Sigstore evidence for every package, and a verified Tauri

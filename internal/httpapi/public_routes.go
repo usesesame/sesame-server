@@ -125,6 +125,20 @@ func (a *api) latestRelease(response http.ResponseWriter, request *http.Request)
 	writeJSON(response, http.StatusOK, product.LatestWindowsRelease())
 }
 
+func (a *api) projectActivity(response http.ResponseWriter, request *http.Request) {
+	if a.config.ProjectActivity == nil {
+		writeError(response, http.StatusServiceUnavailable, "project_activity_unavailable", "Project activity has not been counted yet.")
+		return
+	}
+	snapshot, ok := a.config.ProjectActivity.Snapshot()
+	if !ok {
+		writeError(response, http.StatusServiceUnavailable, "project_activity_unavailable", "Project activity has not been counted yet.")
+		return
+	}
+	response.Header().Set("Cache-Control", "public, max-age=300")
+	writeJSON(response, http.StatusOK, snapshot)
+}
+
 func (a *api) boundaries(response http.ResponseWriter, request *http.Request) {
 	writeJSON(response, http.StatusOK, map[string]any{
 		"acceptsVaultData":        false,
