@@ -25,6 +25,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/activity"
 	adminstore "usesesame.app/backend/internal/admin"
 	"usesesame.app/backend/internal/buildinfo"
 	"usesesame.app/backend/internal/httpapi"
@@ -206,6 +207,15 @@ func main() {
 		ArtifactDelivery:          artifactDelivery,
 		OperationalOutbox:         operationalOutbox,
 		Maintenance:               maintenance,
+	}
+	if deploymentProfile == httpapi.DeploymentProfileProject {
+		tracker := activity.NewTracker("https://api.github.com", "usesesame", []string{"sesame-desktop", "sesame-server", "sesame-website", "sesame-browser-extension"}, nil)
+		config.ProjectActivity = tracker
+		backgroundJobs.Add(1)
+		go func() {
+			defer backgroundJobs.Done()
+			tracker.Run(ctx, activity.RefreshInterval)
+		}()
 	}
 	runMaintenanceOnce(ctx, store, outbox, maintenance, config.CapabilitySigningKey, config.CapabilityKeyID)
 	backgroundJobs.Add(1)

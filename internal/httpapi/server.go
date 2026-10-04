@@ -13,6 +13,7 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/activity"
 	adminstore "usesesame.app/backend/internal/admin"
 	"usesesame.app/backend/internal/syncstore"
 )
@@ -69,6 +70,12 @@ type Config struct {
 	Passkeys *webauthn.WebAuthn
 	// Only these peers may supply X-Forwarded-For, so a caller cannot choose its limiter key.
 	TrustedProxies []netip.Prefix
+	// Nil leaves GET /v1/project/activity unavailable.
+	ProjectActivity ProjectActivitySource
+}
+
+type ProjectActivitySource interface {
+	Snapshot() (activity.Snapshot, bool)
 }
 
 type ReleaseRegistry interface {
@@ -225,6 +232,7 @@ func New(config Config) http.Handler {
 	service.route(mux, metadata, "GET /v1/plans", service.plans)
 	service.route(mux, metadata, "GET /v1/product/status", service.productStatus)
 	service.route(mux, metadata, "GET /v1/releases/latest", service.latestRelease)
+	service.projectRoute(mux, metadata, "GET /v1/project/activity", service.projectActivity)
 	service.route(mux, metadata, "GET /v1/security/boundaries", service.boundaries)
 	service.route(mux, metadata, "GET /v1/capabilities", service.capabilities)
 	service.route(mux, metadata, "GET /v1/support", service.support)
