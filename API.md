@@ -1,11 +1,12 @@
 # Sesame account API
 
 This document is the complete closed request and response schema contract for
-the Go API. The generated [OpenAPI inventory](./openapi/openapi.json) is the
-source of truth for route and method enumeration, authentication and CSRF
-classes, availability, and Go handler ownership. Regenerate it with
-`npm run openapi:generate` from this directory; server CI compares it byte for
-byte.
+the Go API. The generated OpenAPI inventories are the source of truth for route
+and method enumeration, authentication and CSRF classes, availability, and Go
+handler ownership: [project](./openapi/openapi.json) for Sesame's own publishing
+deployment and [operator](./openapi/openapi.operator.json) for a self-hosted
+operator deployment. Regenerate both with `npm run openapi:generate` from this
+directory; server CI compares them byte for byte.
 
 The API is vault-blind. These contracts must never carry a vault file,
 encrypted vault blob, vault password, TOTP seed, backup code, recovery note, or
@@ -32,6 +33,38 @@ limiter key. Exceeding a budget returns `429 too_many_attempts` with
 `Retry-After`, except for password recovery, which keeps answering `202` so the
 status code cannot reveal whether an address holds an account or recent
 activity.
+
+## Deployment profiles
+
+`SESAME_DEPLOYMENT_PROFILE` selects what the API serves. Unset or `operator` is
+the default self-hosted deployment. `project` is only for Sesame's own
+publishing deployments. Any other value stops startup instead of guessing.
+
+Under `operator`:
+
+- The release, extension-publication, and plan administration routes, the
+  owner-ring user action, and `POST /v1/release-candidates` are not registered.
+  Every role, including `super`, receives `404 not_found`.
+- `GET /v1/plans` returns `{plans:[]}`.
+- `GET /v1/product/status` returns
+  `{webSignInAvailable,desktopConnectionAvailable,registrationMode,cloudSyncAvailable,updated}`.
+  It carries no product phase, platform list, account purpose, or download
+  state.
+- `GET /v1/releases/latest`, `GET /v1/desktop/updates`,
+  `GET /v1/desktop/update-tickets/{ticket}`, `GET /v1/account/downloads`,
+  `POST /v1/account/download-tickets`, and `GET /v1/downloads/{ticket}` return
+  `503 release_artifacts_unavailable`. An operator artifact path is not
+  defined yet.
+- `updater_enabled` and `public_download` are absent from
+  `GET /v1/admin/flags` and the feature flags of
+  `GET /v1/admin/system/config`, and `PATCH /v1/admin/flags/{key}` rejects
+  them. The signed capability document reports `downloads` and `updater` false.
+- `GET /v1/admin/system/config` reports `deploymentProfile`.
+
+Under `project`, the full release, publication, plan, and download surface is
+registered and behaves as described below. The admin console hides Releases,
+Product plans, and the owner-ring action outside `project`, and the account
+portal hides its download surfaces.
 
 ## Signed capability contract
 
@@ -73,32 +106,45 @@ body.
   additionally requires verified Authenticode evidence.
 - `GET /v1/security/boundaries` returns machine-readable confirmation that the API
   accepts and stores no vault data or credentials.
-- `GET /v1/support` returns public support availability and a safe-submission
-  warning.
+- `GET /v1/support` returns public support availability, a safe-submission
+  warning, and `receiptEmail`, a boolean stating whether intake receipts are
+  emailed on this deployment. It never returns a staff address.
 
 ## Registration and email
 
 - `GET /v1/auth/registration` returns
   `{mode:"closed"|"invite"|"public",enabled,requiresInvite,emailDeliveryAvailable}`.
-- `POST /v1/auth/register` with `{email,password,inviteCode?}` returns `201`
-  `{user,verificationQueued}` and a browser-session cookie. The server enforces
-  the registration mode and consumes eligibility/invites transactionally.
-  `verificationQueued` is `true` when the verification email has been written
-  to the durable outbox; it does not mean the message has been accepted by the
-  upstream SMTP relay yet.
+- `POST /v1/auth/register` with `{email,password,inviteCode?}` returns `202`
+  with an empty body. The server enforces the registration mode and consumes
+  eligibility/invites transactionally. An address that already has an account,
+  an invitation that was already used, and an eligible new address all receive
+  the same response. Only a new account receives a verification email, and the
+  outbox result does not change the response; a queued message does not mean the
+  upstream SMTP relay accepted it. Registration does not create a browser
+  session.
 - `POST /v1/auth/email/verification/request` with no body returns `202`.
-- `POST /v1/auth/email/verification/confirm` with `{token}` returns `200 {user}`.
+- `POST /v1/auth/email/verification/confirm` with `{token}` returns
+  `200 {user}` and a replacement browser session. Verification revokes every
+  browser session, passkey, and desktop connection created while the account was
+  unverified, and cancels its pending desktop-link codes, in the same transaction
+  that marks the address verified.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
   malformed, and known emails receive the same response shape.
 - `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` returns
-  `200 {user,otherSessionsRevoked:true}` and a replacement session.
+  `200 {user,otherSessionsRevoked:true}` and a replacement session. Every
+  linked desktop token is revoked with the old browser sessions.
 - `POST /v1/account/email/change/request` with `{newEmail}` returns `202`.
 - `POST /v1/account/email/change/confirm` with `{token}` returns
   `200 {user,otherSessionsRevoked:true}` and a replacement session.
 
 Verification tokens live for 24 hours. Recovery and email-change tokens live
 for 30 minutes. Only SHA-256 token hashes are stored. Tokens are single-use;
-creating another token for the same purpose invalidates the previous one.
+creating another token for the same purpose invalidates the previous one. A
+password change or password reset invalidates every pending email-change
+token, and a completed email change invalidates every pending recovery token.
+The queued action email stores its link sealed with the deployment's admin
+encryption key, never in plaintext; a delivered or failed outbox row is
+purged seven days after its last update.
 
 Action emails contain links such as `/verify-email#token={token}`. The token
 is in the URL fragment so it is never sent to the server in the request line,
@@ -108,17 +154,26 @@ of the confirmation endpoint.
 
 `user` is `{id,email,emailVerified,betaAccess}`. Confirming an email change or
 password recovery revokes every older browser session in the same transaction
-that applies the account change.
+that applies the account change. A password reset also revokes every linked
+desktop token in that transaction. A completed email change also queues a
+security notice to the previous address. Recovery also revokes every passkey and
+desktop connection created while the account was unverified, cancels its
+pending desktop-link codes, and revokes every desktop connection regardless of
+when it was created. Credentials an attacker attached to an unverified account
+do not survive verification or recovery. Verification clears the password set
+at registration, so the address owner who did not start that registration sets
+a new password through password recovery.
 
 ## Recent authentication and browser sessions
 
-Password login, passkey login, registration, recovery completion, and email
-change completion mark a browser session as recently authenticated. The default
-recent-auth window is ten minutes.
+Password login, passkey login, verification completion, recovery completion,
+and email change completion mark a browser session as recently authenticated.
+The default recent-auth window is ten minutes.
 
 - `POST /v1/account/reauthenticate` with `{password}` returns `204`.
 - `GET /v1/account/sessions` returns `{sessions:[Session]}`.
-- `DELETE /v1/account/sessions` returns `204` and revokes every website session.
+- `DELETE /v1/account/sessions` returns `204` and revokes every website session
+  and every linked desktop token.
 - `DELETE /v1/account/sessions/{id}` returns `204`.
 
 `Session` is
@@ -133,8 +188,8 @@ and browser-session revocation. A stale request receives
 original operation once.
 
 `POST /v1/account/password` accepts `{currentPassword,newPassword}`. The new
-password, revocation of every old session, and creation of the replacement
-current session are one database transaction.
+password, revocation of every old session and every linked desktop token, and
+creation of the replacement current session are one database transaction.
 
 ## Passkeys
 
@@ -148,7 +203,9 @@ current session are one database transaction.
 
 A passkey authenticates the website account only. It never unlocks,
 identifies, or touches a local vault, and no vault material is part of any
-ceremony.
+ceremony. If an authenticator reports a possible clone after a successful
+assertion, the API records a `passkey_clone_warning` security event and
+refuses the sign-in instead of creating a session.
 
 ## Account state and deletion
 
@@ -159,7 +216,8 @@ ceremony.
   recent security events.
 - `GET /v1/account/notifications` returns `{securityMandatory:true,preferences}`.
   `PATCH` the same path with `{betaReleases,supportReplies,productAnnouncements}`
-  returns `204`. Security mail cannot be switched off.
+  returns `204`. `supportReplies` defaults to on for every account and can be
+  switched off. Security mail cannot be switched off.
 - `POST /v1/account/delete` with `{password}` deletes the account. Requires
   recent authentication and re-verifies the password.
 
@@ -252,7 +310,10 @@ recorded in the account activity log without the raw ticket or artifact object k
 
 Link states are `none`, `pending`, `connected`, or `expired`. The raw code is
 returned once on creation and is never stored in recoverable form. A connected
-state remains briefly so the website can show a clear success result.
+state remains briefly so the website can show a clear success result. A
+password change, a password reset, and revoking every website session delete
+every linked desktop token in the same transaction. The desktop receives the
+normal authorization failure and must link again.
 
 ## Desktop updates
 
@@ -296,6 +357,55 @@ state remains briefly so the website can show a clear success result.
 - `POST /v1/account/support/{id}/close` closes the user's open request.
 - `POST /v1/account/support/{id}/reopen` reopens a request closed by the user
   within 30 days.
+- `POST /v1/account/support/{id}/attach` attaches a guest request to the
+  signed-in account when the account is verified and its address matches the
+  request address, then returns the ticket. A closed guest request may still be
+  attached. Attaching revokes every live guest link in the same transaction.
+- `POST /v1/support/access` with `{token}` returns `200 {ticket}` for a live
+  guest link and `POST /v1/support/access/reply` with `{token,message}` adds a
+  text-only follow-up and returns `201 {ticket}`. Neither route reads or sets a
+  session cookie, and both are origin- and CSRF-checked like the intake route.
+
+A staff reply to a guest request queues one email that carries only a link and
+a short instruction, never the reply body, subject, or reference. The link
+secret is 32 random bytes stored only as a SHA-256 hash; the raw value travels
+in the URL fragment and in JSON request bodies. A link is repeatable for 7 days,
+issuing a newer link revokes the older ones, and closing or attaching the
+request revokes every live link. Redemption resolves only the one request the
+token was issued for and requires the request to stay unattached, open, and at
+the same address. Unknown, expired, revoked, closed, attached, and
+address-mismatched links all return the same `400 support_link_invalid` body.
+Redemption is limited to 60 requests per client per minute; replies are limited
+to 12 per client per hour and 20 per link per hour.
+
+Account ticket list and detail responses carry `autoClosed`. It is `true` when
+the system closed the request after 14 days without activity; the 30-day reopen
+window is unchanged, and no email is sent for that close. Scheduled maintenance
+deletes a closed request and its linked email outbox rows 90 days after
+closure. Open, in-progress, and waiting requests are never deleted by
+retention, and a waiting request with recent activity is never closed
+automatically.
+
+Guest and signed-in intake returns the reference and, when SMTP is configured,
+queues a receipt to the requester that carries only the reference and the
+portal link. Intake is capped per client and per recipient address. When
+`SESAME_SUPPORT_NOTIFY_EMAIL` is set, a new request and a signed-in follow-up
+queue one notice to that address with the reference, category, and admin
+console link. Staff replies queue a notice only when the owning account's
+support-reply preference is on; that enqueue shares the reply transaction, so a
+failed enqueue fails the reply. No notification contains the subject or
+message.
+
+The admin ticket detail and reply responses carry a server-computed
+`emailDeliveryReason` on each staff message: `delivered`, `pending`, `failed`,
+`guest` (the request has no account), `mail-off` (no SMTP sender),
+`opted-out` (the account turned reply email off), or `not-queued` (no outbox
+row, including a preference lookup failure). A lookup failure never reports
+`opted-out`. User messages carry no reason. The ticket detail response also
+carries `mail: {deliveryConfigured, staffNotifyConfigured}` so support staff can
+see the deployment's mail state without `system:read`. The list response and
+account responses are unchanged, and neither field exposes an address or a
+secret.
 
 The intake accepts JSON only, rejects attachment fields and multipart bodies,
 and refuses secret-shaped content: `key: value` assignments, the prose form of
@@ -313,7 +423,9 @@ allowlisted label, never an extension-installation claim.
 Account support reads are scoped by both ticket ID and account ID. Public
 reference numbers do not grant access. Internal notes, assignment, priority,
 admin identities, email-delivery state, and audit data are never returned by
-account endpoints.
+account endpoints. A guest link is a capability for one request only: it is
+bound to the requester address stored at issue time and stops working on close,
+attach, or a newer link.
 
 ## Sync (registered, disabled)
 
@@ -368,6 +480,26 @@ cookie, session table, CSRF token and eight-hour TTL. Password plus TOTP is
 required. There is no public admin registration; `cmd/adminctl bootstrap`
 creates the first one-time setup link.
 
+Destructive actions also require a fresh credential check: user deletion,
+owner release and beta changes, suspension, session and device revocation,
+feature-flag changes, release publication, rollout, emergency stop and
+withdrawal, extension publication acceptance and transition, plan changes, and
+administrator creation, update and deletion. The admin session must have
+re-authenticated within the last five minutes. Sign-in and setup count as a
+fresh re-authentication. A missing or expired check returns
+`403 admin_step_up_required` and commits no change.
+
+- `POST /v1/admin/auth/step-up` renews the re-authentication of the caller's
+  own admin session. Send exactly one of `password` or `code`; the code is a
+  current six-digit TOTP value and is rejected if its time step was already
+  used. Sign-in and step-up share the same counter, so a code used to sign in
+  cannot be reused for step-up. The pending action still enforces its role
+  permission separately. A wrong password or code returns
+  `401 invalid_admin_credentials`. Success
+  returns the `200` receipt `{"stepUpExpiresAt": "...", "windowSeconds": 300}`.
+  A successful check writes one `admin.step_up` audit entry naming the method,
+  and the route is rate limited per administrator and per peer.
+
 The API exposes role-checked routes for account support, feature flags,
 release metadata, product plans, administrators, aggregated system status and
 the append-only audit log. Every mutation writes its audit entry in the same
@@ -385,3 +517,10 @@ route decoding.
   `system:read`.
 - `GET /v1/admin/system/config` returns the feature-flag document for
   `system:read`.
+- `GET /v1/admin/saved-replies` lists the saved replies for `support:read`.
+  `POST /v1/admin/saved-replies` creates one, and
+  `PATCH`/`DELETE /v1/admin/saved-replies/{id}` updates or deletes one, for
+  `support:manage`. A title is capped at 120 characters and a body at 8,000,
+  both must be non-empty, and both pass the secret-shaped-content guard before
+  storage. Every mutation writes its audit entry in the same transaction.
+  Updates and deletes return `404 admin_record_not_found` for an unknown id.

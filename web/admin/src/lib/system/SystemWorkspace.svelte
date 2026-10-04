@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { OperationalSnapshot, OperationalStatus } from '../types'
+  import type { OperationalSnapshot, OperationalStatus, SystemMailConfig } from '../types'
 
   type Failure = '' | 'unavailable' | 'unauthorized'
   type State = { label: string; status: OperationalStatus; detail: string; action: string }
 
-  const props = $props<{ snapshot: OperationalSnapshot | null; failure: Failure }>()
+  const props = $props<{ snapshot: OperationalSnapshot | null; mail?: SystemMailConfig | null; failure: Failure }>()
 
   function statusText(status: OperationalStatus) {
     return status.replace('_', ' ')
@@ -67,6 +67,7 @@
       <h2>Email queue</h2>
       <span class="system-status" data-health={props.snapshot.emailOutbox.status}>{statusText(props.snapshot.emailOutbox.status)}</span>
       <p>{props.snapshot.emailOutbox.pending} pending, {props.snapshot.emailOutbox.failed} failed</p>
+      {#if props.mail}<p>Mail sender {props.mail.emailDeliveryConfigured ? 'configured' : 'off'}. Staff notifications {props.mail.supportNotifyEmailConfigured ? 'on' : 'off'}.</p>{/if}
       {#if props.snapshot.emailOutbox.status !== 'ready'}<p class="system-action">Check the email worker and failed deliveries.</p>{/if}
     </section>
 

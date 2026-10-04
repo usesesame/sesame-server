@@ -382,6 +382,7 @@ type TicketMessage struct {
 	Body                string     `json:"body"`
 	SentViaEmail        bool       `json:"sentViaEmail"`
 	EmailDeliveryStatus string     `json:"emailDeliveryStatus,omitempty"`
+	EmailDeliveryReason string     `json:"emailDeliveryReason,omitempty"`
 	EmailAttempts       int        `json:"emailAttempts,omitempty"`
 	EmailNextAttemptAt  *time.Time `json:"emailNextAttemptAt,omitempty"`
 	CreatedAt           time.Time  `json:"createdAt"`
@@ -392,6 +393,15 @@ type TicketNote struct {
 	AdminEmail string    `json:"adminEmail"`
 	Body       string    `json:"body"`
 	CreatedAt  time.Time `json:"createdAt"`
+}
+
+type SavedReply struct {
+	ID               string    `json:"id"`
+	Title            string    `json:"title"`
+	Body             string    `json:"body"`
+	CreatedByAdminID *string   `json:"createdByAdminId,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 type TicketDetail struct {

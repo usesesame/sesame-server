@@ -35,11 +35,17 @@ type adminSetupRequest struct {
 	Code     string `json:"code,omitempty"`
 }
 
+type adminStepUpRequest struct {
+	Password string `json:"password,omitempty"`
+	Code     string `json:"code,omitempty"`
+}
+
 func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	admin := routePolicy{audience: audienceAdminConsole}
 	a.route(mux, admin, "GET /v1/admin/auth/csrf", a.adminCSRF)
 	a.route(mux, admin, "POST /v1/admin/auth/login", a.adminLogin)
 	a.route(mux, admin, "POST /v1/admin/auth/logout", a.adminLogout)
+	a.route(mux, admin, "POST /v1/admin/auth/step-up", a.adminStepUp)
 	a.route(mux, admin, "GET /v1/admin/auth/me", a.adminMe)
 	a.route(mux, admin, "POST /v1/admin/auth/setup/begin", a.adminSetupBegin)
 	a.route(mux, admin, "POST /v1/admin/auth/setup/complete", a.adminSetupComplete)
@@ -47,8 +53,8 @@ func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	a.route(mux, admin, "GET /v1/admin/users", a.adminUsers)
 	a.route(mux, admin, "GET /v1/admin/users/{accountID}", a.adminUserView)
 	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}", a.adminUserDelete)
-	a.route(mux, admin, "POST /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", true))
-	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", false))
+	a.projectRoute(mux, admin, "POST /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", true))
+	a.projectRoute(mux, admin, "DELETE /v1/admin/users/{accountID}/owner-release", a.adminUserAction("owner-release", false))
 	a.route(mux, admin, "POST /v1/admin/users/{accountID}/beta", a.adminUserAction("beta", true))
 	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/beta", a.adminUserAction("beta", false))
 	a.route(mux, admin, "POST /v1/admin/users/{accountID}/suspend", a.adminUserAction("suspend", true))
@@ -57,16 +63,16 @@ func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	a.route(mux, admin, "DELETE /v1/admin/users/{accountID}/devices/{deviceID}", a.adminUserAction("devices", false))
 	a.route(mux, admin, "GET /v1/admin/flags", a.adminFlags)
 	a.route(mux, admin, "PATCH /v1/admin/flags/{key}", a.adminFlag)
-	a.route(mux, admin, "GET /v1/admin/releases", a.adminReleases)
-	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/publish", a.adminReleasePublish)
-	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/rollout", a.adminReleaseRollout)
-	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/emergency-stop", a.adminReleaseEmergencyStop)
-	a.route(mux, admin, "POST /v1/admin/releases/{releaseID}/withdraw", a.adminReleaseWithdraw)
-	a.route(mux, admin, "GET /v1/admin/extension-publications", a.adminExtensionPublications)
-	a.route(mux, admin, "POST /v1/admin/extension-publications", a.adminExtensionPublicationAccept)
-	a.route(mux, admin, "POST /v1/admin/extension-publications/{publicationID}/transition", a.adminExtensionPublicationTransition)
-	a.route(mux, admin, "GET /v1/admin/plans", a.adminPlans)
-	a.route(mux, admin, "PATCH /v1/admin/plans/{planID}", a.adminPlan)
+	a.projectRoute(mux, admin, "GET /v1/admin/releases", a.adminReleases)
+	a.projectRoute(mux, admin, "POST /v1/admin/releases/{releaseID}/publish", a.adminReleasePublish)
+	a.projectRoute(mux, admin, "POST /v1/admin/releases/{releaseID}/rollout", a.adminReleaseRollout)
+	a.projectRoute(mux, admin, "POST /v1/admin/releases/{releaseID}/emergency-stop", a.adminReleaseEmergencyStop)
+	a.projectRoute(mux, admin, "POST /v1/admin/releases/{releaseID}/withdraw", a.adminReleaseWithdraw)
+	a.projectRoute(mux, admin, "GET /v1/admin/extension-publications", a.adminExtensionPublications)
+	a.projectRoute(mux, admin, "POST /v1/admin/extension-publications", a.adminExtensionPublicationAccept)
+	a.projectRoute(mux, admin, "POST /v1/admin/extension-publications/{publicationID}/transition", a.adminExtensionPublicationTransition)
+	a.projectRoute(mux, admin, "GET /v1/admin/plans", a.adminPlans)
+	a.projectRoute(mux, admin, "PATCH /v1/admin/plans/{planID}", a.adminPlan)
 	a.route(mux, admin, "GET /v1/admin/admins", a.adminAccounts)
 	a.route(mux, admin, "POST /v1/admin/admins", a.inviteAdminAccount)
 	a.route(mux, admin, "DELETE /v1/admin/admins/{adminID}", a.deleteAdminAccount)
@@ -85,6 +91,10 @@ func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/assign", a.adminSupportTicketAction("assign"))
 	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/status", a.adminSupportTicketAction("status"))
 	a.route(mux, admin, "POST /v1/admin/support/{ticketID}/priority", a.adminSupportTicketAction("priority"))
+	a.route(mux, admin, "GET /v1/admin/saved-replies", a.adminSupportSavedReplies)
+	a.route(mux, admin, "POST /v1/admin/saved-replies", a.adminSupportSavedReplyAction("create"))
+	a.route(mux, admin, "PATCH /v1/admin/saved-replies/{replyID}", a.adminSupportSavedReplyAction("update"))
+	a.route(mux, admin, "DELETE /v1/admin/saved-replies/{replyID}", a.adminSupportSavedReplyAction("delete"))
 }
 
 func (a *api) requireAdminStore(response http.ResponseWriter) (*adminstore.Store, bool) {
@@ -186,7 +196,7 @@ func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
 	}
 	a.setAdminSessionCookie(response, token)
 	admin.Permissions = adminstore.EffectivePermissions(admin.Role)
-	writeJSON(response, http.StatusOK, map[string]any{"admin": admin})
+	writeJSON(response, http.StatusOK, map[string]any{"admin": admin, "deploymentProfile": a.config.DeploymentProfile})
 }
 
 func (a *api) adminSetupBegin(response http.ResponseWriter, request *http.Request) {
@@ -250,26 +260,32 @@ func (a *api) adminSetupComplete(response http.ResponseWriter, request *http.Req
 	}
 	a.setAdminSessionCookie(response, token)
 	account.Permissions = adminstore.EffectivePermissions(account.Role)
-	writeJSON(response, http.StatusOK, map[string]any{"admin": account})
+	writeJSON(response, http.StatusOK, map[string]any{"admin": account, "deploymentProfile": a.config.DeploymentProfile})
 }
 
 func (a *api) adminForRequest(response http.ResponseWriter, request *http.Request) (adminstore.Account, bool) {
+	account, _, _, ok := a.adminSessionForRequest(response, request)
+	return account, ok
+}
+
+func (a *api) adminSessionForRequest(response http.ResponseWriter, request *http.Request) (adminstore.Account, []byte, time.Time, bool) {
 	store, ok := a.requireAdminStore(response)
 	if !ok {
-		return adminstore.Account{}, false
+		return adminstore.Account{}, nil, time.Time{}, false
 	}
 	cookie, err := request.Cookie(adminSessionCookie)
 	if err != nil || cookie.Value == "" {
 		writeError(response, http.StatusUnauthorized, "admin_not_authenticated", "Sign in with an admin account to continue.")
-		return adminstore.Account{}, false
+		return adminstore.Account{}, nil, time.Time{}, false
 	}
-	account, err := store.AccountBySession(request.Context(), adminstore.HashToken(cookie.Value))
+	tokenHash := adminstore.HashToken(cookie.Value)
+	account, authenticatedAt, err := store.AccountBySession(request.Context(), tokenHash)
 	if err != nil {
 		a.clearAdminSessionCookie(response)
 		writeError(response, http.StatusUnauthorized, "admin_not_authenticated", "The admin session is invalid or expired.")
-		return adminstore.Account{}, false
+		return adminstore.Account{}, nil, time.Time{}, false
 	}
-	return account, true
+	return account, tokenHash, authenticatedAt, true
 }
 
 func (a *api) requireAdminPermission(response http.ResponseWriter, request *http.Request, permission adminstore.Permission) (adminstore.Account, bool) {
@@ -284,10 +300,85 @@ func (a *api) requireAdminPermission(response http.ResponseWriter, request *http
 	return account, true
 }
 
+func (a *api) requireAdminStepUp(response http.ResponseWriter, request *http.Request, permission adminstore.Permission) (adminstore.Account, bool) {
+	account, _, authenticatedAt, ok := a.adminSessionForRequest(response, request)
+	if !ok {
+		return adminstore.Account{}, false
+	}
+	if !adminstore.Allowed(account.Role, permission) {
+		writeError(response, http.StatusForbidden, "admin_forbidden", "Your admin role cannot perform this action.")
+		return adminstore.Account{}, false
+	}
+	if time.Since(authenticatedAt) > a.config.AdminStepUpTTL {
+		writeError(response, http.StatusForbidden, "admin_step_up_required", "Re-enter your admin password or MFA code to continue.")
+		return adminstore.Account{}, false
+	}
+	return account, true
+}
+
+func (a *api) adminStepUp(response http.ResponseWriter, request *http.Request) {
+	store, ok := a.requireAdminStore(response)
+	if !ok {
+		return
+	}
+	account, tokenHash, _, ok := a.adminSessionForRequest(response, request)
+	if !ok {
+		return
+	}
+	if !a.allowIdentity(response, request, "admin-step-up", account.ID, identityGuessLimit, identityGuessWindow) {
+		return
+	}
+	if !a.allowRequest(response, request, "admin-step-up-peer", 20, time.Minute) {
+		return
+	}
+	var input adminStepUpRequest
+	if !decodeAdminJSON(response, request, &input) {
+		return
+	}
+	if (input.Password == "") == (input.Code == "") {
+		writeError(response, http.StatusBadRequest, "invalid_admin_step_up", "Send either the admin password or a current six-digit MFA code.")
+		return
+	}
+	now := time.Now().UTC()
+	totpCounter := int64(0)
+	if input.Password != "" {
+		passwordHash, err := store.PasswordHash(request.Context(), account.ID)
+		if err != nil {
+			writeError(response, http.StatusServiceUnavailable, "admin_step_up_unavailable", "Admin re-authentication is temporarily unavailable.")
+			return
+		}
+		if !accounts.VerifyPassword(passwordHash, input.Password) {
+			writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "The admin password or MFA code is incorrect.")
+			return
+		}
+	} else {
+		secret, lastUsedCounter, err := store.TOTPSecret(request.Context(), account.ID)
+		if err != nil {
+			writeError(response, http.StatusServiceUnavailable, "admin_step_up_unavailable", "Admin re-authentication is temporarily unavailable.")
+			return
+		}
+		counter, totpOK := adminstore.VerifyTOTP(secret, input.Code, now)
+		if !totpOK || counter <= lastUsedCounter {
+			writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "The admin password or MFA code is incorrect.")
+			return
+		}
+		totpCounter = counter
+	}
+	if err := store.MarkSessionAuthenticated(request.Context(), account, tokenHash, a.adminIPHash(request), now, totpCounter); err != nil {
+		if errors.Is(err, adminstore.ErrTOTPReplay) {
+			writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "The admin password or MFA code is incorrect.")
+			return
+		}
+		adminStoreError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"stepUpExpiresAt": now.Add(a.config.AdminStepUpTTL), "windowSeconds": int(a.config.AdminStepUpTTL.Seconds())})
+}
+
 func (a *api) adminMe(response http.ResponseWriter, request *http.Request) {
 	account, ok := a.adminForRequest(response, request)
 	if ok {
-		writeJSON(response, http.StatusOK, map[string]any{"admin": account})
+		writeJSON(response, http.StatusOK, map[string]any{"admin": account, "deploymentProfile": a.config.DeploymentProfile})
 	}
 }
 

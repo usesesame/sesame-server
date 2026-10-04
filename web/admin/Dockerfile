@@ -1,4 +1,4 @@
-FROM node:26.9.0-alpine@sha256:dbaa92e5758cbbcf85d65d5403fdb530fe3442cbe8c6dbfb7ef23365450d5070 AS build
+FROM node:26.10.0-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS build
 WORKDIR /src
 COPY web/admin/package.json web/admin/package-lock.json ./
 RUN npm ci
@@ -10,7 +10,7 @@ ARG VITE_SESAME_API_URL
 ENV VITE_SESAME_API_URL=$VITE_SESAME_API_URL
 RUN npm run build && node /tools/release-contract.mjs portal admin "$SESAME_VERSION" "$SESAME_COMMIT" /src/dist/release.json
 
-FROM nginx:1.31@sha256:05b8cb60c354a44ab824ea6e7dc69b46d50762cdbe728a347a5b656e6fb3d7c4
+FROM nginx:1.31@sha256:abe47724e466aeab9a345d8e46a221c2fa8953c7848bb4a3bd9976a7199f8cf2
 ARG SESAME_VERSION=0.1.0-dev
 ARG SESAME_COMMIT=unknown
 ARG SESAME_SOURCE_URL=https://github.com/usesesame/sesame-server

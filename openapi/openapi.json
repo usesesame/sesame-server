@@ -1150,6 +1150,53 @@
         "x-sesame-registration-pattern": "/v1/account/support/{ticketID}"
       }
     },
+    "/v1/account/support/{ticketID}/attach": {
+      "post": {
+        "operationId": "postV1AccountSupportTicketIDAttach",
+        "summary": "POST account support ticket action",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "ticketID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque ticket id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSupportTicketAction",
+        "x-sesame-registration-pattern": "/v1/account/support/{ticketID}/attach"
+      }
+    },
     "/v1/account/support/{ticketID}/close": {
       "post": {
         "operationId": "postV1AccountSupportTicketIDClose",
@@ -1891,6 +1938,43 @@
         "x-sesame-registration-pattern": "/v1/admin/auth/setup/complete"
       }
     },
+    "/v1/admin/auth/step-up": {
+      "post": {
+        "operationId": "postV1AdminAuthStepUp",
+        "summary": "POST admin step up",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminOrigin": [],
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminStepUp",
+        "x-sesame-registration-pattern": "/v1/admin/auth/step-up"
+      }
+    },
     "/v1/admin/extension-publications": {
       "get": {
         "operationId": "getV1AdminExtensionPublications",
@@ -2435,6 +2519,170 @@
         "x-sesame-availability": "configured-admin-only",
         "x-sesame-handler": "adminReleaseWithdraw",
         "x-sesame-registration-pattern": "/v1/admin/releases/{releaseID}/withdraw"
+      }
+    },
+    "/v1/admin/saved-replies": {
+      "get": {
+        "operationId": "getV1AdminSavedReplies",
+        "summary": "GET admin support saved replies",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminOrigin": [],
+            "adminSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportSavedReplies",
+        "x-sesame-registration-pattern": "/v1/admin/saved-replies"
+      },
+      "post": {
+        "operationId": "postV1AdminSavedReplies",
+        "summary": "POST admin support saved reply action",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminOrigin": [],
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportSavedReplyAction",
+        "x-sesame-registration-pattern": "/v1/admin/saved-replies"
+      }
+    },
+    "/v1/admin/saved-replies/{replyID}": {
+      "patch": {
+        "operationId": "patchV1AdminSavedRepliesReplyID",
+        "summary": "PATCH admin support saved reply action",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminOrigin": [],
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "replyID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque reply id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportSavedReplyAction",
+        "x-sesame-registration-pattern": "/v1/admin/saved-replies/{replyID}"
+      },
+      "delete": {
+        "operationId": "deleteV1AdminSavedRepliesReplyID",
+        "summary": "DELETE admin support saved reply action",
+        "tags": [
+          "admin"
+        ],
+        "security": [
+          {
+            "adminOrigin": [],
+            "adminSession": [],
+            "adminCsrfCookie": [],
+            "adminCsrfHeader": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "replyID",
+            "in": "path",
+            "required": true,
+            "description": "Opaque reply id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "admin-session-csrf",
+        "x-sesame-availability": "configured-admin-only",
+        "x-sesame-handler": "adminSupportSavedReplyAction",
+        "x-sesame-registration-pattern": "/v1/admin/saved-replies/{replyID}"
       }
     },
     "/v1/admin/support": {
@@ -4458,6 +4706,76 @@
         "x-sesame-registration-pattern": "/v1/support"
       }
     },
+    "/v1/support/access": {
+      "post": {
+        "operationId": "postV1SupportAccess",
+        "summary": "POST redeem support access",
+        "tags": [
+          "public"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "redeemSupportAccess",
+        "x-sesame-registration-pattern": "/v1/support/access"
+      }
+    },
+    "/v1/support/access/reply": {
+      "post": {
+        "operationId": "postV1SupportAccessReply",
+        "summary": "POST reply to support access",
+        "tags": [
+          "public"
+        ],
+        "security": [
+          {
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "replyToSupportAccess",
+        "x-sesame-registration-pattern": "/v1/support/access/reply"
+      }
+    },
     "/v1/support/requests": {
       "post": {
         "operationId": "postV1SupportRequests",
@@ -5028,5 +5346,6 @@
     "internal/httpapi/admin_auth.go",
     "internal/httpapi/sync_routes.go"
   ],
-  "x-sesame-operation-count": 121
+  "x-sesame-deployment-profile": "project",
+  "x-sesame-operation-count": 129
 }

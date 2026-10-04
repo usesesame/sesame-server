@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url'
 
 const backendRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const httpRoot = join(backendRoot, 'internal', 'httpapi')
-const outputPath = join(backendRoot, 'openapi', 'openapi.json')
+const outputPaths = {
+  project: join(backendRoot, 'openapi', 'openapi.json'),
+  operator: join(backendRoot, 'openapi', 'openapi.operator.json'),
+}
 const registrationFiles = ['server.go', 'admin_auth.go', 'sync_routes.go']
 const goSources = readdirSync(httpRoot)
   .filter((name) => name.endsWith('.go') && !name.endsWith('_test.go'))
@@ -77,13 +80,13 @@ const headerParameters = {
 
 function registeredHandlers() {
   const routes = []
-  const pattern = /(?:service|a)[.]route\(mux, [^,]+, "([^"]+)", (?:service|a)[.]([A-Za-z0-9_]+)(?:[(][^)]*[)])?\)/g
+  const pattern = /(?:service|a)[.](route|projectRoute)\(mux, [^,]+, "([^"]+)", (?:service|a)[.]([A-Za-z0-9_]+)(?:[(][^)]*[)])?\)/g
   for (const name of registrationFiles) {
     const source = readFileSync(join(httpRoot, name), 'utf8')
     for (const match of source.matchAll(pattern)) {
-      const parts = match[1].split(/\s+/, 2)
+      const parts = match[2].split(/\s+/, 2)
       const method = /^[A-Z]+$/.test(parts[0]) ? parts[0] : undefined
-      routes.push({ registration: method ? parts[1] : parts[0], handler: match[2], methods: method ? [method] : undefined })
+      routes.push({ registration: method ? parts[1] : parts[0], handler: match[3], methods: method ? [method] : undefined, projectOnly: match[1] === 'projectRoute' })
     }
   }
   return routes
@@ -152,7 +155,9 @@ function authFor(path, method) {
     }
     return ['browser-csrf', [{ browserCsrfCookie: [], browserCsrfHeader: [] }]]
   }
-  if (path === '/v1/support/requests') return ['browser-csrf', [{ browserCsrfCookie: [], browserCsrfHeader: [] }]]
+  if (path === '/v1/support/requests' || path.startsWith('/v1/support/access')) {
+    return ['browser-csrf', [{ browserCsrfCookie: [], browserCsrfHeader: [] }]]
+  }
   return ['public', []]
 }
 
@@ -177,8 +182,8 @@ function parameterName(segment) {
   return `Opaque ${words(segment)}.`
 }
 
-function build() {
-  const registrations = registeredHandlers().filter((route) => route.registration !== '/')
+function build(profile) {
+  const registrations = registeredHandlers().filter((route) => route.registration !== '/' && (profile === 'project' || !route.projectOnly))
   const dynamicCovered = new Set()
   const paths = {}
   const operationIds = new Set()
@@ -292,21 +297,32 @@ function build() {
       },
     },
     'x-sesame-generated-from': registrationFiles.map((name) => `internal/httpapi/${name}`),
+    'x-sesame-deployment-profile': profile,
     'x-sesame-operation-count': operationIds.size,
   }
 }
 
-const rendered = `${JSON.stringify(build(), null, 2)}\n`
+const rendered = Object.fromEntries(
+  Object.keys(outputPaths).map((profile) => [profile, `${JSON.stringify(build(profile), null, 2)}\n`]),
+)
 const mode = process.argv[2]
 if (mode === 'generate') {
-  mkdirSync(dirname(outputPath), { recursive: true })
-  writeFileSync(outputPath, rendered, 'utf8')
-  console.log(`OpenAPI generated: ${JSON.parse(rendered)['x-sesame-operation-count']} operations.`)
+  for (const [profile, outputPath] of Object.entries(outputPaths)) {
+    mkdirSync(dirname(outputPath), { recursive: true })
+    writeFileSync(outputPath, rendered[profile], 'utf8')
+  }
+  console.log(`OpenAPI generated: ${counts(rendered)}.`)
 } else if (mode === 'check') {
-  const current = readFileSync(outputPath, 'utf8')
-  assert.equal(current, rendered, 'openapi/openapi.json is stale; run npm run openapi:generate')
-  console.log(`OpenAPI checked: ${JSON.parse(rendered)['x-sesame-operation-count']} operations.`)
+  for (const [profile, outputPath] of Object.entries(outputPaths)) {
+    const current = readFileSync(outputPath, 'utf8')
+    assert.equal(current, rendered[profile], `${outputPath} is stale; run npm run openapi:generate`)
+  }
+  console.log(`OpenAPI checked: ${counts(rendered)}.`)
 } else {
   console.error('Usage: node scripts/openapi.mjs generate|check')
   process.exitCode = 2
+}
+
+function counts(documents) {
+  return Object.entries(documents).map(([profile, text]) => `${JSON.parse(text)['x-sesame-operation-count']} ${profile} operations`).join(', ')
 }

@@ -8,7 +8,7 @@ vi.mock('../src/lib/api', () => {
   class APIError extends Error {
     constructor(message: string, public status: number, public code = '') { super(message) }
   }
-  return { APIError, apiURL: 'https://api.test.invalid', request: api.request, mutate: api.mutate }
+  return { APIError, apiURL: 'https://api.test.invalid', request: api.request, mutate: api.mutate, onStepUpRequired: vi.fn() }
 })
 
 import App from '../src/App.svelte'
@@ -24,19 +24,20 @@ function admin() {
   return { id: 'ops', email: 'ops@example.invalid', role: 'ops', mfaVerified: true, suspended: false, createdAt: '', permissions: ['system:read'] }
 }
 
-test('loads the operational snapshot without raw configuration', async () => {
+test('loads the operational snapshot and mail configuration', async () => {
   api.request.mockImplementation(async (path: string) => {
     if (path === '/v1/admin/auth/me') return { admin: admin() }
     if (path === '/v1/admin/overview') return { overview: {} }
     if (path === '/v1/admin/system/health') return healthy
+    if (path === '/v1/admin/system/config') return { supportNotifyEmailConfigured: false, emailDeliveryConfigured: false }
     return {}
   })
   render(App)
   await fireEvent.click(await screen.findByRole('button', { name: 'System' }))
   expect(await screen.findByRole('status')).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('/v1/admin/system/health')
-  expect(api.request).not.toHaveBeenCalledWith('/v1/admin/system/config')
-  expect(api.request).not.toHaveBeenCalledWith('/v1/admin/system/rate-limits')
+  expect(api.request).toHaveBeenCalledWith('/v1/admin/system/config')
+  expect(await screen.findByText(/Staff notifications off/)).toBeTruthy()
 })
 
 test.each([

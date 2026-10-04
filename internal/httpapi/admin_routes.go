@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -91,7 +92,7 @@ func (a *api) adminUserDelete(response http.ResponseWriter, request *http.Reques
 		a.notFound(response, request)
 		return
 	}
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersDelete)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersDelete)
 	if !ok {
 		return
 	}
@@ -111,7 +112,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 		}
 		switch action {
 		case "owner-release":
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 			if !ok {
 				return
 			}
@@ -120,7 +121,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 				return
 			}
 		case "beta":
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersManage)
 			if !ok {
 				return
 			}
@@ -129,7 +130,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 				return
 			}
 		case "suspend":
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersManage)
 			if !ok {
 				return
 			}
@@ -147,7 +148,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 				return
 			}
 		case "sessions":
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersManage)
 			if !ok {
 				return
 			}
@@ -161,7 +162,7 @@ func (a *api) adminUserAction(action string, enable bool) http.HandlerFunc {
 				a.notFound(response, request)
 				return
 			}
-			actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionUsersManage)
+			actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionUsersManage)
 			if !ok {
 				return
 			}
@@ -198,7 +199,7 @@ func (a *api) adminFlags(response http.ResponseWriter, request *http.Request) {
 		}
 		return
 	}
-	flags, err := a.config.Admin.FeatureFlags(request.Context())
+	flags, err := a.visibleFeatureFlags(request.Context())
 	if err != nil {
 		adminStoreError(response, err)
 		return
@@ -207,13 +208,13 @@ func (a *api) adminFlags(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionFlagsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionFlagsManage)
 	if !ok {
 		return
 	}
 	var input featureFlagRequest
 	key := request.PathValue("key")
-	if !decodeAdminJSON(response, request, &input) || !validFeatureFlag(key, input.Value) {
+	if !decodeAdminJSON(response, request, &input) || !a.validFeatureFlag(key, input.Value) {
 		writeError(response, http.StatusBadRequest, "invalid_feature_flag", "That feature flag value is not allowed.")
 		return
 	}
@@ -224,11 +225,37 @@ func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
 	response.WriteHeader(http.StatusNoContent)
 }
 
-func validFeatureFlag(key, value string) bool {
+var operatorHiddenFeatureFlags = map[string]struct{}{
+	"public_download": {},
+	"updater_enabled": {},
+}
+
+func (a *api) visibleFeatureFlags(ctx context.Context) ([]adminstore.FeatureFlag, error) {
+	flags, err := a.config.Admin.FeatureFlags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if a.projectProfile() {
+		return flags, nil
+	}
+	visible := make([]adminstore.FeatureFlag, 0, len(flags))
+	for _, flag := range flags {
+		if _, hidden := operatorHiddenFeatureFlags[flag.Key]; hidden {
+			continue
+		}
+		visible = append(visible, flag)
+	}
+	return visible, nil
+}
+
+func (a *api) validFeatureFlag(key, value string) bool {
 	switch key {
 	case "registration_mode":
 		return value == "closed" || value == "invite" || value == "public"
 	case "cloud_sync_available", "public_download", "desktop_linking_enabled", "downloads_enabled", "updater_enabled":
+		if _, hidden := operatorHiddenFeatureFlags[key]; hidden && !a.projectProfile() {
+			return false
+		}
 		return value == "true" || value == "false"
 	default:
 		return false
@@ -252,7 +279,7 @@ func (a *api) adminPlans(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) adminPlan(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionPlansWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionPlansWrite)
 	if !ok {
 		return
 	}
@@ -304,7 +331,7 @@ func (a *api) adminReleases(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) adminReleasePublish(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -320,7 +347,7 @@ func (a *api) adminReleasePublish(response http.ResponseWriter, request *http.Re
 }
 
 func (a *api) adminReleaseRollout(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -336,7 +363,7 @@ func (a *api) adminReleaseRollout(response http.ResponseWriter, request *http.Re
 }
 
 func (a *api) adminReleaseEmergencyStop(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -352,7 +379,7 @@ func (a *api) adminReleaseEmergencyStop(response http.ResponseWriter, request *h
 }
 
 func (a *api) adminReleaseWithdraw(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionReleaseWrite)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
@@ -393,7 +420,7 @@ func (a *api) adminAccounts(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) inviteAdminAccount(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionAdminsManage)
 	if !ok {
 		return
 	}
@@ -416,7 +443,7 @@ func (a *api) inviteAdminAccount(response http.ResponseWriter, request *http.Req
 }
 
 func (a *api) deleteAdminAccount(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionAdminsManage)
 	if !ok {
 		return
 	}
@@ -428,7 +455,7 @@ func (a *api) deleteAdminAccount(response http.ResponseWriter, request *http.Req
 }
 
 func (a *api) updateAdminAccount(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionAdminsManage)
+	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionAdminsManage)
 	if !ok {
 		return
 	}
@@ -571,7 +598,7 @@ func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Requ
 	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
 		return
 	}
-	flags, err := a.config.Admin.FeatureFlags(request.Context())
+	flags, err := a.visibleFeatureFlags(request.Context())
 	if err != nil {
 		adminStoreError(response, err)
 		return
@@ -579,6 +606,9 @@ func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Requ
 	writeJSON(response, http.StatusOK, map[string]any{
 		"adminOrigin": a.config.AdminOrigin, "sessionTTLSeconds": int(a.config.AdminSessionTTL.Seconds()),
 		"trustedProxyCount": len(a.config.TrustedProxies), "featureFlags": flags,
+		"deploymentProfile":             a.config.DeploymentProfile,
+		"supportNotifyEmailConfigured":  a.config.SupportNotifyEmail != "",
+		"emailDeliveryConfigured":       a.config.EmailSender != nil,
 		"trustedProxiesRuntimeEditable": false,
 		"note":                          "Trusted proxy changes require a reviewed configuration change and restart.",
 	})
@@ -680,7 +710,8 @@ func (a *api) adminSupportTicketView(response http.ResponseWriter, request *http
 		adminStoreError(response, err)
 		return
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
+	a.enrichSupportDelivery(request.Context(), &ticket)
+	writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket, "mail": a.supportMailState()})
 }
 
 func (a *api) adminSupportTicketAction(action string) http.HandlerFunc {
@@ -717,23 +748,70 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 			adminStoreError(response, err)
 			return
 		}
-		sendEmail := a.supportReplyEmailEnabled(request.Context(), prior.AccountID)
-		ticket, err := a.config.Admin.ReplyTicket(request.Context(), actor, ticketID, body, sendEmail, a.adminIPHash(request))
+		var email *adminstore.TicketReplyEmail
+		var enqueue adminstore.TicketReplyEmailHook
+		if prior.AccountID == "" {
+			if a.config.EmailSender != nil {
+				if _, ok := a.config.EmailSender.(TransactionalEmailSender); !ok {
+					slog.Error("Sesame support link email requires a transactional email sender")
+					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+					return
+				}
+				token, tokenHash, err := accounts.NewSessionToken()
+				if err != nil {
+					slog.Error("Sesame support link token could not be generated", "error", err)
+					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+					return
+				}
+				expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+				email = &adminstore.TicketReplyEmail{
+					To:              prior.Email,
+					Subject:         "Sesame support replied to your request",
+					Body:            "Open the link to read the reply and answer in the same support thread.",
+					ActionURL:       strings.TrimRight(a.config.WebBaseURL, "/") + "/support/request#token=" + url.QueryEscape(token),
+					ExpiresAt:       expiresAt,
+					AccessTokenHash: tokenHash,
+				}
+			}
+		} else {
+			sendEmail, err := a.supportReplyEmailEnabled(request.Context(), prior.AccountID)
+			if err != nil {
+				slog.Error("Sesame support reply email preference lookup failed", "error", err)
+				writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+				return
+			}
+			if sendEmail {
+				if _, ok := a.config.EmailSender.(TransactionalEmailSender); !ok {
+					slog.Error("Sesame support reply email requires a transactional email sender")
+					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
+					return
+				}
+				email = &adminstore.TicketReplyEmail{
+					To:        prior.Email,
+					Subject:   "Sesame support replied to your request",
+					Body:      "A Sesame support specialist replied to your request. Sign in to the support portal to read the reply.",
+					ActionURL: strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
+					ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+				}
+			}
+		}
+		if email != nil {
+			sender := a.config.EmailSender.(TransactionalEmailSender)
+			enqueue = func(ctx context.Context, tx *sql.Tx, messageID string) error {
+				return sender.SendAccountEmailTx(ctx, tx, AccountEmail{
+					Kind: "support-reply", To: email.To,
+					Subject: email.Subject, Body: email.Body,
+					ActionURL: email.ActionURL, ExpiresAt: email.ExpiresAt,
+					SupportMessageID: messageID,
+				})
+			}
+		}
+		ticket, err := a.config.Admin.ReplyTicket(request.Context(), actor, ticketID, body, email, enqueue, a.adminIPHash(request))
 		if err != nil {
 			adminStoreError(response, err)
 			return
 		}
-		if sendEmail && len(ticket.Messages) > 0 && a.config.EmailSender != nil {
-			messageID := ticket.Messages[len(ticket.Messages)-1].ID
-			_ = a.config.EmailSender.SendAccountEmail(request.Context(), AccountEmail{
-				Kind: "support-reply", To: ticket.Email,
-				Subject:          "Sesame support replied to your request",
-				Body:             "A Sesame support specialist replied to your request. Sign in to the support portal to read the reply.",
-				ActionURL:        strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
-				SupportMessageID: messageID,
-				ExpiresAt:        time.Now().UTC().Add(7 * 24 * time.Hour),
-			})
-		}
+		a.enrichSupportDelivery(request.Context(), &ticket)
 		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
 		return
 	}
@@ -822,6 +900,105 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 	a.notFound(response, request)
 }
 
+type savedReplyRequest struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+}
+
+const (
+	savedReplyTitleMax = 120
+	savedReplyBodyMax  = 8000
+)
+
+func (a *api) adminSupportSavedReplies(response http.ResponseWriter, request *http.Request) {
+	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportRead); !ok {
+		return
+	}
+	replies, err := a.config.Admin.SavedReplies(request.Context())
+	if err != nil {
+		adminStoreError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"savedReplies": replies})
+}
+
+func (a *api) adminSupportSavedReplyAction(action string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		request.SetPathValue("action", action)
+		a.adminSupportSavedReplyRoute(response, request)
+	}
+}
+
+func (a *api) adminSupportSavedReplyRoute(response http.ResponseWriter, request *http.Request) {
+	action := request.PathValue("action")
+	actor, ok := a.requireAdminPermission(response, request, adminstore.PermissionSupportManage)
+	if !ok {
+		return
+	}
+	if action == "create" {
+		var input savedReplyRequest
+		if !decodeAdminJSON(response, request, &input) {
+			return
+		}
+		title, body, ok := validSavedReply(response, input.Title, input.Body)
+		if !ok {
+			return
+		}
+		reply, err := a.config.Admin.CreateSavedReply(request.Context(), actor, title, body, a.adminIPHash(request))
+		if err != nil {
+			adminStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusCreated, map[string]any{"savedReply": reply})
+		return
+	}
+	replyID := request.PathValue("replyID")
+	if replyID == "" || len(replyID) > 128 {
+		a.notFound(response, request)
+		return
+	}
+	if action == "update" {
+		var input savedReplyRequest
+		if !decodeAdminJSON(response, request, &input) {
+			return
+		}
+		title, body, ok := validSavedReply(response, input.Title, input.Body)
+		if !ok {
+			return
+		}
+		reply, err := a.config.Admin.UpdateSavedReply(request.Context(), actor, replyID, title, body, a.adminIPHash(request))
+		if err != nil {
+			adminStoreError(response, err)
+			return
+		}
+		writeJSON(response, http.StatusOK, map[string]any{"savedReply": reply})
+		return
+	}
+	if action == "delete" {
+		if err := a.config.Admin.DeleteSavedReply(request.Context(), actor, replyID, a.adminIPHash(request)); err != nil {
+			adminStoreError(response, err)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+		return
+	}
+	a.notFound(response, request)
+}
+
+func validSavedReply(response http.ResponseWriter, rawTitle, rawBody string) (string, string, bool) {
+	title := strings.TrimSpace(rawTitle)
+	body := strings.TrimSpace(rawBody)
+	if len(title) < 1 || len(title) > savedReplyTitleMax || len(body) < 1 || len(body) > savedReplyBodyMax {
+		writeError(response, http.StatusBadRequest, "invalid_saved_reply", "The saved reply needs a title under 121 characters and a body under 8,001 characters.")
+		return "", "", false
+	}
+	if containsSecretShapedText(title + "\n" + body) {
+		writeError(response, http.StatusBadRequest, "secret_shaped_content", "Remove passwords, codes, keys, tokens, and vault data before saving this reply.")
+		return "", "", false
+	}
+	return title, body, true
+}
+
 // Only id and email, and only for roles AssignTicket would accept as a target.
 func (a *api) adminSupportAssignees(response http.ResponseWriter, request *http.Request) {
 	actor, ok := a.adminForRequest(response, request)
@@ -851,14 +1028,17 @@ func (a *api) adminSupportAssignees(response http.ResponseWriter, request *http.
 	writeJSON(response, http.StatusOK, map[string]any{"assignees": assignees})
 }
 
-func (a *api) supportReplyEmailEnabled(ctx context.Context, accountID string) bool {
+func (a *api) supportReplyEmailEnabled(ctx context.Context, accountID string) (bool, error) {
 	if accountID == "" || a.config.EmailSender == nil {
-		return false
+		return false, nil
 	}
 	store, ok := a.config.Accounts.(accounts.NotificationPreferencesStore)
 	if !ok {
-		return false
+		return false, errors.New("account store does not expose notification preferences")
 	}
 	preferences, err := store.NotificationPreferences(ctx, accountID)
-	return err == nil && preferences.SupportReplies
+	if err != nil {
+		return false, err
+	}
+	return preferences.SupportReplies, nil
 }

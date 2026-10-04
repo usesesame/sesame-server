@@ -46,6 +46,9 @@ export const API_ROUTES = {
   downloads: '/v1/account/downloads',
 	downloadTickets: '/v1/account/download-tickets',
   supportRequests: '/v1/support/requests',
+  support: '/v1/support',
+	supportAccess: '/v1/support/access',
+	supportAccessReply: '/v1/support/access/reply',
 	accountSupport: '/v1/account/support',
 } as const
 
@@ -59,7 +62,9 @@ export async function apiRequest(path: string, init: RequestInit = {}): Promise<
 	const protectedMutation = !['GET', 'HEAD', 'OPTIONS'].includes(method)
 		&& (path.startsWith('/v1/auth/')
 			|| path.startsWith('/v1/account/')
-			|| path === API_ROUTES.supportRequests)
+			|| path === API_ROUTES.supportRequests
+			|| path === API_ROUTES.supportAccess
+			|| path === API_ROUTES.supportAccessReply)
 	let requestInit = init
 	if (protectedMutation) requestInit = withCSRF(init, await getCSRFToken())
 	let response = await timedFetch(path, requestInit)

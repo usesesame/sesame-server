@@ -26,9 +26,10 @@ const (
 )
 
 type Config struct {
-	Version       string
-	Commit        string
-	AllowedOrigin string
+	Version           string
+	Commit            string
+	DeploymentProfile DeploymentProfile
+	AllowedOrigin     string
 	// The marketing site: it may read published metadata only, never act on a session.
 	PublicSiteOrigin string
 	SessionSecure    bool
@@ -43,6 +44,7 @@ type Config struct {
 	AdminSecure               bool
 	AdminSessionDomain        string
 	AdminSessionTTL           time.Duration
+	AdminStepUpTTL            time.Duration
 	AdminIPPepper             string
 	CapabilitySigningKey      ed25519.PrivateKey
 	CapabilityKeyID           string
@@ -61,6 +63,7 @@ type Config struct {
 	RegistrationMode          string
 	WebBaseURL                string
 	EmailSender               EmailSender
+	SupportNotifyEmail        string
 	RecentAuthDuration        time.Duration
 	// Nil disables the passkey endpoints. It never touches the local vault.
 	Passkeys *webauthn.WebAuthn
@@ -169,6 +172,9 @@ type api struct {
 }
 
 func New(config Config) http.Handler {
+	if config.DeploymentProfile != DeploymentProfileProject {
+		config.DeploymentProfile = DeploymentProfileOperator
+	}
 	if config.ReleaseRegistry == nil && config.Admin != nil {
 		config.ReleaseRegistry = config.Admin
 	}
@@ -180,6 +186,9 @@ func New(config Config) http.Handler {
 	}
 	if config.AdminSessionTTL <= 0 {
 		config.AdminSessionTTL = 8 * time.Hour
+	}
+	if config.AdminStepUpTTL <= 0 {
+		config.AdminStepUpTTL = 5 * time.Minute
 	}
 	if config.CapabilityTTL <= 0 {
 		config.CapabilityTTL = 5 * time.Minute
@@ -222,6 +231,8 @@ func New(config Config) http.Handler {
 	service.route(mux, metadata, "GET /v1/auth/registration", service.registrationStatus)
 
 	service.route(mux, web, "POST /v1/support/requests", service.createSupportRequest)
+	service.route(mux, web, "POST /v1/support/access", service.redeemSupportAccess)
+	service.route(mux, web, "POST /v1/support/access/reply", service.replyToSupportAccess)
 	service.route(mux, web, "POST /v1/auth/register", service.register)
 	service.route(mux, privateWebRead, "GET /v1/auth/csrf", service.csrf)
 	service.route(mux, web, "POST /v1/auth/login", service.login)
@@ -250,6 +261,7 @@ func New(config Config) http.Handler {
 	service.route(mux, web, "POST /v1/account/support/{ticketID}/reply", service.accountSupportTicketAction("reply"))
 	service.route(mux, web, "POST /v1/account/support/{ticketID}/close", service.accountSupportTicketAction("close"))
 	service.route(mux, web, "POST /v1/account/support/{ticketID}/reopen", service.accountSupportTicketAction("reopen"))
+	service.route(mux, web, "POST /v1/account/support/{ticketID}/attach", service.accountSupportTicketAction("attach"))
 	service.route(mux, privateWebRead, "GET /v1/account/desktop-link", service.desktopLinkStatus)
 	service.route(mux, web, "POST /v1/account/desktop-link", service.regenerateDesktopLink)
 	service.route(mux, web, "DELETE /v1/account/desktop-link", service.cancelDesktopLink)
@@ -275,7 +287,7 @@ func New(config Config) http.Handler {
 	service.route(mux, desktop, "DELETE /v1/desktop/connection", service.revokeDesktopConnection)
 
 	pipeline := routePolicy{audience: audienceReleasePipeline}
-	service.route(mux, pipeline, "POST /v1/release-candidates", service.releaseCandidateIngest)
+	service.projectRoute(mux, pipeline, "POST /v1/release-candidates", service.releaseCandidateIngest)
 
 	service.registerSyncRoutes(mux)
 	service.registerAdminRoutes(mux)

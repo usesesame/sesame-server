@@ -5,29 +5,34 @@
   import AuthPage from './pages/AuthPage.svelte'
   import LegalPage from './pages/LegalPage.svelte'
   import SupportPage from './pages/SupportPage.svelte'
-  import { loadAuthState, type Account, type AuthState } from './lib/auth'
+  import SupportRequestPage from './pages/SupportRequestPage.svelte'
+  import { loadAuthState, getAccountBootstrap, type Account, type AuthState } from './lib/auth'
   import { siteOrigin } from './lib/runtime-config'
 
   const FLOW_PAGES = ['forgot-password', 'reset-password', 'verify-email', 'confirm-email-change'] as const
   const LEGAL_PAGES = ['terms', 'privacy', 'security'] as const
   type FlowPage = (typeof FLOW_PAGES)[number]
   type LegalPageName = (typeof LEGAL_PAGES)[number]
-  type Page = 'account' | 'login' | 'register' | 'support' | FlowPage | LegalPageName | 'not-found'
+  type Page = 'account' | 'login' | 'register' | 'support' | 'support-request' | FlowPage | LegalPageName | 'not-found'
 
   export let initialPath = typeof window === 'undefined' ? '/account' : window.location.pathname
 
   const route = initialPath.replace(/\/+$/, '') || '/'
   const page: Page = route === '/' || route === '/account'
     ? 'account'
-    : (['login', 'register', 'support', ...FLOW_PAGES, ...LEGAL_PAGES] as string[]).includes(route.slice(1))
-      ? (route.slice(1) as Page)
-      : 'not-found'
+    : route === '/support/request'
+      ? 'support-request'
+      : (['login', 'register', 'support', ...FLOW_PAGES, ...LEGAL_PAGES] as string[]).includes(route.slice(1))
+        ? (route.slice(1) as Page)
+        : 'not-found'
   const isFlow = (value: Page): value is FlowPage => (FLOW_PAGES as readonly string[]).includes(value)
   const isLegal = (value: Page): value is LegalPageName => (LEGAL_PAGES as readonly string[]).includes(value)
 
-  const needsSessionCheck = page === 'account' || page === 'support'
+  const needsSessionCheck = page === 'account' || page === 'support' || page === 'support-request' || page === 'login'
   let account: Account | null = null
   let authState: AuthState = needsSessionCheck ? { state: 'loading' } : { state: 'anonymous' }
+  let supportUnread = 0
+  let sessionExpired = false
   const siteHost = new URL(siteOrigin).host
 
   onMount(() => {
@@ -39,6 +44,12 @@
         : state.state === 'offline'
           ? state.account || null
           : null
+      sessionExpired = state.state === 'anonymous' && state.expired === true
+      if (state.state === 'authenticated' || (state.state === 'offline' && state.account)) {
+        void getAccountBootstrap()
+          .then((bootstrap) => { supportUnread = bootstrap.notificationCounts.support })
+          .catch(() => { supportUnread = 0 })
+      }
     })
   })
 </script>
@@ -53,7 +64,7 @@
     </a>
     <nav aria-label="Portal navigation">
       <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
-      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support</a>
+      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support{#if supportUnread > 0}<span class="nav-count" aria-label={`${supportUnread} unread support ${supportUnread === 1 ? 'reply' : 'replies'}`}>{supportUnread}</span>{/if}</a>
       <a href={siteOrigin}>{siteHost}</a>
     </nav>
     <div class="header-account-actions">
@@ -72,7 +83,7 @@
 
 <main id="top">
   {#if page === 'login' || page === 'register'}
-    <AuthPage mode={page} onAuthenticated={(nextAccount) => (account = nextAccount)} />
+    <AuthPage mode={page} sessionExpired={page === 'login' && sessionExpired} onAuthenticated={(nextAccount) => { account = nextAccount; sessionExpired = false }} />
   {:else if isFlow(page)}
     <AccountFlowPage
       mode={page}
@@ -83,6 +94,8 @@
     />
   {:else if page === 'support'}
     <SupportPage {account} />
+  {:else if page === 'support-request'}
+    <SupportRequestPage {account} authLoading={authState.state === 'loading'} />
   {:else if isLegal(page)}
     <LegalPage document={page} />
   {:else if page === 'account'}
@@ -114,7 +127,7 @@
     <nav class="footer-col" aria-label="Portal">
       <strong>Portal</strong>
       <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
-      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support</a>
+      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support{#if supportUnread > 0}<span class="nav-count" aria-label={`${supportUnread} unread support ${supportUnread === 1 ? 'reply' : 'replies'}`}>{supportUnread}</span>{/if}</a>
     </nav>
     <nav class="footer-col" aria-label="Legal">
       <strong>Legal</strong>

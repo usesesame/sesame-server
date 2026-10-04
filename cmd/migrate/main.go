@@ -33,5 +33,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := store.ReconcileRuntimeRole(ctx); err != nil {
+		slog.Error("Sesame database role reconciliation failed", "error", err)
+		os.Exit(1)
+	}
+
 	slog.Info("Sesame migrations applied successfully")
 }

@@ -1,17 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteURLSearchParams } from 'svelte/reactivity'
-  import { APIError, apiURL, mutate, request } from './lib/api'
+  import { APIError, apiURL, mutate, onStepUpRequired, request } from './lib/api'
   import ExtensionStoresWorkspace from './lib/releases/ExtensionStoresWorkspace.svelte'
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
   import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
-  import { TICKET_CATEGORY_LABELS } from './lib/types'
-  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
+  import { TICKET_CATEGORY_LABELS, deliveryReasonLabel } from './lib/types'
+  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SavedReply, SupportMailState, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
+  type AdminIdentity = { admin: AdminAccount; deploymentProfile?: 'operator' | 'project' }
   const pageNames: Record<Page, string> = { overview: 'Overview', support: 'Support', users: 'Users', flags: 'Feature flags', releases: 'Releases', plans: 'Product plans', admins: 'Administrators', audit: 'Audit log', system: 'System' }
   const roles: Role[] = ['super', 'support', 'ops', 'billing', 'readonly']
   let me: AdminAccount | null = null
+  let deploymentProfile: 'operator' | 'project' = 'operator'
   let loading = true
   let page: Page = 'overview'
   let error = ''
@@ -23,6 +25,12 @@
   let setupSecret = ''
   let setupURI = ''
   let setupEmail = ''
+  let stepUpOpen = false
+  let stepUpPassword = ''
+  let stepUpCode = ''
+  let stepUpError = ''
+  let stepUpBusy = false
+  let stepUpResolvers: ((renewed: boolean) => void)[] = []
   let overview: Overview | null = null
   let users: User[] = []
   let userTotal = 0
@@ -39,6 +47,7 @@
   let auditFrom = ''
   let auditTo = ''
   let system: OperationalSnapshot | null = null
+  let systemMail: SystemMailConfig | null = null
   let systemFailure: '' | 'unavailable' | 'unauthorized' = ''
   let inviteEmail = ''
   let inviteRole: Role = 'support'
@@ -52,8 +61,15 @@
   let ticketAssignedFilter = ''
   let ticketQuery = ''
   let selectedTicket: TicketDetail | null = null
+  let ticketMail: SupportMailState | null = null
+  let supportAnnouncement = ''
   let replyBody = ''
   let noteBody = ''
+  let savedReplies: SavedReply[] = []
+  let savedReplyTitle = ''
+  let savedReplyBody = ''
+  let editingSavedReplyID = ''
+  let savedReplyBusy = false
   const PAGE_SIZE = 100
   let usersPage = 1
   let ticketsPage = 1
@@ -63,19 +79,29 @@
   let ticketSearchTimer: ReturnType<typeof setTimeout> | undefined
 
   $: isSetup = setupToken.length > 0
+  $: stepUpReady = (stepUpPassword === '') !== (stepUpCode === '')
+  $: projectProfile = deploymentProfile === 'project'
+  $: if (!projectProfile && (page === 'releases' || page === 'plans')) page = 'overview'
   $: canUsers = me?.role === 'super' || me?.role === 'support' || me?.role === 'billing' || me?.role === 'readonly'
   $: canFlags = me?.role === 'super' || me?.role === 'ops' || me?.role === 'readonly'
-  $: canPlans = me?.role === 'super' || me?.role === 'billing' || me?.role === 'readonly'
+  $: canPlans = projectProfile && (me?.role === 'super' || me?.role === 'billing' || me?.role === 'readonly')
   $: canViewAdmins = me?.role === 'super' || me?.role === 'readonly'
   $: canEditAdmins = me?.role === 'super'
   $: canAuditAll = me?.role === 'super' || me?.role === 'readonly'
   $: canSystem = me?.permissions.includes('system:read') ?? false
   $: canEditUsers = me?.role === 'super' || me?.role === 'support'
   $: canEditFlags = me?.role === 'super' || me?.role === 'ops'
-  $: canManageReleases = me?.permissions.includes('releases:write') ?? false
+  $: canManageReleases = projectProfile && (me?.permissions.includes('releases:write') ?? false)
+  $: canViewReleases = projectProfile && (canManageReleases || me?.role === 'readonly')
+  $: canOwnerRelease = projectProfile && canEditFlags
   $: canEditPlans = me?.role === 'super' || me?.role === 'billing'
   $: canSupport = me?.role === 'super' || me?.role === 'support'
   $: canViewSupport = canSupport || me?.role === 'readonly'
+
+  onMount(() => {
+    onStepUpRequired(requestStepUp)
+    return () => onStepUpRequired(null)
+  })
 
   onMount(async () => {
     setupToken = new SvelteURLSearchParams(location.search).get('token') || ''
@@ -88,19 +114,24 @@
       return
     }
     try {
-      me = (await request<{ admin: AdminAccount }>('/v1/admin/auth/me')).admin
+      applyIdentity(await request<AdminIdentity>('/v1/admin/auth/me'))
       await openPage('overview')
     } catch { me = null }
     loading = false
   })
 
-  function showError(reason: unknown) { error = reason instanceof Error ? reason.message : 'The request failed.'; notice = '' }
-  function showNotice(message: string) { notice = message; error = '' }
+  function applyIdentity(result: AdminIdentity) {
+    me = result.admin
+    deploymentProfile = result.deploymentProfile === 'project' ? 'project' : 'operator'
+  }
+
+  function showError(reason: unknown) { error = reason instanceof Error ? reason.message : 'The request failed.'; notice = ''; if (page === 'support') supportAnnouncement = `Error: ${error}` }
+  function showNotice(message: string) { notice = message; error = ''; if (page === 'support') supportAnnouncement = `Notice: ${message}` }
 
   async function login() {
     busy = true; error = ''
     try {
-      me = (await mutate<{ admin: AdminAccount }>('/v1/admin/auth/login', 'POST', { email, password, code })).admin
+      applyIdentity(await mutate<AdminIdentity>('/v1/admin/auth/login', 'POST', { email, password, code }))
       password = ''; code = ''; await openPage('overview')
     } catch (reason) { showError(reason) } finally { busy = false }
   }
@@ -108,19 +139,53 @@
   async function completeSetup() {
     busy = true; error = ''
     try {
-      me = (await mutate<{ admin: AdminAccount }>('/v1/admin/auth/setup/complete', 'POST', { token: setupToken, password, code })).admin
+      applyIdentity(await mutate<AdminIdentity>('/v1/admin/auth/setup/complete', 'POST', { token: setupToken, password, code }))
       history.replaceState({}, '', '/'); setupToken = ''; password = ''; code = ''; await openPage('overview')
     } catch (reason) { showError(reason) } finally { busy = false }
   }
 
   async function logout() { await mutate('/v1/admin/auth/logout', 'POST'); me = null; page = 'overview' }
 
+  function requestStepUp(): Promise<boolean> {
+    if (stepUpResolvers.length === 0) {
+      stepUpPassword = ''
+      stepUpCode = ''
+      stepUpError = ''
+      stepUpBusy = false
+      stepUpOpen = true
+    }
+    return new Promise((resolve) => { stepUpResolvers.push(resolve) })
+  }
+
+  function finishStepUp(renewed: boolean) {
+    stepUpOpen = false
+    const resolvers = stepUpResolvers
+    stepUpResolvers = []
+    for (const resolve of resolvers) resolve(renewed)
+  }
+
+  async function submitStepUp() {
+    const password = stepUpPassword
+    const code = stepUpCode
+    if (stepUpBusy || (password === '') === (code === '')) return
+    stepUpBusy = true
+    stepUpError = ''
+    try {
+      await mutate('/v1/admin/auth/step-up', 'POST', password ? { password } : { code })
+      finishStepUp(true)
+    } catch (reason) {
+      stepUpError = reason instanceof Error ? reason.message : 'The request failed.'
+    } finally {
+      stepUpBusy = false
+    }
+  }
+
   async function openPage(next: Page) {
     page = next; selectedUser = null; error = ''; notice = ''
     try {
       if (next === 'overview') overview = (await request<{ overview: Overview }>('/v1/admin/overview')).overview
       if (next === 'users') await loadUsers()
-      if (next === 'support') { await loadTickets(); void loadAssignees() }
+      if (next === 'support') { await loadTickets(); void loadAssignees(); void loadSavedReplies() }
       if (next === 'flags') flags = (await request<{ flags: Flag[] }>('/v1/admin/flags')).flags
       if (next === 'plans') plans = (await request<{ plans: Plan[] }>('/v1/admin/plans')).plans
       if (next === 'releases') {
@@ -131,9 +196,15 @@
       if (next === 'audit') await loadAudit()
       if (next === 'system') {
         system = null
+        systemMail = null
         systemFailure = ''
         try {
-          system = await request<OperationalSnapshot>('/v1/admin/system/health')
+          const [health, mail] = await Promise.all([
+            request<OperationalSnapshot>('/v1/admin/system/health'),
+            request<SystemMailConfig>('/v1/admin/system/config'),
+          ])
+          system = health
+          systemMail = mail
         } catch (reason) {
           systemFailure = reason instanceof APIError && reason.status === 403 ? 'unauthorized' : 'unavailable'
         }
@@ -157,8 +228,10 @@
   }
 
   async function loadTickets() {
+    supportAnnouncement = 'Loading support tickets.'
     const result = await request<{ tickets: TicketSummary[]; total: number }>(`/v1/admin/support?${ticketQueryParams()}`)
     tickets = result.tickets; ticketTotal = result.total
+    supportAnnouncement = result.total === 1 ? '1 support ticket loaded.' : `${result.total} support tickets loaded.`
   }
 
   function usersPages() { return Math.max(1, Math.ceil(userTotal / PAGE_SIZE)) }
@@ -201,7 +274,19 @@
   }
 
   async function inspectTicket(id: string) {
-    try { selectedTicket = (await request<{ ticket: TicketDetail }>(`/v1/admin/support/${id}`)).ticket } catch (reason) { showError(reason) }
+    supportAnnouncement = 'Loading ticket details.'
+    try {
+      const result = await request<{ ticket: TicketDetail; mail?: SupportMailState }>(`/v1/admin/support/${id}`)
+      selectedTicket = result.ticket
+      ticketMail = result.mail ?? null
+      supportAnnouncement = 'Ticket details loaded.'
+    } catch (reason) { showError(reason) }
+  }
+
+  function activateTicketRow(event: KeyboardEvent, id: string) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    void inspectTicket(id)
   }
 
   async function sendReply() {
@@ -232,6 +317,53 @@
   async function setTicketPriority(priority: TicketPriority) {
     if (!selectedTicket) return
     try { await mutate(`/v1/admin/support/${selectedTicket.id}/priority`, 'POST', { priority }); await loadTickets(); await inspectTicket(selectedTicket.id); showNotice(`Priority changed to ${priority}.`) } catch (reason) { showError(reason) }
+  }
+
+  async function loadSavedReplies() {
+    try { savedReplies = (await request<{ savedReplies: SavedReply[] }>('/v1/admin/saved-replies')).savedReplies ?? [] } catch (reason) { showError(reason) }
+  }
+
+  function useSavedReply(id: string) {
+    const saved = savedReplies.find((reply) => reply.id === id)
+    if (saved) replyBody = saved.body
+  }
+
+  function editSavedReply(reply: SavedReply) {
+    editingSavedReplyID = reply.id
+    savedReplyTitle = reply.title
+    savedReplyBody = reply.body
+  }
+
+  function clearSavedReplyForm() {
+    editingSavedReplyID = ''
+    savedReplyTitle = ''
+    savedReplyBody = ''
+  }
+
+  async function saveSavedReply() {
+    if (!savedReplyTitle.trim() || !savedReplyBody.trim()) return
+    savedReplyBusy = true
+    try {
+      if (editingSavedReplyID) {
+        await mutate(`/v1/admin/saved-replies/${editingSavedReplyID}`, 'PATCH', { title: savedReplyTitle, body: savedReplyBody })
+        showNotice('Saved reply updated.')
+      } else {
+        await mutate('/v1/admin/saved-replies', 'POST', { title: savedReplyTitle, body: savedReplyBody })
+        showNotice('Saved reply created.')
+      }
+      clearSavedReplyForm()
+      await loadSavedReplies()
+    } catch (reason) { showError(reason) } finally { savedReplyBusy = false }
+  }
+
+  async function deleteSavedReply(reply: SavedReply) {
+    if (!confirm(`Delete the saved reply "${reply.title}"?`)) return
+    try {
+      await mutate(`/v1/admin/saved-replies/${reply.id}`, 'DELETE')
+      if (editingSavedReplyID === reply.id) clearSavedReplyForm()
+      await loadSavedReplies()
+      showNotice('Saved reply deleted.')
+    } catch (reason) { showError(reason) }
   }
 
   async function inspectUser(id: string) {
@@ -344,6 +476,15 @@
   }
 
   function date(value?: string) { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Never' }
+
+  function age(value: string) {
+    const minutes = Math.floor((Date.now() - new Date(value).getTime()) / 60000)
+    if (!Number.isFinite(minutes) || minutes < 1) return 'just now'
+    if (minutes < 60) return `${minutes}m`
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return `${hours}h`
+    return `${Math.floor(hours / 24)}d`
+  }
 </script>
 
 {#if loading}
@@ -379,7 +520,7 @@
         {#if canViewSupport}<button class:active={page === 'support'} onclick={() => openPage('support')}>Support</button>{/if}
         {#if canUsers}<button class:active={page === 'users'} onclick={() => openPage('users')}>Users</button>{/if}
         {#if canFlags}<button class:active={page === 'flags'} onclick={() => openPage('flags')}>Feature flags</button>{/if}
-        {#if canManageReleases || me?.role === 'readonly'}<button class:active={page === 'releases'} onclick={() => openPage('releases')}>Releases</button>{/if}
+        {#if canViewReleases}<button class:active={page === 'releases'} onclick={() => openPage('releases')}>Releases</button>{/if}
         {#if canPlans}<button class:active={page === 'plans'} onclick={() => openPage('plans')}>Product plans</button>{/if}
         {#if canViewAdmins}<button class:active={page === 'admins'} onclick={() => openPage('admins')}>Administrators</button>{/if}
         <button class:active={page === 'audit'} onclick={() => openPage('audit')}>Audit log</button>
@@ -400,6 +541,7 @@
         </div>
         <section class="panel"><h2>Operating boundary</h2><p>Administration manages account metadata, releases, plans, flags, and sessions. It cannot receive vault records, vault passwords, 2FA seeds, backup codes, or vault keys.</p></section>
       {:else if page === 'support'}
+        <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Support status">{supportAnnouncement}</p>
         <div class="toolbar">
           <input class="search" aria-label="Search tickets" placeholder="Search email or subject" bind:value={ticketQuery} oninput={onTicketSearch} />
           <select bind:value={ticketStatusFilter} onchange={loadTickets}><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option></select>
@@ -409,19 +551,41 @@
           <span>{ticketTotal} tickets{#if ticketsPages() > 1} · page {ticketsPage} of {ticketsPages()}{/if}</span>
           {#if ticketsPages() > 1}<button class="page-button" onclick={prevTicketsPage} disabled={ticketsPage <= 1}>Prev</button><button class="page-button" onclick={nextTicketsPage} disabled={ticketsPage >= ticketsPages()}>Next</button>{/if}
         </div>
+        {#if canSupport}
+          <details class="panel saved-replies">
+            <summary>Saved replies ({savedReplies.length})</summary>
+            <div class="saved-reply-list">
+              {#each savedReplies as saved (saved.id)}
+                <div class="saved-reply-row">
+                  <div><strong>{saved.title}</strong><small>{saved.body}</small></div>
+                  <button onclick={() => editSavedReply(saved)}>Edit</button>
+                  <button class="danger" onclick={() => deleteSavedReply(saved)}>Delete</button>
+                </div>
+              {/each}
+              {#if savedReplies.length === 0}<p class="empty">No saved replies yet.</p>{/if}
+            </div>
+            <label>Saved reply title<input bind:value={savedReplyTitle} maxlength="120" /></label>
+            <label>Saved reply body<textarea bind:value={savedReplyBody} maxlength="8000"></textarea></label>
+            <div class="reply-actions">
+              <button class="primary" onclick={saveSavedReply} disabled={savedReplyBusy || !savedReplyTitle.trim() || !savedReplyBody.trim()}>{editingSavedReplyID ? 'Save changes' : 'Create saved reply'}</button>
+              {#if editingSavedReplyID}<button onclick={clearSavedReplyForm}>Cancel</button>{/if}
+            </div>
+          </details>
+        {/if}
         <div class="split-view support-split" class:has-detail={selectedTicket}>
           <section class="table-panel">
             <table>
-              <thead><tr><th>Subject</th><th>Requester</th><th>Category</th><th>Status</th><th>Priority</th><th>SLA</th><th>Updated</th></tr></thead>
+              <thead><tr><th>Subject</th><th>Requester</th><th>Category</th><th>Status</th><th>Priority</th><th>SLA</th><th>Age</th><th>Updated</th></tr></thead>
               <tbody>
                 {#each tickets as ticket (ticket.id)}
-                  <tr tabindex="0" class:active={selectedTicket?.id === ticket.id} onclick={() => inspectTicket(ticket.id)} onkeydown={(event) => event.key === 'Enter' && inspectTicket(ticket.id)}>
+                  <tr role="button" tabindex="0" class:active={selectedTicket?.id === ticket.id} aria-label={`Open ticket ${ticket.subject} from ${ticket.email}`} onclick={() => inspectTicket(ticket.id)} onkeydown={(event) => activateTicketRow(event, ticket.id)}>
                     <td><strong>{ticket.subject}</strong><small>{ticket.messageCount} message{ticket.messageCount === 1 ? '' : 's'}</small></td>
                     <td>{ticket.email}</td>
                     <td><span class="badge badge-neutral">{TICKET_CATEGORY_LABELS[ticket.category]}</span></td>
                     <td><span class="badge" data-status={ticket.status}>{ticket.status.replace('_', ' ')}</span></td>
                     <td><span class="badge" data-priority={ticket.priority}>{ticket.priority}</span></td>
                     <td><span class:overdue={ticket.slaBreached}>{ticket.firstResponseAt ? 'Met' : ticket.slaBreached ? 'Overdue' : `Due ${date(ticket.slaDueAt)}`}</span></td>
+                    <td>{age(ticket.createdAt)}</td>
                     <td>{date(ticket.updatedAt)}</td>
                   </tr>
                 {/each}
@@ -432,6 +596,9 @@
           {#if selectedTicket}
             <aside class="detail support-detail">
               <div class="detail-head"><h2>{selectedTicket.subject}</h2><button aria-label="Close details" onclick={() => selectedTicket = null}>×</button></div>
+              {#if ticketMail}
+                <p class="support-mail-state"><span>Requester receipt email: {ticketMail.deliveryConfigured ? 'on' : 'off, mail is not configured'}</span><span>Staff notification email: {ticketMail.staffNotifyConfigured ? 'on' : 'off'}</span></p>
+              {/if}
               <dl>
                 <div><dt>Requester</dt><dd>{selectedTicket.email}</dd></div>
                 <div><dt>Assigned to</dt><dd>{assigneeEmail(selectedTicket.assignedAdminId) || 'Unassigned'}</dd></div>
@@ -467,13 +634,19 @@
               <div class="thread">
                 {#each selectedTicket.messages as message (message.id)}
                   <article class="message" data-role={message.authorRole}>
-                    <div class="message-meta"><strong>{message.authorRole === 'staff' ? message.adminEmail : selectedTicket.email}</strong><small>{date(message.createdAt)}{#if message.sentViaEmail} · email {message.emailDeliveryStatus || 'queueing'}{#if message.emailAttempts} · {message.emailAttempts} attempt{message.emailAttempts === 1 ? '' : 's'}{/if}{#if message.emailNextAttemptAt} · retry {date(message.emailNextAttemptAt)}{/if}{/if}</small></div>
+                    <div class="message-meta"><strong>{message.authorRole === 'staff' ? message.adminEmail : selectedTicket.email}</strong><small>{date(message.createdAt)}{#if message.authorRole === 'staff' && message.emailDeliveryReason} · {deliveryReasonLabel(message.emailDeliveryReason)}{#if message.emailAttempts && (message.emailDeliveryReason === 'pending' || message.emailDeliveryReason === 'failed')} · {message.emailAttempts} attempt{message.emailAttempts === 1 ? '' : 's'}{/if}{#if message.emailNextAttemptAt && message.emailDeliveryReason === 'pending'} · retry {date(message.emailNextAttemptAt)}{/if}{/if}</small></div>
                     <p>{message.body}</p>
                   </article>
                 {/each}
               </div>
               {#if canSupport && selectedTicket.status !== 'closed'}
                 <div class="reply-composer">
+                  {#if savedReplies.length > 0}
+                    <select aria-label="Insert a saved reply" onchange={(event) => { useSavedReply(event.currentTarget.value); event.currentTarget.value = '' }}>
+                      <option value="">Insert saved reply…</option>
+                      {#each savedReplies as saved (saved.id)}<option value={saved.id}>{saved.title}</option>{/each}
+                    </select>
+                  {/if}
                   <textarea aria-label="Reply to user" bind:value={replyBody} placeholder="Reply to the user. Do not include passwords, codes, or vault data." maxlength="8000"></textarea>
                   <div class="reply-actions">
                     <span class="field-help">Visible in the signed-in support portal. An email is queued only when the account opted in to support replies.</span>
@@ -506,7 +679,7 @@
           {#if selectedUser}<aside class="detail"><div class="detail-head"><h2>{selectedUser.email}</h2><button aria-label="Close details" onclick={() => selectedUser = null}>×</button></div><dl><div><dt>Created</dt><dd>{date(selectedUser.createdAt)}</dd></div><div><dt>Email</dt><dd>{selectedUser.emailVerified ? 'Verified' : 'Not verified'}</dd></div></dl>
             {#if selectedUser.betaAccess && !selectedUser.emailVerified}<p class="message error">Beta is granted but inactive until this email address is verified. Downloads and desktop linking remain blocked.</p>{/if}
             {#if canEditUsers}<div class="action-grid"><button onclick={() => userAction('beta', selectedUser!.betaAccess ? 'DELETE' : 'POST')}>{selectedUser.betaAccess ? 'Revoke beta' : 'Grant beta'}</button><button onclick={() => userAction('sessions', 'DELETE')}>Revoke sessions</button><button onclick={toggleUserSuspension}>{selectedUser.suspendedAt ? 'Unsuspend' : 'Suspend'}</button>{#if me.role === 'super'}<button class="danger" onclick={deleteUser}>Delete account</button>{/if}</div>{/if}
-            {#if canEditFlags}<div class="owner-release-action"><button class="primary" onclick={publishToOwnerDevices}>Add to owner update ring</button><small>Grants this verified beta account access to owner-channel updates as well as beta updates. It does not publish a release.</small></div>{/if}
+            {#if canOwnerRelease}<div class="owner-release-action"><button class="primary" onclick={publishToOwnerDevices}>Add to owner update ring</button><small>Grants this verified beta account access to owner-channel updates as well as beta updates. It does not publish a release.</small></div>{/if}
             <h3>Website sessions</h3>{#if selectedUser.sessions?.length}{#each selectedUser.sessions as session (session.id)}<div class="compact-row"><div><strong>{session.label}</strong><small>{date(session.lastSeenAt)}</small></div></div>{/each}{:else}<p class="empty">No active sessions.</p>{/if}
             <h3>Connected devices</h3>{#if selectedUser.devices?.length}{#each selectedUser.devices as device (device.id)}<div class="compact-row"><div><strong>{device.name}</strong><small>{date(device.connectedAt)}</small></div>{#if canEditUsers}<button onclick={() => userAction(`devices/${device.id}`, 'DELETE')}>Revoke</button>{/if}</div>{/each}{:else}<p class="empty">No connected devices.</p>{/if}
           </aside>{/if}
@@ -524,8 +697,23 @@
       {:else if page === 'audit'}
         <section class="panel audit-filters"><div><label>Action<input placeholder="user.suspend" bind:value={auditAction} /></label>{#if canAuditAll}<label>Admin ID<input placeholder="Optional" bind:value={auditAdmin} /></label>{/if}<label>From<input type="datetime-local" bind:value={auditFrom} /></label><label>To<input type="datetime-local" bind:value={auditTo} /></label></div><div class="toolbar"><button onclick={loadAudit}>Apply filters</button>{#if canAuditAll}<button onclick={exportAudit}>Export CSV</button>{/if}<span>{audit.length} results on this page</span></div></section><section class="table-panel"><table><thead><tr><th>Time</th><th>Administrator</th><th>Action</th><th>Target</th></tr></thead><tbody>{#each audit as entry (entry.id)}<tr><td>{date(entry.createdAt)}</td><td>{entry.adminEmail || 'Deleted admin'}</td><td><code>{entry.action}</code></td><td>{entry.targetType} {entry.targetId || ''}</td></tr>{/each}</tbody></table></section>
       {:else if page === 'system'}
-        <SystemWorkspace snapshot={system} failure={systemFailure} />
+        <SystemWorkspace snapshot={system} mail={systemMail} failure={systemFailure} />
       {/if}
     </main>
   </div>
+  {#if stepUpOpen}
+    <div class="stepup-backdrop">
+      <div class="stepup-panel" role="dialog" aria-modal="true" aria-label="Re-authenticate to continue">
+        <h2>Re-authenticate to continue</h2>
+        <p>This action needs a fresh credential check. Enter your admin password or a current six-digit code.</p>
+        <label>Admin password<input type="password" bind:value={stepUpPassword} autocomplete="current-password" /></label>
+        <label>Six-digit code<input bind:value={stepUpCode} inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" /></label>
+        {#if stepUpError}<p class="message error" role="alert">{stepUpError}</p>{/if}
+        <div class="stepup-actions">
+          <button onclick={() => finishStepUp(false)} disabled={stepUpBusy}>Cancel</button>
+          <button class="primary" onclick={submitStepUp} disabled={stepUpBusy || !stepUpReady}>Confirm</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 {/if}

@@ -30,6 +30,16 @@ func (a *api) readyz(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) productStatus(response http.ResponseWriter, request *http.Request) {
+	if !a.projectProfile() {
+		writeJSON(response, http.StatusOK, map[string]any{
+			"webSignInAvailable":         a.config.Accounts != nil,
+			"desktopConnectionAvailable": hasDesktopStore(a.config.Accounts),
+			"registrationMode":           a.runtimeRegistrationMode(request.Context()),
+			"cloudSyncAvailable":         a.syncEnabled(request.Context()),
+			"updated":                    securityUpdated,
+		})
+		return
+	}
 	registrationMode := a.runtimeRegistrationMode(request.Context())
 	publicDownload := a.runtimeFlagBool(request.Context(), "public_download", false)
 	// Every other field here is read from runtime state, so the phase is too.
@@ -56,6 +66,10 @@ func (a *api) productStatus(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) plans(response http.ResponseWriter, request *http.Request) {
+	if !a.projectProfile() {
+		writeJSON(response, http.StatusOK, map[string]any{"plans": []any{}})
+		return
+	}
 	if a.config.Admin != nil {
 		if plans, err := a.config.Admin.Plans(request.Context()); err == nil {
 			writeJSON(response, http.StatusOK, map[string]any{"plans": plans})
@@ -66,6 +80,9 @@ func (a *api) plans(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) latestRelease(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	platform := request.URL.Query().Get("platform")
 	if platform == "" {
 		platform = "windows"
@@ -126,6 +143,7 @@ func (a *api) support(response http.ResponseWriter, request *http.Request) {
 		"url":                 strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
 		"intake":              "/v1/support/requests",
 		"attachmentsAccepted": false,
+		"receiptEmail":        a.config.EmailSender != nil,
 		"message":             "Describe what happened without sending vault files, passwords, TOTP seeds, backup codes, recovery notes, or tokens.",
 	})
 }

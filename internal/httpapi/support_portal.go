@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -82,6 +83,13 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 			accountSupportError(response, err)
 			return
 		}
+		if a.config.EmailSender != nil {
+			if notice, ok := a.supportStaffFollowUpNotice(ticket.ID, ticket.Category); ok {
+				if err := a.config.EmailSender.SendAccountEmail(request.Context(), notice); err != nil {
+					slog.Error("Sesame support follow-up notice could not be queued", "error", err)
+				}
+			}
+		}
 		writeJSON(response, http.StatusCreated, map[string]any{"ticket": ticket})
 		return
 	}
@@ -106,6 +114,29 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 			accountSupportError(response, err)
 			return
 		}
+		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
+		return
+	}
+	if action == "attach" {
+		if !user.EmailVerified {
+			slog.Info("Sesame support request attach rejected", "request", ticketID, "outcome", "email_unverified")
+			writeError(response, http.StatusForbidden, "email_unverified", "Verify your account email before attaching a support request.")
+			return
+		}
+		ticket, err := store.AttachSupportTicket(request.Context(), user.ID, ticketID)
+		if errors.Is(err, accounts.ErrEmailUnverified) {
+			slog.Info("Sesame support request attach rejected", "request", ticketID, "outcome", "email_unverified")
+			writeError(response, http.StatusForbidden, "email_unverified", "Verify your account email before attaching a support request.")
+			return
+		}
+		if errors.Is(err, accounts.ErrNotFound) {
+			slog.Info("Sesame support request attach rejected", "request", ticketID, "outcome", "not_found")
+		}
+		if err != nil {
+			accountSupportError(response, err)
+			return
+		}
+		slog.Info("Sesame support request attached", "request", ticket.ID, "outcome", "attached")
 		writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
 		return
 	}

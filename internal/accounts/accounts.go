@@ -30,10 +30,12 @@ var (
 	ErrEmailTaken                 = errors.New("email already registered")
 	ErrNotFound                   = errors.New("account not found")
 	ErrNotEligible                = errors.New("account is not eligible for registration")
+	ErrRegistrationNotCreated     = errors.New("registration did not create an account")
 	ErrTokenExpired               = errors.New("account action token is invalid or expired")
 	ErrRecentAuthRequired         = errors.New("recent authentication is required")
 	ErrSupportTicketClosed        = errors.New("support ticket is closed")
 	ErrSupportTicketReopenExpired = errors.New("support ticket can no longer be reopened")
+	ErrEmailUnverified            = errors.New("account email is not verified")
 	ErrIdempotencyConflict        = errors.New("idempotency key does not match this request")
 	ErrDownloadTicketUsed         = errors.New("download ticket has already been redeemed")
 )
@@ -465,7 +467,7 @@ func (s *PostgresStore) ConsumeRateLimit(ctx context.Context, key string, limit 
 }
 
 func (s *PostgresStore) PurgeExpired(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `
+	if _, err := s.db.ExecContext(ctx, `
 		DELETE FROM sesame_sessions WHERE expires_at <= NOW();
 		DELETE FROM sesame_desktop_link_codes WHERE created_at <= NOW() - INTERVAL '1 day';
 		DELETE FROM sesame_desktop_connections WHERE expires_at <= NOW();
@@ -476,8 +478,11 @@ func (s *PostgresStore) PurgeExpired(ctx context.Context) error {
 		DELETE FROM sesame_rate_limits WHERE updated_at <= NOW() - INTERVAL '1 day';
 		DELETE FROM sesame_admin_sessions WHERE expires_at <= NOW();
 		DELETE FROM sesame_admin_setup_tokens WHERE expires_at <= NOW() OR used_at IS NOT NULL;
-	`)
-	return err
+		DELETE FROM sesame_support_access_links WHERE expires_at <= NOW() OR revoked_at IS NOT NULL;
+	`); err != nil {
+		return err
+	}
+	return purgeSupportHistory(ctx, s.db)
 }
 
 func (s *PostgresStore) Ping(ctx context.Context) error {

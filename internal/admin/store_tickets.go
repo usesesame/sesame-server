@@ -209,7 +209,22 @@ func (s *Store) Ticket(ctx context.Context, ticketID string) (TicketDetail, erro
 	return d, noteRows.Err()
 }
 
-func (s *Store) ReplyTicket(ctx context.Context, actor Account, ticketID, body string, sendEmail bool, ipHash string) (TicketDetail, error) {
+type TicketReplyEmail struct {
+	To              string
+	Subject         string
+	Body            string
+	ActionURL       string
+	ExpiresAt       time.Time
+	AccessTokenHash []byte
+}
+
+type TicketReplyEmailHook func(context.Context, *sql.Tx, string) error
+
+func (s *Store) ReplyTicket(ctx context.Context, actor Account, ticketID, body string, email *TicketReplyEmail, enqueue TicketReplyEmailHook, ipHash string) (TicketDetail, error) {
+	if (email == nil) != (enqueue == nil) {
+		return TicketDetail{}, errors.New("reply email content and enqueue hook must be provided together")
+	}
+	sendEmail := email != nil
 	msgID, err := newID()
 	if err != nil {
 		return TicketDetail{}, err
@@ -218,8 +233,9 @@ func (s *Store) ReplyTicket(ctx context.Context, actor Account, ticketID, body s
 		"sentViaEmail": sendEmail,
 		"bodyLength":   len(body),
 	}, func(tx *sql.Tx) error {
-		var status string
-		if err := tx.QueryRowContext(ctx, `SELECT status FROM sesame_support_requests WHERE id = $1 FOR UPDATE`, ticketID).Scan(&status); err != nil {
+		var status, requesterEmail string
+		var accountID sql.NullString
+		if err := tx.QueryRowContext(ctx, `SELECT status, email, account_id FROM sesame_support_requests WHERE id = $1 FOR UPDATE`, ticketID).Scan(&status, &requesterEmail, &accountID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
 			}
@@ -241,6 +257,16 @@ func (s *Store) ReplyTicket(ctx context.Context, actor Account, ticketID, body s
 			WHERE id = $1
 		`, ticketID); err != nil {
 			return err
+		}
+		if email != nil && len(email.AccessTokenHash) > 0 && !accountID.Valid {
+			if err := support.IssueAccessLink(ctx, tx, ticketID, requesterEmail, email.AccessTokenHash, email.ExpiresAt, time.Now().UTC()); err != nil {
+				return err
+			}
+		}
+		if enqueue != nil {
+			if err := enqueue(ctx, tx, msgID); err != nil {
+				return err
+			}
 		}
 		return nil
 	})

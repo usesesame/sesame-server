@@ -29,49 +29,80 @@ to loopback.
 - DNS A and AAAA records for `usesesame.app`, `www`, `api`, `account`, and
   `admin`, all pointing at the host. Caddy cannot issue certificates until
   these resolve.
-- An SMTP account that supports STARTTLS. Without working mail there is no
-  email verification, no password recovery, and no email change.
-- Node.js 24.20 to build the website.
+- An SMTP relay that supports STARTTLS, at a provider or on this host.
+  Without working mail there is no email verification, no password recovery,
+  and no email change.
+- Node.js 24.20 for the website build, the setup script, and the deploy tool.
+- The GitHub CLI, authenticated to github.com with `gh auth login`, so the deploy
+  tool can verify image provenance.
+- The `age` command for encrypted database backups, installed with
+  `apt install age`.
 
 ## 1. Configure
 
 ```bash
 git clone https://github.com/usesesame/sesame-server.git
 cd sesame-server
-npm ci
 npm run setup
 ```
 
 `npm run setup` generates this deployment's own secrets and resolves the
-build contexts. It writes `deploy/compose/.env`, the development file.
+build contexts. It writes `deploy/compose/.env`, the development file. The
+setup script and the deploy tool import only Node builtins, so the host needs
+no `npm install` step and no install scripts run on it.
 
 ```bash
 cp deploy/compose/.env.production.example deploy/compose/.env.production
 chmod 600 deploy/compose/.env.production
 ```
 
-Fill in `.env.production`. Copy the four generated secrets from
+Fill in `.env.production`. Copy the generated secrets from
 `deploy/compose/.env`. Copy the API, account, and admin digest references
 from `server-release.json` into the three image fields. Get
 `server-release.json` from the protected server release workflow for the
 version being deployed. Production Compose has no build contexts and does
 not rebuild source on the host.
 
-Three values are fixed by the product. The comments in the example explain
-them as well.
+`npm run setup` writes four database secrets: the bootstrap superuser
+password and one password for each of the three roles Compose creates. On
+the first start of an empty `database` volume, the `db` service runs
+`deploy/compose/initdb/10-roles.sh` as the bootstrap superuser and creates
+`sesame_owner`, `sesame_app`, and `sesame_backup`. The `migrate` service
+connects as `sesame_owner` and owns schema changes, the API connects as
+`sesame_app` and can only write data, and `pg_dump` connects as
+`sesame_backup`. The bootstrap superuser only starts PostgreSQL and creates
+the roles; no service uses it at run time.
 
-- `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret.
-  If it changes, those secrets become unreadable and sign-in fails with the
-  same message a wrong password gets. Back it up somewhere that survives
-  this disk.
+These values matter most. The comments in the example explain them as well.
+
+- `SESAME_ADMIN_ENCRYPTION_KEY` encrypts every administrator's MFA secret and
+  every queued account-email action link. If it changes, those secrets become
+  unreadable and sign-in fails with the same message a wrong password gets,
+  and queued email can never be delivered. The API refuses to start when SMTP
+  is configured without this key. Back it up somewhere that survives this
+  disk.
 - `SESAME_RP_ID` must be the account portal's registrable domain. Changing
   it later invalidates every passkey already registered.
 - `SESAME_TRUSTED_PROXIES` must name the proxy's network and nothing wider.
-  Every request arrives through the proxy, so without it the rate limiter
-  and the admin audit log see a single client address for the entire
-  internet. Widening it to `0.0.0.0/0` lets any client forge its own
-  address and defeat rate limiting. Verify the network with
+  The production stack pins its Compose network to `SESAME_COMPOSE_SUBNET`,
+  which the example sets to `172.30.0.0/24`, and the two values must always
+  name the same range. Never widen it to `0.0.0.0/0`: any client could then
+  forge its own address and defeat rate limiting, and the API refuses to
+  start with a range that covers every address. Verify the range with
   `docker network inspect sesame-prod_default`.
+- `SESAME_SMTP_ADDR` points at your own STARTTLS relay. It is empty in the
+  example, which runs the stack without verification, recovery, or
+  email-change mail. Set the username and password unless that relay accepts
+  mail only from the pinned Compose network. A relay on this host is reached
+  by its certificate name when `SESAME_SMTP_HOST_GATEWAY` names it. Never
+  point the address at a relay operated for another deployment.
+
+Set `SESAME_BACKUP_AGE_RECIPIENTS` to one or more age public recipients,
+separated by commas. Generate the identity with `age-keygen` on a device that
+is not this host and keep the private identity there or on a hardware token.
+The host holds only public recipients, so it can encrypt every backup and read
+none of them. The deploy tool refuses to take a backup while this value is
+empty. The Backups section has the restore procedure and the quarterly drill.
 
 ## 2. Start the stack
 
@@ -90,6 +121,16 @@ Migrations run once, as their own service, before the API starts. The API
 refuses to start if a required value is missing or if an HTTPS origin is
 paired with insecure cookies. A misconfiguration fails closed instead of
 serving insecurely.
+
+Every application container runs with a read-only root filesystem, all Linux
+capabilities dropped, `no-new-privileges`, and fixed process and memory
+limits. Only `/tmp` is writable in the Go containers. The account and admin
+portals also mount the nginx cache and pid directories, and run as the
+image's `nginx` user, UID 101. PostgreSQL keeps a writable data volume and
+the capabilities its entrypoint needs to own the data directory. An existing
+deployment picks the container settings up when
+`docker compose -f deploy/compose/compose.prod.yaml --env-file deploy/compose/.env.production up -d`
+recreates the changed containers; no extra step is required.
 
 Check it:
 
@@ -154,7 +195,14 @@ administrator registration, and no session is issued until TOTP is
 configured.
 
 Every administrator mutation writes its audit row in the same database
-transaction as the change.
+transaction as the change. A database trigger chains each row with a SHA-256
+hash over its stored values, so inserts from an earlier revision during an
+upgrade are chained too. The hourly maintenance run verifies the chain and
+writes a signed checkpoint, covering the newest row, with the capability
+signing key whenever new rows exist. It logs the covered sequence, the chain
+hash, the signing key id and the signature in hex. Keep that log line outside
+the database. It proves the covered history was not rewritten after the
+checkpoint. It does not prove the entries were accurate.
 
 ## Updating to a new release
 
@@ -165,6 +213,13 @@ records their digest references in `server-release.json`, and attaches a
 dependency SBOM and signed provenance to each digest. Production uses the
 digest references, never the version tags.
 
+Before it changes anything, the deploy tool verifies each image's provenance
+attestation with the GitHub CLI against the pinned release repository
+`usesesame/sesame-server`, the release workflow, and the release tag. An image
+whose attestation is missing, was signed for another ref, or names another
+repository stops the deploy. A host with no GitHub access cannot deploy;
+verification is not skippable.
+
 The GitHub `server-release` environment must require release approval and
 define `SESAME_API_ORIGIN`, `SESAME_PUBLIC_SITE_ORIGIN`, and
 `SESAME_CAPABILITY_PUBLIC_KEY`. The key is the public half of the
@@ -172,25 +227,46 @@ production capability signing key. GitHub supplies registry and
 attestation credentials only to the workflow. Host and deployment
 credentials never enter the release job.
 
-Deploy one release artifact set end to end. Run this on the host, from a
-checkout at or newer than the revision that built the images:
+Deploy one release artifact set end to end. Check out the release tag on the
+host and run the tool with Node. The tool imports only Node builtins, so it
+needs no install step.
+
+A deployment that predates the database roles needs one migration step
+first. Add `SESAME_DATABASE_OWNER_PASSWORD`, `SESAME_DATABASE_APP_PASSWORD`,
+and `SESAME_DATABASE_BACKUP_PASSWORD` from `deploy/compose/.env` to
+`.env.production`, start the database, and run the role script once:
 
 ```bash
-npm ci
-npm run deploy:release -- plan server-release.json     # what would happen, nothing changes
-npm run deploy:release -- deploy server-release.json
-npm run deploy:release -- status
-npm run deploy:release -- rollback [version]
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production up -d --wait db
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production \
+  exec -T db sh /docker-entrypoint-initdb.d/10-roles.sh
+```
+
+The script is idempotent. It creates the three roles and hands the existing
+tables and functions to `sesame_owner` so the deploy tool can migrate them.
+Then run the deploy:
+
+```bash
+git fetch --tags
+git checkout v<version>
+node scripts/deploy-release.mjs plan server-release.json     # what would happen, nothing changes
+node scripts/deploy-release.mjs deploy server-release.json
+node scripts/deploy-release.mjs status
+node scripts/deploy-release.mjs rollback [version]
 ```
 
 The deploy tool runs these stages, and every stage is safe to retry after
 an interruption:
 
-1. Pull and verify all three images by digest and identity labels.
-2. Take a verified `pg_dump` backup.
-3. Restore that backup into a scratch database and run the candidate
-   migration and the previous revision's API against it. This is the
-   rehearsal.
+1. Pull all three images and verify their digests, identity labels, and
+   GitHub provenance.
+2. Take a `pg_dump` backup and encrypt it to the age recipients.
+3. Stream a fresh copy of the live database into a scratch database and run
+   the candidate migration and the previous revision's API against it. This
+   is the rehearsal. The host holds no age identity, so the encrypted backup
+   from step 2 cannot be read here.
 4. Apply the migration to the production database.
 5. Start the candidate API beside the live stack on a port Caddy does not
    route, and probe `/livez` and `/readyz`.
@@ -200,49 +276,136 @@ an interruption:
 
 If a stage fails, the failure is contained and recorded:
 
+- A failed image verification stops the run before the backup, the rehearsal,
+  or any change.
 - A failed health check before the switch changes no traffic. The previous
   revision keeps serving, and the env file is untouched.
 - A failed health check after the switch rolls back automatically. The tool
-  restores the recorded previous env snapshot, restarts the stack, probes
-  it, and records the rollback. The interrupted attempt is recorded, and
-  rerunning `deploy` with the same `server-release.json` converges on that
-  revision instead of duplicating it.
+  rewrites the three image lines in `.env.production` back to the recorded
+  previous digests, restarts the stack, probes it, and records the rollback.
+  The interrupted attempt is recorded, and rerunning `deploy` with the same
+  `server-release.json` converges on that revision instead of duplicating it.
 - Deploying an older release than the recorded one is refused. Re-presenting
   the same release with changed bytes is refused. Artifact identity is
   immutable.
 - The rehearsal proves the previous revision still runs against the
   migrated schema, so an ordinary rollback after migration is safe.
-  Rollback restores images and configuration only. It never reverts
-  migrations. If a release ships an incompatible database contraction,
-  recovery means restoring the recorded backup,
-  `deploy/state/backups/sesame-<version>-<timestamp>.sql.gz`, onto the
-  previous revision by hand. That is a deliberate operator procedure.
+  Rollback restores the recorded image references and leaves every other
+  value in `.env.production` in place. It never reverts migrations. If a
+  release ships an incompatible database contraction, recovery means
+  restoring the recorded backup,
+  `deploy/state/backups/sesame-<version>-<timestamp>.sql.gz.age`, onto the
+  previous revision by hand with the age identity. That is a deliberate
+  operator procedure.
 
-State, env snapshots, and backups live under `deploy/state/`, which is
-gitignored: `deployed.json`, `pending.json`, `backups/`, and
-`history/<version>/`. Never delete `history/` while an older version is
-still a wanted rollback target. Secrets from `.env.production` are read by
-the tool, mode 0600, never printed, and copied into the per-version
-snapshots under `deploy/state/history/`. Back that directory up with the
-same care as the env file itself.
+State and backups live under `deploy/state/`, which is gitignored:
+`deployed.json`, `pending.json`, and `backups/`. The tool reads
+`.env.production` at mode 0600 and never prints it. It records the image
+references it needs for rollback in `deployed.json` and writes no copy of the
+env file, so the deploy state holds no secrets. The encrypted files in
+`backups/` are the only database copies the host keeps. If an earlier
+checkout left plaintext env copies under `deploy/state/history/`, delete that
+directory; nothing reads it, and it holds every secret from that deployment.
+
+## Upgrading an existing stack
+
+An existing `.env.production` keeps its own values. The deploy tool rewrites
+only the three image lines, so nothing narrows a wide
+`SESAME_TRUSTED_PROXIES` for you. Set it to the pinned Compose subnet,
+`172.30.0.0/24` in the example, and keep it equal to
+`SESAME_COMPOSE_SUBNET`. The API refuses to start when the value holds an
+address outside loopback, private, or link-local space, such as `0.0.0.0/0`,
+`0.0.0.0/1`, or `::ffff:0.0.0.0/96`. The old `172.16.0.0/12` still starts
+with a warning that the range is wider than `/24`, and it trusts every peer
+in that range, not only the proxy.
+
+Changing the Compose `ipam` subnet recreates the `sesame-prod_default`
+network on the next `up -d`. Docker stops and recreates every container
+attached to that network, including the database, so expect a short outage.
+
+The old `mail.usesesame.app:host-gateway` mapping is gone. When the relay
+runs on this host and must be reached by its certificate name, set
+`SESAME_SMTP_HOST_GATEWAY` to that name. Review host firewall and Postfix
+`mynetworks` rules written for the old bridge subnet. They no longer match.
 
 ## Backups
 
 Two things matter, and they fail differently.
 
+Every `npm run deploy:release -- deploy` streams a `pg_dump` through `gzip`
+and `age` and writes the result under `deploy/state/backups/` as
+`sesame-<version>-<timestamp>.sql.gz.age`. `SESAME_BACKUP_AGE_RECIPIENTS`
+supplies the public recipients. The host holds no private identity, so it
+cannot read the backups it writes. Keep the identity on a separate device and
+keep a copy of the encrypted files off the host as well.
+
+A manual backup looks the same:
+
 ```bash
+set -o pipefail
+out=sesame-$(date +%F).sql.gz.age
 docker compose -f deploy/compose/compose.prod.yaml \
   --env-file deploy/compose/.env.production \
-  exec -T db pg_dump -U sesame sesame | gzip > sesame-$(date +%F).sql.gz
+  exec -T db pg_dump -U sesame_backup sesame | gzip \
+  | age -r age1... > "$out" \
+  || { rm -f "$out"; echo "backup failed" >&2; }
 ```
+
+With `pipefail` set, the pipeline fails when `pg_dump` fails, and the
+failure branch removes the partial file and warns on stderr.
+
+Restore is a manual procedure that needs the identity. A scratch database
+has only the bootstrap superuser. The dump carries `OWNER TO` and grant
+statements for `sesame_owner`, `sesame_app`, and `sesame_backup`, and
+`pg_dump` does not dump roles, so create them in the scratch database first:
+
+```bash
+docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame <<'SQL'
+CREATE ROLE sesame_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE sesame_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE sesame_backup LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+GRANT pg_read_all_data TO sesame_backup;
+GRANT CREATE, USAGE ON SCHEMA public TO sesame_owner;
+SQL
+```
+
+Then decrypt with the identity and load the dump:
+
+```bash
+set -o pipefail
+age --decrypt --identity /path/to/backup-identity.txt sesame-<version>.sql.gz.age \
+  | gunzip \
+  | docker exec -i <scratch-database> psql -q -v ON_ERROR_STOP=1 -U sesame -d sesame \
+  || echo "restore failed" >&2
+```
+
+Run the restore where the identity is available and the scratch database is
+reachable, and do not write the decrypted dump to disk. Check the schema
+version and a known account row. Restoring over the live database destroys
+it, so rehearse first.
 
 A lost database loses accounts. A lost `SESAME_ADMIN_ENCRYPTION_KEY` locks
 every administrator out while the database stays perfectly intact, which is
 the harder failure to recover from. Back up `deploy/compose/.env.production`
 separately, somewhere other than this host.
 
+Restore one backup at least quarterly: decrypt it with the identity, load it
+into a scratch database, and check the schema version and a known account row.
+Record the date and the result. A drill that has not run is not a pass.
+
 ## Operating notes
 
+- **Email action links are sealed, never stored in plaintext.** The API seals
+  each queued action link with a key derived from
+  `SESAME_ADMIN_ENCRYPTION_KEY`, and the delivery worker opens it only to send
+  the message. A delivered or failed outbox row,
+  including its sealed link, is purged seven days after its last update; an
+  undelivered row expires at its own deadline first. Verification links live
+  24 hours, recovery and email-change links 30 minutes, and support access
+  links seven days. Deploying this release fails every queued action email
+  that carries a single-use token and clears its link, so those users request
+  a new one. Queued notifications without a token stay pending and send, with
+  their link cleared.
 - **Registration** defaults to `invite`. With the administration portal
   running, the `registration_mode` feature flag in the database wins over
   the environment variable.
@@ -266,6 +429,10 @@ separately, somewhere other than this host.
 - **Trusted proxy ranges** are a reviewed configuration change, since they
   decide how a client address is trusted before authentication. The
   dashboard shows the active count and cannot edit it at runtime.
+- **Container limits** live in `deploy/compose/compose.prod.yaml`. If a
+  service is killed for exceeding its memory limit, `docker inspect` reports
+  `OOMKilled` for that container; raise its `mem_limit` and run `up -d`
+  again. Keep the limits and the read-only root filesystem in place.
 - The API never accepts a vault. That boundary needs its own threat model
   and is outside anything here.
 

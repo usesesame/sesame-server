@@ -22,6 +22,7 @@ func TestReleaseCandidateIngest(t *testing.T) {
 	tokenHash := sha256.Sum256(token)
 	registry := &testReleaseRegistry{}
 	handler := New(Config{
+		DeploymentProfile:         DeploymentProfileProject,
 		AllowedOrigin:             "https://account.example.invalid",
 		AdminOrigin:               "https://admin.example.invalid",
 		ReleaseRegistry:           registry,

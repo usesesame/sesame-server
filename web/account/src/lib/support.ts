@@ -29,6 +29,20 @@ export type SupportRequest = {
 
 export type SupportReceipt = { requestId: string; status: 'open' }
 
+export type SupportMetadata = {
+  status: string
+  url: string
+  intake: string
+  attachmentsAccepted: boolean
+  receiptEmail: boolean
+}
+
+export async function getSupportMetadata(): Promise<SupportMetadata> {
+  const response = await apiRequest(API_ROUTES.support)
+  if (!response.ok) throw await responseError(response)
+  return await response.json() as SupportMetadata
+}
+
 export type SupportTicketStatus = 'open' | 'in_progress' | 'waiting' | 'closed'
 
 export type SupportTicketSummary = {
@@ -45,6 +59,7 @@ export type SupportTicketSummary = {
   createdAt: string
   updatedAt: string
   closedAt?: string
+  autoClosed: boolean
   canClose: boolean
   canReopen: boolean
 }
@@ -94,6 +109,34 @@ export async function getSupportTickets(): Promise<SupportTicketSummary[]> {
 
 export async function getSupportTicket(id: string): Promise<SupportTicketDetail> {
   const response = await apiRequest(`${API_ROUTES.accountSupport}/${encodeURIComponent(id)}`)
+  if (!response.ok) throw await responseError(response)
+  return (await response.json() as { ticket: SupportTicketDetail }).ticket
+}
+
+export async function openSupportAccess(token: string): Promise<SupportTicketDetail> {
+  const response = await apiRequest(API_ROUTES.supportAccess, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  })
+  if (!response.ok) throw await responseError(response)
+  return (await response.json() as { ticket: SupportTicketDetail }).ticket
+}
+
+export async function replyToSupportAccess(token: string, message: string): Promise<SupportTicketDetail> {
+  const signal = findSecretShapedText(message)
+  if (signal) throw new Error(`Remove ${signal} before sending. Sesame support cannot receive secrets.`)
+  const response = await apiRequest(API_ROUTES.supportAccessReply, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, message }),
+  })
+  if (!response.ok) throw await responseError(response)
+  return (await response.json() as { ticket: SupportTicketDetail }).ticket
+}
+
+export async function attachSupportTicket(id: string): Promise<SupportTicketDetail> {
+  const response = await apiRequest(`${API_ROUTES.accountSupport}/${encodeURIComponent(id)}/attach`, { method: 'POST' })
   if (!response.ok) throw await responseError(response)
   return (await response.json() as { ticket: SupportTicketDetail }).ticket
 }

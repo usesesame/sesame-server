@@ -6,6 +6,7 @@
   import { siteOrigin } from '../lib/runtime-config'
 
   export let mode: 'login' | 'register'
+  export let sessionExpired = false
   export let onAuthenticated: (account: Account) => void
 
   let email = ''
@@ -15,6 +16,7 @@
   let submitting = false
   let registrationLoading = mode === 'register'
   let registration: RegistrationStatus | null = null
+  let registered = false
   let error = ''
   let legalAccepted = false
 
@@ -56,14 +58,17 @@
     submitting = true
     error = ''
     try {
-      const account = isRegistering
-        ? await register(email, password, inviteCode.trim() || undefined, {
-            termsAccepted: true,
-            termsVersion: LEGAL_VERSION,
-            privacyAcknowledged: true,
-            privacyVersion: LEGAL_VERSION,
-          })
-        : await signIn(email, password)
+      if (isRegistering) {
+        await register(email, password, inviteCode.trim() || undefined, {
+          termsAccepted: true,
+          termsVersion: LEGAL_VERSION,
+          privacyAcknowledged: true,
+          privacyVersion: LEGAL_VERSION,
+        })
+        registered = true
+        return
+      }
+      const account = await signIn(email, password)
       onAuthenticated(account)
       window.location.assign('/account')
     } catch (reason) {
@@ -92,10 +97,17 @@
       <p>There is no public waitlist yet. Existing testers can sign in; new invitations include a private registration link. To ask about early access, use the <a href="/support">support page</a>.</p>
       <a class="button button-soft" href="/login">Back to sign in</a>
     </div>
+  {:else if registered}
+    <div class="auth-form card">
+      <h2>Check your email</h2>
+      <p>If that address can be registered, a verification link is on its way. Open it, then sign in. This page never confirms whether an address already has an account.</p>
+      <a class="button button-soft" href="/login">Back to sign in</a>
+    </div>
   {:else}
     <form class="auth-form card" on:submit|preventDefault={submit} aria-busy={registrationLoading || submitting}>
       <h2>{isRegistering ? 'Activate your invitation' : 'Website account'}</h2>
       <p>{isRegistering ? 'Create an account only if you have been invited to test a private-beta build.' : 'Use the password or passkey for this website account, not your vault password.'}</p>
+      {#if sessionExpired}<p class="auth-notice" role="status">Your session expired. Sign in again to continue.</p>{/if}
       {#if registrationLoading}
         <p class="auth-loading"><span class="auth-spinner" aria-hidden="true"></span>Checking invitation access…</p>
       {:else}

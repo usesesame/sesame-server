@@ -14,10 +14,10 @@
 // them on the next run.
 
 import { createPrivateKey, createPublicKey, randomBytes } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseEnvText, renderEnvFile, unmanagedEnvLines } from './setup-lib.mjs'
+import { parseEnvText, renderEnvFile, unmanagedEnvLines, writeEnvFileAtomic } from './setup-lib.mjs'
 
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const composeDirectory = resolve(serverRoot, 'deploy', 'compose')
@@ -54,6 +54,9 @@ const secret = () => randomBytes(32).toString('base64url')
 const capabilitySigningKey = value('SESAME_CAPABILITY_SIGNING_KEY', secret)
 const settings = new Map([
   ['SESAME_DATABASE_PASSWORD', value('SESAME_DATABASE_PASSWORD', secret)],
+  ['SESAME_DATABASE_OWNER_PASSWORD', value('SESAME_DATABASE_OWNER_PASSWORD', secret)],
+  ['SESAME_DATABASE_APP_PASSWORD', value('SESAME_DATABASE_APP_PASSWORD', secret)],
+  ['SESAME_DATABASE_BACKUP_PASSWORD', value('SESAME_DATABASE_BACKUP_PASSWORD', secret)],
   ['SESAME_CAPABILITY_SIGNING_KEY', capabilitySigningKey],
   ['SESAME_ADMIN_ENCRYPTION_KEY', value('SESAME_ADMIN_ENCRYPTION_KEY', secret)],
   ['SESAME_ADMIN_IP_PEPPER', value('SESAME_ADMIN_IP_PEPPER', secret)],
@@ -76,13 +79,18 @@ settings.set('SESAME_CAPABILITY_PUBLIC_KEY', capabilityPublicKey(capabilitySigni
 
 mkdirSync(composeDirectory, { recursive: true })
 const preserved = unmanagedEnvLines(existingText, settings.keys())
-writeFileSync(envPath, renderEnvFile({ settings, preservedLines: preserved }), { encoding: 'utf8', mode: 0o600 })
-chmodSync(envPath, 0o600)
+writeEnvFileAtomic(envPath, renderEnvFile({ settings, preservedLines: preserved }), 0o600)
 
 console.log(`Wrote ${toComposePath(envPath)}`)
 console.log(created.length > 0
   ? `Generated ${created.length} new local secret(s): ${created.join(', ')}`
   : 'Kept every existing secret. Rotating the admin key would lock out existing administrators.')
+console.log('')
+console.log('Database connections:')
+console.log('  SESAME_DATABASE_PASSWORD is the bootstrap superuser, used only to create the roles.')
+console.log('  migrate service connects as sesame_owner (schema changes) through DATABASE_URL.')
+console.log('  api service connects as sesame_app (data only) through DATABASE_URL.')
+console.log('  pg_dump connects as sesame_backup (read-only).')
 console.log('')
 console.log('Next:')
 console.log('  1. docker compose -f deploy/compose/compose.yaml up --build')

@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import type { Account } from '../lib/auth'
+  import { getNotificationPreferences, type Account } from '../lib/auth'
 import { siteOrigin } from '../lib/runtime-config'
   import {
     findSecretShapedText,
+    getSupportMetadata,
     getSupportTicket,
     getSupportTickets,
     closeSupportTicket,
@@ -13,6 +14,7 @@ import { siteOrigin } from '../lib/runtime-config'
     supportCategoryLabel,
     SUPPORT_CATEGORIES,
     type SupportCategory,
+    type SupportMetadata,
     type SupportTicketDetail,
     type SupportTicketStatus,
     type SupportTicketSummary,
@@ -40,13 +42,38 @@ import { siteOrigin } from '../lib/runtime-config'
   let replySending = false
   let lifecycleWorking = false
   let loadedAccountID = ''
+  let supportMetadata: SupportMetadata | null = null
+  let supportReplyEmail: boolean | null = null
 
   $: secretSignal = findSecretShapedText(`${subject}\n${message}`)
   $: replySecretSignal = findSecretShapedText(reply)
+  $: mailUnavailable = supportMetadata !== null && supportMetadata.receiptEmail === false
+  $: showEmailSettingsLink = account !== null && supportMetadata?.receiptEmail === true
   $: if (account && loadedAccountID !== account.id) {
     loadedAccountID = account.id
     email = account.email
     void loadTickets()
+  }
+
+  function supportEmailNotice(metadataUnavailable: boolean, metadata: SupportMetadata | null, currentAccount: Account | null, replyEmail: boolean | null) {
+    if (metadataUnavailable) {
+      return currentAccount
+        ? 'Email is unavailable on this deployment. Replies from support appear here in the portal.'
+        : 'Email is unavailable on this deployment, so no receipt will be sent. Keep the reference shown after you send.'
+    }
+    if (!metadata) return 'Replies appear in this portal. Whether email is sent depends on this deployment\'s mail configuration.'
+    if (!currentAccount) return 'We will email a receipt to this address. Guest requests do not receive reply email.'
+    if (replyEmail === false) return 'We will email a receipt. Reply email is turned off for this account.'
+    if (replyEmail === true) return `We will email a receipt, and replies from support will be emailed to ${currentAccount.email}.`
+    return 'We will email a receipt. Reply email follows this account\'s notification setting.'
+  }
+
+  $: emailNotice = supportEmailNotice(mailUnavailable, supportMetadata, account, supportReplyEmail)
+
+  async function loadEmailExpectations() {
+    try { supportMetadata = await getSupportMetadata() } catch { supportMetadata = null }
+    if (!account) return
+    try { supportReplyEmail = (await getNotificationPreferences()).supportReplies } catch { supportReplyEmail = null }
   }
 
   onMount(() => {
@@ -64,6 +91,7 @@ import { siteOrigin } from '../lib/runtime-config'
     browserIntegration = prefill('browserIntegration').slice(0, 64)
     requestId = prefill('requestId').slice(0, 64)
     if (query.size > 0) window.history.replaceState({}, '', window.location.pathname + window.location.hash)
+    void loadEmailExpectations()
   })
 
   const statusLabels: Record<SupportTicketStatus, string> = {
@@ -200,6 +228,7 @@ import { siteOrigin } from '../lib/runtime-config'
                 <div><h3>{selectedTicket.subject}</h3><p>{supportCategoryLabel(selectedTicket.category)} · Request {selectedTicket.id} · opened {formatDate(selectedTicket.createdAt)}</p></div>
                 <span class={`ticket-status ${selectedTicket.status}`}>{statusLabels[selectedTicket.status]}</span>
               </header>
+              <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink} <a href="/account#security">Change your reply email setting</a>.{/if}</p>
               {#if selectedTicket.appVersion || selectedTicket.diagnosticCode || selectedTicket.browserIntegration || selectedTicket.requestId}<p class="support-ticket-meta">{selectedTicket.appVersion ? `Sesame ${selectedTicket.appVersion}` : ''}{selectedTicket.diagnosticCode ? `${selectedTicket.appVersion ? ' · ' : ''}Diagnostic ${selectedTicket.diagnosticCode}` : ''}{selectedTicket.browserIntegration ? `${selectedTicket.appVersion || selectedTicket.diagnosticCode ? ' · ' : ''}Browser ${selectedTicket.browserIntegration}` : ''}{selectedTicket.requestId ? `${selectedTicket.appVersion || selectedTicket.diagnosticCode || selectedTicket.browserIntegration ? ' · ' : ''}Request ${selectedTicket.requestId}` : ''}</p>{/if}
               <div class="support-messages">
                 {#each selectedTicket.messages as item (item.id)}
@@ -214,7 +243,7 @@ import { siteOrigin } from '../lib/runtime-config'
                 {:else if selectedTicket.canReopen}<button class="button button-soft button-sm" type="button" disabled={lifecycleWorking} on:click={() => changeTicketLifecycle('reopen')}>{lifecycleWorking ? 'Updating...' : 'Reopen request'}</button>{/if}
               </div>
               {#if selectedTicket.status === 'closed'}
-                <p class="support-closed-note">This request is closed. You can reopen it for 30 days, then start a new request if the problem returned.</p>
+                <p class="support-closed-note">{selectedTicket.autoClosed ? 'This request closed automatically after 14 days without a reply. You can reopen it for 30 days, then start a new request if the problem returned.' : 'This request is closed. You can reopen it for 30 days, then start a new request if the problem returned.'}</p>
               {:else}
                 <form class="support-reply" on:submit|preventDefault={sendReply}>
                   <label>Add a follow-up<textarea bind:value={reply} required minlength="2" maxlength="4000" rows="4" aria-describedby="support-reply-safety"></textarea></label>
@@ -238,6 +267,7 @@ import { siteOrigin } from '../lib/runtime-config'
       <div class="support-receipt" role="status"><h2>Request {receipt}</h2><p>Added to the queue. {account ? 'The request is now in your support history. You can follow replies above.' : 'Keep this reference for any follow-up. Guest request contents are not exposed through the public website.'}</p><div class="support-receipt-actions">{#if account}<button class="button" type="button" on:click={() => selectTicket(receipt)}>View request</button>{/if}<button class="button button-soft" type="button" on:click={() => (receipt = '')}>Send another report</button></div></div>
     {:else}
       <div class="support-form-head"><div><p class="eyebrow">Contact</p><h2>Send a request</h2></div><span>No attachments</span></div>
+      <p class="support-response-expectation">We aim to reply within 3 business days.</p>
       <form class="support-form" on:submit|preventDefault={submit}>
         <label>Email<input type="email" bind:value={email} autocomplete="email" required maxlength="254" readonly={!!account} /></label>
         <label>Topic<select bind:value={category}>{#each SUPPORT_CATEGORIES as option (option.value)}<option value={option.value}>{option.label}</option>{/each}</select></label>
@@ -253,6 +283,7 @@ import { siteOrigin } from '../lib/runtime-config'
           </div>
         </details>
         <p id="support-safety" class:unsafe={secretSignal} class="support-safety">{secretSignal ? `This looks like ${secretSignal}. Remove it before sending.` : 'We check for common secret patterns before sending.'}</p>
+        <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink} <a href="/account#security">Change your reply email setting</a>.{/if}</p>
         {#if error}<p class="auth-error" role="alert">{error}</p>{/if}
         <button class="button" type="submit" disabled={sending || !!secretSignal}>{sending ? 'Sending…' : 'Send request'}</button>
       </form>

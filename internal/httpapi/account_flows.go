@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,10 @@ type EmailSender interface {
 	SendAccountEmail(context.Context, AccountEmail) error
 }
 
+type TransactionalEmailSender interface {
+	SendAccountEmailTx(context.Context, *sql.Tx, AccountEmail) error
+}
+
 type AccountEmail struct {
 	Kind             string
 	To               string
@@ -34,6 +39,7 @@ type AccountEmail struct {
 	Subject          string
 	Body             string
 	SupportMessageID string
+	Discard          bool
 }
 
 type tokenRequest struct {
@@ -112,7 +118,7 @@ func (a *api) requestEmailVerification(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusServiceUnavailable, "email_verification_unavailable", "Email verification is temporarily unavailable.")
 		return
 	}
-	if err := a.sendAccountEmail(request.Context(), "verify-email", user.Email, token, expiresAt); err != nil {
+	if err := a.sendAccountEmail(request.Context(), false, "verify-email", user.Email, token, expiresAt); err != nil {
 		writeError(response, http.StatusServiceUnavailable, "email_delivery_unavailable", "Account email is temporarily unavailable.")
 		return
 	}
@@ -135,7 +141,19 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusBadRequest, "invalid_verification", "That verification link is invalid or expired.")
 		return
 	}
-	user, err := store.VerifyEmail(request.Context(), accounts.HashSessionToken(input.Token), time.Now().UTC())
+	token, sessionHash, tokenErr := accounts.NewSessionToken()
+	now := time.Now().UTC()
+	if tokenErr != nil {
+		writeError(response, http.StatusServiceUnavailable, "email_verification_unavailable", "Email verification is temporarily unavailable.")
+		return
+	}
+	user, err := store.VerifyEmail(request.Context(), accounts.TokenSessionRotation{
+		TokenHash:        accounts.HashSessionToken(input.Token),
+		SessionTokenHash: sessionHash,
+		SessionExpiresAt: now.Add(a.config.SessionDuration),
+		SessionLabel:     browserLabel(request),
+		AuthenticatedAt:  now,
+	})
 	if errors.Is(err, accounts.ErrTokenExpired) {
 		writeError(response, http.StatusBadRequest, "verification_expired", "That verification link is invalid or expired.")
 		return
@@ -144,6 +162,7 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusServiceUnavailable, "email_verification_unavailable", "Email verification is temporarily unavailable.")
 		return
 	}
+	a.setSessionCookie(response, token)
 	writeJSON(response, http.StatusOK, map[string]any{"user": user})
 }
 
@@ -174,7 +193,7 @@ func (a *api) requestPasswordRecovery(response http.ResponseWriter, request *htt
 		response.WriteHeader(http.StatusAccepted)
 		return
 	}
-	if !a.identityWithinBudget(request, "password-recovery-peer", email+"\x00"+a.clientIP(request), recoveryPeerLimit, identityMailWindow) {
+	if !a.identityWithinBudget(request, "password-recovery-peer", email+"\x00"+a.clientLimitKey(request), recoveryPeerLimit, identityMailWindow) {
 		response.WriteHeader(http.StatusAccepted)
 		return
 	}
@@ -189,10 +208,8 @@ func (a *api) requestPasswordRecovery(response http.ResponseWriter, request *htt
 		writeError(response, http.StatusServiceUnavailable, "password_recovery_unavailable", "Password recovery is temporarily unavailable.")
 		return
 	}
-	if found {
-		// Delivery failures are deliberately not reflected: the response must not reveal whether the address has an account.
-		_ = a.sendAccountEmail(request.Context(), "recover-password", user.Email, token, expiresAt)
-	}
+	// Delivery failures are deliberately not reflected: the response must not reveal whether the address has an account.
+	_ = a.sendAccountEmail(request.Context(), !found, "recover-password", user.Email, token, expiresAt)
 	response.WriteHeader(http.StatusAccepted)
 }
 
@@ -313,7 +330,7 @@ func (a *api) requestEmailChange(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusServiceUnavailable, "email_change_unavailable", "Changing your email is temporarily unavailable.")
 		return
 	}
-	if err := a.sendAccountEmail(request.Context(), "change-email", newEmail, token, expiresAt); err != nil {
+	if err := a.sendAccountEmail(request.Context(), false, "change-email", newEmail, token, expiresAt); err != nil {
 		writeError(response, http.StatusServiceUnavailable, "email_delivery_unavailable", "Account email is temporarily unavailable.")
 		return
 	}
@@ -342,7 +359,7 @@ func (a *api) confirmEmailChange(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusServiceUnavailable, "email_change_unavailable", "Changing your email is temporarily unavailable.")
 		return
 	}
-	user, err := store.ConfirmEmailChangeAndRotateSession(request.Context(), accounts.TokenSessionRotation{
+	result, err := store.ConfirmEmailChangeAndRotateSession(request.Context(), accounts.TokenSessionRotation{
 		TokenHash: accounts.HashSessionToken(input.Token), SessionTokenHash: sessionHash,
 		SessionExpiresAt: now.Add(a.config.SessionDuration), SessionLabel: browserLabel(request), AuthenticatedAt: now,
 	})
@@ -359,9 +376,12 @@ func (a *api) confirmEmailChange(response http.ResponseWriter, request *http.Req
 		return
 	}
 	a.setSessionCookie(response, token)
-	a.recordAccountEvent(request.Context(), user.ID, "email_changed", "Sesame account", nil)
-	a.sendSecurityNotification(request.Context(), user, "security-email-changed", "Your Sesame account email changed", "The email address for your Sesame website account was changed. Other website sessions were revoked.")
-	writeJSON(response, http.StatusOK, map[string]any{"user": user, "otherSessionsRevoked": true})
+	a.recordAccountEvent(request.Context(), result.User.ID, "email_changed", "Sesame account", nil)
+	a.sendSecurityNotification(request.Context(), result.User, "security-email-changed", "Your Sesame account email changed", "The email address for your Sesame website account was changed. Other website sessions were revoked.")
+	if result.PreviousEmail != "" && result.PreviousEmail != result.User.Email {
+		a.sendSecurityEmail(request.Context(), result.PreviousEmail, "security-email-changed", "Your Sesame account email changed", "The email address for your Sesame website account was changed away from this address. Other website sessions were revoked. If you did not make this change, contact support.")
+	}
+	writeJSON(response, http.StatusOK, map[string]any{"user": result.User, "otherSessionsRevoked": true})
 }
 
 func (a *api) listAccountSessions(response http.ResponseWriter, request *http.Request) {
@@ -570,9 +590,10 @@ func (a *api) accountBootstrap(response http.ResponseWriter, request *http.Reque
 		}
 	}
 	payload := map[string]any{
-		"account":  user,
-		"access":   access,
-		"licences": access.Licences,
+		"account":           user,
+		"access":            access,
+		"licences":          access.Licences,
+		"deploymentProfile": a.config.DeploymentProfile,
 		"capabilities": map[string]bool{
 			"desktopLinking": desktopLinking,
 			"passkeys":       a.config.Passkeys != nil,
@@ -603,6 +624,9 @@ func (a *api) accountBootstrap(response http.ResponseWriter, request *http.Reque
 }
 
 func (a *api) accountDownloads(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	if !a.capabilityEnabled(request.Context(), "downloads_enabled") {
 		writeError(response, http.StatusServiceUnavailable, "downloads_disabled", "Verified private-beta downloads are temporarily unavailable.")
 		return
@@ -628,6 +652,9 @@ func (a *api) accountDownloads(response http.ResponseWriter, request *http.Reque
 }
 
 func (a *api) accountDownloadTickets(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	if !a.capabilityEnabled(request.Context(), "downloads_enabled") {
 		writeError(response, http.StatusServiceUnavailable, "downloads_disabled", "Verified private-beta downloads are temporarily unavailable.")
 		return
@@ -731,6 +758,9 @@ func distributableWindowsRelease(release accounts.DownloadRelease) bool {
 }
 
 func (a *api) redeemDownloadTicket(response http.ResponseWriter, request *http.Request) {
+	if !a.requireProjectArtifacts(response) {
+		return
+	}
 	if !a.requireAccounts(response) {
 		return
 	}
@@ -839,7 +869,7 @@ func (a *api) recentSessionForRequest(response http.ResponseWriter, request *htt
 	return user, session, tokenHash, true
 }
 
-func (a *api) sendAccountEmail(ctx context.Context, kind, email, token string, expiresAt time.Time) error {
+func (a *api) sendAccountEmail(ctx context.Context, discard bool, kind, email, token string, expiresAt time.Time) error {
 	if a.config.EmailSender == nil {
 		return errors.New("account email is not configured")
 	}
@@ -850,7 +880,7 @@ func (a *api) sendAccountEmail(ctx context.Context, kind, email, token string, e
 	}[kind]
 	// Token in the URL fragment: never sent in the request line, access logs, or Referer.
 	actionURL := strings.TrimSuffix(a.config.WebBaseURL, "/") + path + "#token=" + url.QueryEscape(token)
-	return a.config.EmailSender.SendAccountEmail(ctx, AccountEmail{Kind: kind, To: email, ActionURL: actionURL, ExpiresAt: expiresAt.UTC()})
+	return a.config.EmailSender.SendAccountEmail(ctx, AccountEmail{Kind: kind, To: email, ActionURL: actionURL, ExpiresAt: expiresAt.UTC(), Discard: discard})
 }
 
 func validActionToken(token string) bool {

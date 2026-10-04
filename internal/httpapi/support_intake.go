@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -22,12 +23,15 @@ type supportRequestInput struct {
 }
 
 var (
-	secretAssignmentPattern = regexp.MustCompile(`(?i)(password|passphrase|totp|otp|seed|secret|token|api[ _-]?key|backup[ _-]?code|recovery[ _-]?code|private[ _-]?key)\s*[:=]`)
+	secretAssignmentPattern = regexp.MustCompile(`(?i)((?:^|[^a-z])pin|password|passwd|pwd|passphrase|totp|otp|seed|secret|token|api[ _-]?key|backup[ _-]?code|recovery[ _-]?code|private[ _-]?key)\s*[:=：]`)
+	pinNumberPattern        = regexp.MustCompile(`(?i)\bpin\b[ \t]*(?:[:=：]|(?:is|was)[ \t]+)?[ \t]*\d{4,8}\b`)
 	longTokenPattern        = regexp.MustCompile(`(?:^|[^[:alnum:]_-])(?:[A-Fa-f0-9]{40,}|[A-Za-z0-9_-]{48,})(?:$|[^[:alnum:]_-])`)
 	diagnosticCodePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	recoveryKitPattern      = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]-])[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}){4}(?:$|[^[:alnum:]-])`)
 	base32SecretPattern     = regexp.MustCompile(`(?:^|[^[:alnum:]])[A-Z2-7]{16,}(?:$|[^[:alnum:]])`)
 	base32DigitPattern      = regexp.MustCompile(`[2-7]`)
+	base64SecretPattern     = regexp.MustCompile(`(?:^|[^A-Za-z0-9+/=_-])([A-Za-z0-9+/_-]{31,}={0,2})(?:$|[^A-Za-z0-9+/=_-])`)
+	seedPhrasePattern       = regexp.MustCompile(`(?i:\b(?:seed|mnemonic|recovery)\s+(?:phrase|words?)\b)[\s\S]{0,24}?(?:(?:[a-z]{3,8}[ \t]+){11,}[a-z]{3,8}|(?:[A-Z]{3,8}[ \t]+){11,}[A-Z]{3,8})`)
 	secretProsePattern      = regexp.MustCompile(`(?i)\b(?:master\s+)?(?:password|passphrase|recovery\s+kit|recovery\s+code|backup\s+code|totp|otp|2fa\s+code|seed|api\s+key|secret\s+key|private\s+key|access\s+token|session\s+token)s?\s+(?:is|was|are|were)\s+["']?([^\s"']{8,})`)
 )
 
@@ -78,7 +82,7 @@ func (a *api) createSupportRequest(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusBadRequest, "invalid_request_id", "The request ID format is invalid.")
 		return
 	}
-	if containsSecretShapedText(input.Subject + "\n" + input.Message) {
+	if containsSecretShapedText(input.Subject + "\n" + input.Message + "\n" + input.AppVersion) {
 		writeError(response, http.StatusBadRequest, "secret_shaped_content", "Remove passwords, codes, keys, tokens, and vault data before sending this request.")
 		return
 	}
@@ -91,6 +95,9 @@ func (a *api) createSupportRequest(response http.ResponseWriter, request *http.R
 			}
 		}
 	}
+	if a.config.EmailSender != nil && !a.allowIdentity(response, request, "support-receipt", email, 3, time.Hour) {
+		return
+	}
 	id, err := store.CreateSupportRequest(request.Context(), accounts.SupportRequest{
 		AccountID: accountID, Email: email, Subject: input.Subject, Message: input.Message, Category: input.Category,
 		AppVersion: input.AppVersion, DiagnosticCode: input.DiagnosticCode, BrowserIntegration: input.BrowserIntegration, RequestID: input.RequestID,
@@ -99,7 +106,59 @@ func (a *api) createSupportRequest(response http.ResponseWriter, request *http.R
 		writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support intake is temporarily unavailable.")
 		return
 	}
+	for _, message := range a.supportIntakeEmails(id, email, input.Category) {
+		if err := a.config.EmailSender.SendAccountEmail(request.Context(), message); err != nil {
+			slog.Error("Sesame support intake email could not be queued", "kind", message.Kind, "error", err)
+		}
+	}
 	writeJSON(response, http.StatusAccepted, map[string]any{"requestId": id, "status": "open"})
+}
+
+func (a *api) supportIntakeEmails(reference, email, category string) []AccountEmail {
+	if a.config.EmailSender == nil {
+		return nil
+	}
+	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour)
+	messages := []AccountEmail{{
+		Kind:      "support-receipt",
+		To:        email,
+		Subject:   "Sesame received your support request",
+		Body:      "Your support request reference is " + reference + ". Open the support portal for updates.",
+		ActionURL: strings.TrimRight(a.config.WebBaseURL, "/") + "/support",
+		ExpiresAt: expiresAt,
+	}}
+	if notice, ok := a.supportStaffNotice(reference, category); ok {
+		messages = append(messages, notice)
+	}
+	return messages
+}
+
+func (a *api) supportStaffNotice(reference, category string) (AccountEmail, bool) {
+	if a.config.SupportNotifyEmail == "" {
+		return AccountEmail{}, false
+	}
+	return AccountEmail{
+		Kind:      "support-staff-notify",
+		To:        a.config.SupportNotifyEmail,
+		Subject:   "New Sesame support request",
+		Body:      "Support request " + reference + " arrived in the " + category + " category.",
+		ActionURL: strings.TrimRight(a.config.AdminOrigin, "/"),
+		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+	}, true
+}
+
+func (a *api) supportStaffFollowUpNotice(reference, category string) (AccountEmail, bool) {
+	if a.config.SupportNotifyEmail == "" {
+		return AccountEmail{}, false
+	}
+	return AccountEmail{
+		Kind:      "support-staff-notify",
+		To:        a.config.SupportNotifyEmail,
+		Subject:   "A requester replied on a Sesame support request",
+		Body:      "Support request " + reference + " received a requester follow-up in the " + category + " category.",
+		ActionURL: strings.TrimRight(a.config.AdminOrigin, "/"),
+		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+	}, true
 }
 
 // A guard rail, not a guarantee: no filter can recognise every secret.
@@ -115,7 +174,7 @@ func containsSecretShapedText(value string) bool {
 			return true
 		}
 	}
-	if secretAssignmentPattern.MatchString(value) || longTokenPattern.MatchString(value) {
+	if secretAssignmentPattern.MatchString(value) || pinNumberPattern.MatchString(value) || longTokenPattern.MatchString(value) || seedPhrasePattern.MatchString(value) {
 		return true
 	}
 	if recoveryKitPattern.MatchString(value) {
@@ -126,12 +185,45 @@ func containsSecretShapedText(value string) bool {
 			return true
 		}
 	}
+	for _, match := range base64SecretPattern.FindAllStringSubmatchIndex(value, -1) {
+		if value[match[0]] == '.' {
+			continue
+		}
+		candidate := value[match[2]:match[3]]
+		if strings.HasPrefix(candidate, "/") {
+			continue
+		}
+		if base64ShapedValue(candidate) {
+			return true
+		}
+	}
 	for _, match := range secretProsePattern.FindAllStringSubmatch(value, -1) {
 		if secretShapedValue(match[1]) {
 			return true
 		}
 	}
 	return false
+}
+
+func base64ShapedValue(value string) bool {
+	if len(value) < 32 {
+		return false
+	}
+	if len(value) < 43 && !strings.ContainsAny(value, "+=") {
+		return false
+	}
+	hasDigit, hasUpper, hasLower := false, false, false
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		}
+	}
+	return hasDigit && hasUpper && hasLower
 }
 
 func secretShapedValue(value string) bool {

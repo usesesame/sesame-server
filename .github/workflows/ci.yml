@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
         env:
           POSTGRES_DB: sesame_test
           POSTGRES_USER: sesame
@@ -76,6 +76,8 @@ jobs:
       - run: npm ci
 
       - run: npm run ci
+
+      - run: npm test
 
       # `ci` stops at the type check, so without this a bundling failure would
       # first appear on the deployed server.
