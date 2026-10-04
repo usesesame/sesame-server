@@ -96,6 +96,7 @@ func TestRefreshRefusesMalformedResponses(t *testing.T) {
 		"zero last page":         {link: lastPageLink("0"), commitBody: `[{}]`, repoBody: `{"pushed_at":"2026-10-01T00:00:00Z"}`},
 		"oversized last page":    {link: lastPageLink("1000001"), commitBody: `[{}]`, repoBody: `{"pushed_at":"2026-10-01T00:00:00Z"}`},
 		"page size ignored":      {commitBody: `[{},{}]`, repoBody: `{"pushed_at":"2026-10-01T00:00:00Z"}`},
+		"next without last":      {link: `<https://api.example.invalid/commits?per_page=1&page=2>; rel="next"`, commitBody: `[{}]`, repoBody: `{"pushed_at":"2026-10-01T00:00:00Z"}`},
 		"commit list not a list": {commitBody: `{"message":"Not Found"}`, repoBody: `{"pushed_at":"2026-10-01T00:00:00Z"}`},
 		"no push time":           {commitBody: `[]`, repoBody: `{}`},
 		"unreadable repository":  {commitBody: `[]`, repoBody: `not json`},

@@ -23,7 +23,10 @@ const (
 	requestTimeout   = 10 * time.Second
 )
 
-var lastPagePattern = regexp.MustCompile(`<([^>]+)>;\s*rel="last"`)
+var (
+	lastPagePattern = regexp.MustCompile(`<([^>]+)>;\s*rel="last"`)
+	nextPagePattern = regexp.MustCompile(`<[^>]+>;\s*rel="next"`)
+)
 
 type Repository struct {
 	Name          string    `json:"name"`
@@ -149,8 +152,12 @@ func (t *Tracker) commitCount(ctx context.Context, name string, since time.Time)
 	if err := json.NewDecoder(io.LimitReader(response.Body, maxResponseBytes)).Decode(&commits); err != nil {
 		return 0, fmt.Errorf("%s: unreadable commit list: %w", name, err)
 	}
-	match := lastPagePattern.FindStringSubmatch(response.Header.Get("Link"))
+	link := response.Header.Get("Link")
+	match := lastPagePattern.FindStringSubmatch(link)
 	if match == nil {
+		if nextPagePattern.MatchString(link) {
+			return 0, fmt.Errorf("%s: commit list has more pages but no last page link", name)
+		}
 		if len(commits) > 1 {
 			return 0, fmt.Errorf("%s: commit list ignored the page size", name)
 		}
