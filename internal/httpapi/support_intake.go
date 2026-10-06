@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -108,7 +107,7 @@ func (a *api) createSupportRequest(response http.ResponseWriter, request *http.R
 	}
 	for _, message := range a.supportIntakeEmails(id, email, input.Category) {
 		if err := a.config.EmailSender.SendAccountEmail(request.Context(), message); err != nil {
-			slog.Error("Sesame support intake email could not be queued", "kind", message.Kind, "error", err)
+			requestLog(request.Context()).Error("Sesame support intake email could not be queued", "kind", message.Kind, "error", err)
 		}
 	}
 	writeJSON(response, http.StatusAccepted, map[string]any{"requestId": id, "status": "open"})

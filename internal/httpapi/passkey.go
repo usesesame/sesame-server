@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -181,7 +180,7 @@ func (a *api) passkeyLoginFinish(response http.ResponseWriter, request *http.Req
 	// Issuing a session while this write is unconfirmed would let a session
 	// through on state the server never actually saved.
 	if persistErr := persistPasskeyCredentialState(request.Context(), store, credential); persistErr != nil {
-		slog.Error("passkey credential state could not be persisted after a successful assertion",
+		requestLog(request.Context()).Error("passkey credential state could not be persisted after a successful assertion",
 			"error", persistErr)
 		writeError(response, http.StatusServiceUnavailable, "login_unavailable", "Sign in is temporarily unavailable.")
 		return

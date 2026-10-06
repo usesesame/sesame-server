@@ -3,7 +3,6 @@ package httpapi
 import (
 	"encoding/hex"
 	"errors"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -39,22 +38,22 @@ func (a *api) redeemSupportAccess(response http.ResponseWriter, request *http.Re
 	}
 	tokenHash, ok := supportAccessTokenHash(input.Token)
 	if !ok {
-		slog.Warn("Sesame support link rejected", "outcome", "invalid")
+		requestLog(request.Context()).Warn("Sesame support link rejected", "outcome", "invalid")
 		writeError(response, http.StatusBadRequest, "support_link_invalid", supportLinkInvalidMessage)
 		return
 	}
 	ticket, err := store.SupportTicketForAccessToken(request.Context(), tokenHash)
 	if errors.Is(err, accounts.ErrNotFound) {
-		slog.Warn("Sesame support link rejected", "outcome", "invalid")
+		requestLog(request.Context()).Warn("Sesame support link rejected", "outcome", "invalid")
 		writeError(response, http.StatusBadRequest, "support_link_invalid", supportLinkInvalidMessage)
 		return
 	}
 	if err != nil {
-		slog.Error("Sesame support link lookup failed", "error", err)
+		requestLog(request.Context()).Error("Sesame support link lookup failed", "error", err)
 		writeError(response, http.StatusServiceUnavailable, "support_access_unavailable", "Support links are temporarily unavailable.")
 		return
 	}
-	slog.Info("Sesame support link redeemed", "request", ticket.ID, "outcome", "opened")
+	requestLog(request.Context()).Info("Sesame support link redeemed", "request", ticket.ID, "outcome", "opened")
 	writeJSON(response, http.StatusOK, map[string]any{"ticket": ticket})
 }
 
@@ -75,7 +74,7 @@ func (a *api) replyToSupportAccess(response http.ResponseWriter, request *http.R
 	}
 	tokenHash, ok := supportAccessTokenHash(input.Token)
 	if !ok {
-		slog.Warn("Sesame support link rejected", "outcome", "invalid")
+		requestLog(request.Context()).Warn("Sesame support link rejected", "outcome", "invalid")
 		writeError(response, http.StatusBadRequest, "support_link_invalid", supportLinkInvalidMessage)
 		return
 	}
@@ -84,42 +83,42 @@ func (a *api) replyToSupportAccess(response http.ResponseWriter, request *http.R
 	}
 	resolved, err := store.SupportTicketForAccessToken(request.Context(), tokenHash)
 	if errors.Is(err, accounts.ErrNotFound) {
-		slog.Warn("Sesame support link rejected", "outcome", "invalid")
+		requestLog(request.Context()).Warn("Sesame support link rejected", "outcome", "invalid")
 		writeError(response, http.StatusBadRequest, "support_link_invalid", supportLinkInvalidMessage)
 		return
 	}
 	if err != nil {
-		slog.Error("Sesame support link lookup failed", "error", err)
+		requestLog(request.Context()).Error("Sesame support link lookup failed", "error", err)
 		writeError(response, http.StatusServiceUnavailable, "support_access_unavailable", "Support links are temporarily unavailable.")
 		return
 	}
 	message := strings.TrimSpace(input.Message)
 	if len(message) < 2 || len(message) > 4000 {
-		slog.Info("Sesame support link reply rejected", "request", resolved.ID, "outcome", "invalid_reply")
+		requestLog(request.Context()).Info("Sesame support link reply rejected", "request", resolved.ID, "outcome", "invalid_reply")
 		writeError(response, http.StatusBadRequest, "invalid_support_reply", "Write a reply between 2 and 4,000 characters.")
 		return
 	}
 	if containsSecretShapedText(message) {
-		slog.Info("Sesame support link reply rejected", "request", resolved.ID, "outcome", "secret_shaped")
+		requestLog(request.Context()).Info("Sesame support link reply rejected", "request", resolved.ID, "outcome", "secret_shaped")
 		writeError(response, http.StatusBadRequest, "secret_shaped_content", "Remove passwords, codes, keys, tokens, and vault data before sending this reply.")
 		return
 	}
 	ticket, err := store.ReplyToSupportTicketWithAccessToken(request.Context(), tokenHash, message)
 	if errors.Is(err, accounts.ErrNotFound) {
-		slog.Warn("Sesame support link rejected", "outcome", "invalid")
+		requestLog(request.Context()).Warn("Sesame support link rejected", "outcome", "invalid")
 		writeError(response, http.StatusBadRequest, "support_link_invalid", supportLinkInvalidMessage)
 		return
 	}
 	if err != nil {
-		slog.Error("Sesame support link reply failed", "request", resolved.ID, "error", err)
+		requestLog(request.Context()).Error("Sesame support link reply failed", "request", resolved.ID, "error", err)
 		writeError(response, http.StatusServiceUnavailable, "support_access_unavailable", "Support links are temporarily unavailable.")
 		return
 	}
-	slog.Info("Sesame support link replied", "request", ticket.ID, "outcome", "replied")
+	requestLog(request.Context()).Info("Sesame support link replied", "request", ticket.ID, "outcome", "replied")
 	if a.config.EmailSender != nil {
 		if notice, ok := a.supportStaffFollowUpNotice(ticket.ID, ticket.Category); ok {
 			if err := a.config.EmailSender.SendAccountEmail(request.Context(), notice); err != nil {
-				slog.Error("Sesame support follow-up notice could not be queued", "error", err)
+				requestLog(request.Context()).Error("Sesame support follow-up notice could not be queued", "error", err)
 			}
 		}
 	}
