@@ -374,6 +374,17 @@ test('the Sync fuzz targets run inside the ci script', () => {
   }
 })
 
+test('a scheduled workflow runs the Sync fuzz targets', () => {
+  const workflow = read('.github', 'workflows', 'sync-fuzz.yml')
+  assert.match(workflow, /schedule:\s*\n\s+- cron:/, 'the fuzz workflow has no schedule')
+  assert.match(workflow, /workflow_dispatch:/, 'the fuzz workflow cannot be started by hand')
+  assert.match(workflow, /npm run test:fuzz/, 'the fuzz workflow does not run the fuzz targets')
+  assert.match(workflow, /permissions:\s*\n\s+contents: read/, 'the fuzz workflow asks for more than read access')
+  for (const action of workflow.matchAll(/uses:\s*(\S+)/g)) {
+    assert.match(action[1], /@[0-9a-f]{40}$/, `${action[1]} is not pinned to a commit`)
+  }
+})
+
 test('only the development preview runs Sync maintenance, and it honours the flag', () => {
   const preview = read('cmd', 'api-sync-preview', 'main.go')
   assert.match(preview, /syncstore\.RunMaintenance\(/, 'the preview binary no longer purges expired challenges and revoked devices')
