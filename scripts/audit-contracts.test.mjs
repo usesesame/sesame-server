@@ -29,3 +29,71 @@ for (const job of ['server', 'account', 'admin']) {
     )
   })
 }
+
+const npmProjects = [
+  { path: '.', directory: '/' },
+  { path: 'web/account', directory: '/web/account' },
+  { path: 'web/admin', directory: '/web/admin' },
+]
+
+for (const { path } of npmProjects) {
+  const name = path === '.' ? 'the root package' : path
+  test(`${name} waits seven days for a new npm release`, () => {
+    const npmrc = readFileSync(join(root, path, '.npmrc'), 'utf8')
+    assert.match(
+      npmrc,
+      /^min-release-age=7$/m,
+      `${path}/.npmrc must set min-release-age=7, so npm ignores releases younger than a week`,
+    )
+  })
+}
+
+function dependabotEntries(body) {
+  const entries = []
+  let entry = null
+  for (const line of body.split('\n')) {
+    const ecosystem = line.match(/^ {2}- package-ecosystem: (.+)$/)
+    if (ecosystem) {
+      entry = { ecosystem: ecosystem[1].trim(), directory: null, cooldown: {} }
+      entries.push(entry)
+      continue
+    }
+    if (!entry) continue
+    const directory = line.match(/^ {4}directory: (.+)$/)
+    if (directory) entry.directory = directory[1].trim()
+    const cooldown = line.match(/^ {6}(default-days|semver-major-days): (\d+)$/)
+    if (cooldown) entry.cooldown[cooldown[1]] = Number(cooldown[2])
+  }
+  return entries
+}
+
+test('Dependabot waits seven days for npm and action releases, and fourteen for npm majors', () => {
+  const entries = dependabotEntries(
+    readFileSync(join(root, '.github', 'dependabot.yml'), 'utf8'),
+  )
+  for (const { directory } of npmProjects) {
+    const entry = entries.find(
+      (candidate) => candidate.ecosystem === 'npm' && candidate.directory === directory,
+    )
+    assert.ok(entry, `Dependabot has no npm entry for ${directory}`)
+    assert.equal(
+      entry.cooldown['default-days'],
+      7,
+      `the ${directory} npm entry must wait seven days`,
+    )
+    assert.equal(
+      entry.cooldown['semver-major-days'],
+      14,
+      `the ${directory} npm entry must wait fourteen days for a major version`,
+    )
+  }
+  const actions = entries.filter((entry) => entry.ecosystem === 'github-actions')
+  assert.ok(actions.length >= 1, 'Dependabot has no github-actions entry')
+  for (const entry of actions) {
+    assert.equal(
+      entry.cooldown['default-days'],
+      7,
+      `the ${entry.directory} github-actions entry must wait seven days`,
+    )
+  }
+})
