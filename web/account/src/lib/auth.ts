@@ -91,7 +91,7 @@ export type AccountBootstrap = {
     notifications: boolean
   }
   notificationCounts: { security: number; support: number; product: number }
-  security: { activeSessions: number; connectedDesktops: number; recentAuthenticationAt: string }
+  security: { activeSessions: number; connectedDesktops: number; recentAuthenticationAt: string; credentialSetupRequired: boolean }
 }
 
 export type AccountActivityEvent = {
@@ -184,12 +184,22 @@ export async function requestEmailVerification(): Promise<void> {
   if (!response.ok) throw await requestError(response)
 }
 
-export async function confirmEmailVerification(token: string): Promise<Account> {
+export type EmailVerification = { account: Account; credentialSetupRequired: boolean }
+
+export async function confirmEmailVerification(token: string): Promise<EmailVerification> {
   const response = await apiRequest(API_ROUTES.confirmEmailVerification, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
   })
   if (!response.ok) throw await requestError(response)
-  return (await response.json() as AuthResponse).user
+  const body = await response.json() as AuthResponse & { credentialSetupRequired?: boolean }
+  return { account: body.user, credentialSetupRequired: body.credentialSetupRequired === true }
+}
+
+export async function setupPassword(newPassword: string): Promise<void> {
+  const response = await apiRequest(API_ROUTES.passwordSetup, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ newPassword }),
+  })
+  if (!response.ok) throw await requestError(response)
 }
 
 export async function requestPasswordRecovery(email: string): Promise<void> {

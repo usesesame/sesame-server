@@ -46,7 +46,7 @@ func (a *api) regenerateDesktopLink(response http.ResponseWriter, request *http.
 		writeError(response, http.StatusUnsupportedMediaType, "request_body_not_supported", "Creating a desktop link does not accept a request body.")
 		return
 	}
-	user, _, _, ok := a.recentSessionForRequest(response, request)
+	user, session, _, ok := a.recentSessionForRequest(response, request)
 	if !ok {
 		return
 	}
@@ -65,7 +65,12 @@ func (a *api) regenerateDesktopLink(response http.ResponseWriter, request *http.
 		writeError(response, http.StatusServiceUnavailable, "desktop_link_unavailable", "Desktop linking is temporarily unavailable.")
 		return
 	}
-	link, err := manager.CreateOrReplaceDesktopLink(request.Context(), user.ID, codeHash, expiresAt)
+	link, err := manager.CreateOrReplaceDesktopLink(request.Context(), user.ID, session.SecurityGeneration, codeHash, expiresAt)
+	if errors.Is(err, accounts.ErrSecurityStateChanged) {
+		a.clearSessionCookie(response)
+		writeError(response, http.StatusUnauthorized, "session_expired", "Your session has expired. Sign in to continue.")
+		return
+	}
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, "desktop_link_unavailable", "Desktop linking is temporarily unavailable.")
 		return
