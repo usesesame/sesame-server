@@ -234,6 +234,30 @@ func TestPanickingHandlerIsLoggedAsAServerError(t *testing.T) {
 	}
 }
 
+func TestPanicAfterTheResponseStartedKeepsTheSentStatus(t *testing.T) {
+	logs := captureRequestLogs(t)
+	service := &api{routes: newRouteRegistry()}
+	mux := http.NewServeMux()
+	service.route(mux, routePolicy{audience: audiencePublicMetadata}, "GET /v1/late-panic", func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusAccepted)
+		panic("fictional failure after the status line")
+	})
+	service.finishRoutes(mux)
+	recorded := httptest.NewRecorder()
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("the middleware swallowed the panic")
+			}
+		}()
+		service.secureMux(mux).ServeHTTP(recorded, httptest.NewRequest(http.MethodGet, "/v1/late-panic", nil))
+	}()
+	lines := logs()
+	if recorded.Code != http.StatusAccepted || len(lines) != 1 || lines[0]["status"] != float64(http.StatusAccepted) {
+		t.Fatalf("response code = %d, log lines = %v, want the sent status 202 in one line", recorded.Code, lines)
+	}
+}
+
 func TestProbeRoutesLogBelowInfo(t *testing.T) {
 	logs := captureRequestLogs(t)
 	requestLogTestHandler().ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/readyz", nil))

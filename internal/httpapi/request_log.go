@@ -74,6 +74,10 @@ func (recorder *statusRecorder) Unwrap() http.ResponseWriter {
 	return recorder.ResponseWriter
 }
 
+func (recorder *statusRecorder) committed() bool {
+	return recorder.status != 0
+}
+
 func (recorder *statusRecorder) statusCode() int {
 	if recorder.status == 0 {
 		return http.StatusOK
