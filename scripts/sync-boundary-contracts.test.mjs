@@ -409,3 +409,59 @@ test('the revoked device purge never deletes a device that a stored envelope nam
     'the purge deletes devices without checking the envelopes that reference them, and the foreign key then fails the whole run',
   )
 })
+
+test('the Caddyfile logs access for the API origin', () => {
+  const caddyfile = read('deploy', 'caddy', 'Caddyfile.example')
+  const apiBlock = caddyfile.match(/api\.usesesame\.app \{([\s\S]*?)\n\}/)
+  assert.ok(apiBlock, 'the api.usesesame.app block is gone from the Caddyfile example')
+  assert.match(
+    apiBlock[1],
+    /^\s*log\b/m,
+    'the API origin has no access log directive, so Caddy records no client address and no 502 or 504 response',
+  )
+})
+
+test('the deployment guide says what to watch and alert on', () => {
+  const deployment = read('DEPLOYMENT.md')
+  const section = deployment.match(/## Watching a running deployment([\s\S]*?)\n## /)
+  assert.ok(section, 'DEPLOYMENT.md no longer has a section on watching a running deployment')
+  const guide = section[1]
+  assert.match(guide, /Sesame API request/, 'the guide no longer names the per-request log line')
+  for (const field of ['requestId', 'method', 'route', 'audience', 'status', 'durationMs']) {
+    assert.ok(
+      guide.includes(`\`${field}\``),
+      `the guide no longer names the ${field} field of the request line`,
+    )
+  }
+  for (const line of [
+    'purged delivered email outbox records',
+    'purged failed email outbox records',
+    'Sesame API could not purge expired security records',
+    'Sesame API could not purge delivered email outbox records',
+    'Sesame API could not purge failed email outbox records',
+  ]) {
+    assert.ok(
+      guide.includes(`\`${line}\``),
+      `the guide no longer names the maintenance line ${line}`,
+    )
+  }
+  assert.match(guide, /\/livez/, 'the guide no longer names the liveness endpoint')
+  assert.match(guide, /\/readyz/, 'the guide no longer names the readiness endpoint')
+  assert.match(guide, /Alert on/, 'the guide no longer says which lines to alert on')
+  assert.match(guide, /5xx rate/, 'the guide no longer names the proxy 5xx rate as an alert signal')
+  assert.match(
+    guide,
+    /status 500 or higher[\s\S]*?`requestId`[\s\S]*?rate over a window/,
+    'the guide no longer names the API 5xx rate as an alert signal',
+  )
+  assert.match(
+    guide,
+    /`\/readyz` probe that fails twice in a row/,
+    'the guide no longer names a failing readiness probe as an alert signal',
+  )
+  assert.match(
+    guide,
+    /Any maintenance warning above/,
+    'the guide no longer names the maintenance warnings as alert signals',
+  )
+})
