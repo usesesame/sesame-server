@@ -277,6 +277,7 @@ func New(config Config) http.Handler {
 	service.route(mux, web, "DELETE /v1/account/devices/{deviceID}", service.revokeAccountDevice)
 	service.route(mux, web, "PATCH /v1/account/devices/{deviceID}", service.renameAccountDevice)
 	service.route(mux, web, "POST /v1/account/password", service.changePassword)
+	service.route(mux, web, "POST /v1/account/password/setup", service.setupPassword)
 	service.route(mux, web, "POST /v1/account/delete", service.deleteAccount)
 	service.route(mux, web, "POST /v1/account/passkey/register/begin", service.passkeyRegisterBegin)
 	service.route(mux, web, "POST /v1/account/passkey/register/finish", service.passkeyRegisterFinish)

@@ -23,6 +23,7 @@ const auth = vi.hoisted(() => ({
   revokeDesktopDevice: vi.fn(),
   renameDesktopDevice: vi.fn(),
   revokeSession: vi.fn(),
+  setupPassword: vi.fn(),
   signOut: vi.fn(),
 }))
 
@@ -56,7 +57,7 @@ function bootstrap(overrides: Partial<AccountBootstrap> = {}): AccountBootstrap 
     licences: [],
     capabilities: { desktopLinking: true, passkeys: true, browserHelper: false, notifications: true },
     notificationCounts: { security: 0, support: 0, product: 0 },
-    security: { activeSessions: 1, connectedDesktops: 0, recentAuthenticationAt: '2026-08-31T10:00:00Z' },
+    security: { activeSessions: 1, connectedDesktops: 0, recentAuthenticationAt: '2026-08-31T10:00:00Z', credentialSetupRequired: false },
     ...overrides,
   }
 }
@@ -146,4 +147,26 @@ test('shows the signed-out state without an account', () => {
   render(AccountPage, { account: null, authState: { state: 'anonymous' }, onSignedOut: vi.fn() })
   expect(screen.getByText('You are signed out')).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Sign in' })).toBeTruthy()
+})
+
+test('asks an account without credentials to set a password and then hides the prompt', async () => {
+  mockAccess(bootstrap({ security: { activeSessions: 1, connectedDesktops: 0, recentAuthenticationAt: '2026-08-31T10:00:00Z', credentialSetupRequired: true } }))
+  auth.setupPassword.mockResolvedValue(undefined)
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+
+  expect(await screen.findByText('Set a password')).toBeTruthy()
+  await fireEvent.input(screen.getAllByLabelText(/new password/i)[0], { target: { value: 'fictional-first-password' } })
+  await fireEvent.input(screen.getByLabelText('Confirm new password'), { target: { value: 'fictional-first-password' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Set password' }))
+
+  expect(auth.setupPassword).toHaveBeenCalledWith('fictional-first-password')
+  expect(await screen.findByText('Password set.')).toBeTruthy()
+  expect(screen.queryByText('Set a password')).toBeNull()
+})
+
+test('does not ask for a password when the account already has credentials', async () => {
+  mockAccess()
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  expect(await screen.findByText('Signed in as')).toBeTruthy()
+  expect(screen.queryByText('Set a password')).toBeNull()
 })

@@ -36,6 +36,8 @@ var (
 	ErrSupportTicketClosed        = errors.New("support ticket is closed")
 	ErrSupportTicketReopenExpired = errors.New("support ticket can no longer be reopened")
 	ErrEmailUnverified            = errors.New("account email is not verified")
+	ErrSecurityStateChanged       = errors.New("account security state changed")
+	ErrPasswordAlreadySet         = errors.New("account already has a password")
 	ErrIdempotencyConflict        = errors.New("idempotency key does not match this request")
 	ErrDownloadTicketUsed         = errors.New("download ticket has already been redeemed")
 )
@@ -312,8 +314,14 @@ func (s *PostgresStore) CreateDesktopLink(ctx context.Context, accountID string,
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `INSERT INTO sesame_desktop_link_codes (id, code_hash, account_id, expires_at) VALUES ($1, $2, $3, $4)`, id, codeHash, accountID, expiresAt)
-	return err
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO sesame_desktop_link_codes (id, code_hash, account_id, expires_at, security_generation)
+		SELECT $1, $2, id, $4, security_generation FROM sesame_accounts WHERE id = $3
+	`, id, codeHash, accountID, expiresAt)
+	if err != nil {
+		return err
+	}
+	return affectedOrNotFound(result)
 }
 
 func (s *PostgresStore) RedeemDesktopLink(ctx context.Context, codeHash []byte, deviceName string, tokenHash []byte, expiresAt time.Time) (DesktopConnection, error) {
@@ -322,13 +330,29 @@ func (s *PostgresStore) RedeemDesktopLink(ctx context.Context, codeHash []byte, 
 		return DesktopConnection{}, err
 	}
 	defer tx.Rollback()
+	var candidateAccountID string
+	err = tx.QueryRowContext(ctx, `SELECT account_id FROM sesame_desktop_link_codes WHERE code_hash = $1`, codeHash).Scan(&candidateAccountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DesktopConnection{}, ErrNotFound
+	}
+	if err != nil {
+		return DesktopConnection{}, err
+	}
+	var generation int64
+	err = tx.QueryRowContext(ctx, `SELECT security_generation FROM sesame_accounts WHERE id = $1 FOR SHARE`, candidateAccountID).Scan(&generation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DesktopConnection{}, ErrNotFound
+	}
+	if err != nil {
+		return DesktopConnection{}, err
+	}
 	var accountID, linkID string
 	err = tx.QueryRowContext(ctx, `
 		UPDATE sesame_desktop_link_codes
 		SET used_at = NOW()
-		WHERE code_hash = $1 AND expires_at > NOW() AND used_at IS NULL AND cancelled_at IS NULL
+		WHERE code_hash = $1 AND expires_at > NOW() AND used_at IS NULL AND cancelled_at IS NULL AND security_generation = $2
 		RETURNING account_id, id
-	`, codeHash).Scan(&accountID, &linkID)
+	`, codeHash, generation).Scan(&accountID, &linkID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DesktopConnection{}, ErrNotFound
 	}

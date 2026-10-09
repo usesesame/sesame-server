@@ -246,6 +246,53 @@ func (a *api) changePassword(response http.ResponseWriter, request *http.Request
 	writeJSON(response, http.StatusOK, map[string]any{"user": user, "otherSessionsRevoked": true})
 }
 
+type passwordSetupRequest struct {
+	NewPassword string `json:"newPassword"`
+}
+
+func (a *api) setupPassword(response http.ResponseWriter, request *http.Request) {
+	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "password-setup") {
+		return
+	}
+	store, ok := a.accountSecurity(response)
+	if !ok {
+		return
+	}
+	user, _, _, ok := a.recentSessionForRequest(response, request)
+	if !ok {
+		return
+	}
+	var input passwordSetupRequest
+	if !decodeJSONBodyWith(response, request, &input, "invalid_request", "Password details could not be read.") {
+		return
+	}
+	if !validPassword(input.NewPassword) {
+		writeError(response, http.StatusBadRequest, "invalid_password", "Use a new password of 12 to 1024 characters.")
+		return
+	}
+	passwordHash, err := accounts.HashPassword(input.NewPassword)
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "password_setup_unavailable", "Setting your password is temporarily unavailable.")
+		return
+	}
+	err = store.EnrollPassword(request.Context(), user.ID, passwordHash)
+	if errors.Is(err, accounts.ErrEmailUnverified) {
+		writeError(response, http.StatusForbidden, "email_verification_required", "Verify your email address before setting a password.")
+		return
+	}
+	if errors.Is(err, accounts.ErrPasswordAlreadySet) {
+		writeError(response, http.StatusConflict, "password_already_set", "This account already has a password. Change it from the security settings.")
+		return
+	}
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "password_setup_unavailable", "Setting your password is temporarily unavailable.")
+		return
+	}
+	a.recordAccountEvent(request.Context(), user.ID, "password_set", browserLabel(request), nil)
+	a.sendSecurityNotification(request.Context(), user, "security-password-changed", "A password was set on your Sesame account", "A password was set on your Sesame website account.")
+	response.WriteHeader(http.StatusNoContent)
+}
+
 func (a *api) deleteAccount(response http.ResponseWriter, request *http.Request) {
 	if !a.requireAccounts(response) || !a.allowAuthAttempt(response, request, "delete") {
 		return

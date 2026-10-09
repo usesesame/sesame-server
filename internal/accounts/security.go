@@ -30,7 +30,9 @@ type AccountSecurityStore interface {
 	VerifyEmail(context.Context, TokenSessionRotation) (User, error)
 	CreatePasswordRecovery(context.Context, string, []byte, time.Time) (User, bool, error)
 	ResetPasswordAndRotateSession(context.Context, TokenPasswordRotation) (User, error)
-	CreateEmailChange(context.Context, string, string, []byte, time.Time) error
+	CreateEmailChange(context.Context, string, int64, string, []byte, time.Time) error
+	EnrollPassword(context.Context, string, string) error
+	CredentialSetupRequired(context.Context, string) (bool, error)
 	ConfirmEmailChangeAndRotateSession(context.Context, TokenSessionRotation) (EmailChangeResult, error)
 	AccountAccess(context.Context, string) (Access, error)
 	SignedDownloads(context.Context, string) ([]DownloadRelease, error)
@@ -72,6 +74,8 @@ type SessionInfo struct {
 	AuthenticatedAt time.Time `json:"authenticatedAt"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	Current         bool      `json:"current"`
+
+	SecurityGeneration int64 `json:"-"`
 }
 
 type PasswordRotation struct {
@@ -317,9 +321,9 @@ func (s *PostgresStore) SessionForToken(ctx context.Context, tokenHash []byte) (
 		FROM sesame_accounts AS account
 		WHERE session.token_hash = $1 AND session.expires_at > NOW() AND account.id = session.account_id
 			AND account.suspended_at IS NULL
-		RETURNING account.id, account.email, account.email_verified_at IS NOT NULL, account.beta_access,
+		RETURNING account.id, account.email, account.email_verified_at IS NOT NULL, account.beta_access, account.security_generation,
 			session.id, session.label, session.created_at, session.last_seen_at, session.authenticated_at, session.expires_at
-	`, tokenHash).Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess,
+	`, tokenHash).Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess, &session.SecurityGeneration,
 		&session.ID, &session.Label, &session.CreatedAt, &session.LastSeenAt, &session.AuthenticatedAt, &session.ExpiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, SessionInfo{}, ErrNotFound
@@ -370,6 +374,9 @@ func (s *PostgresStore) RevokeAllSessions(ctx context.Context, accountID string)
 		return err
 	}
 	defer tx.Rollback()
+	if err := invalidatePendingCapabilitiesTx(ctx, tx, accountID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
 		return err
 	}
@@ -377,6 +384,38 @@ func (s *PostgresStore) RevokeAllSessions(ctx context.Context, accountID string)
 		return err
 	}
 	return tx.Commit()
+}
+
+func invalidatePendingCapabilitiesTx(ctx context.Context, tx *sql.Tx, accountID string) error {
+	result, err := tx.ExecContext(ctx, `UPDATE sesame_accounts SET security_generation = security_generation + 1 WHERE id = $1`, accountID)
+	if err != nil {
+		return err
+	}
+	if err := affectedOrNotFound(result); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE sesame_desktop_link_codes SET cancelled_at = NOW()
+		WHERE account_id = $1 AND used_at IS NULL AND cancelled_at IS NULL
+	`, accountID); err != nil {
+		return err
+	}
+	return deletePendingAccountTokens(ctx, tx, accountID, TokenChangeEmail)
+}
+
+func lockSecurityGenerationTx(ctx context.Context, tx *sql.Tx, accountID string, expectedGeneration int64) error {
+	var generation int64
+	err := tx.QueryRowContext(ctx, `SELECT security_generation FROM sesame_accounts WHERE id = $1 FOR NO KEY UPDATE`, accountID).Scan(&generation)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if generation != expectedGeneration {
+		return ErrSecurityStateChanged
+	}
+	return nil
 }
 
 func deleteDesktopConnectionsTx(ctx context.Context, tx *sql.Tx, accountID string) error {
@@ -397,10 +436,10 @@ func (s *PostgresStore) ChangePasswordAndRotateSession(ctx context.Context, inpu
 	if err := affectedOrNotFound(result); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, input.AccountID); err != nil {
+	if err := invalidatePendingCapabilitiesTx(ctx, tx, input.AccountID); err != nil {
 		return err
 	}
-	if err := deletePendingAccountTokens(ctx, tx, input.AccountID, TokenChangeEmail); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, input.AccountID); err != nil {
 		return err
 	}
 	if err := deleteDesktopConnectionsTx(ctx, tx, input.AccountID); err != nil {
@@ -422,12 +461,15 @@ func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotat
 		return User{}, err
 	}
 	defer tx.Rollback()
-	accountID, _, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenVerifyEmail, input.AuthenticatedAt)
+	accountID, err := lockAccountForToken(ctx, tx, input.TokenHash, TokenVerifyEmail, input.AuthenticatedAt)
 	if err != nil {
 		return User{}, err
 	}
+	if _, _, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenVerifyEmail, input.AuthenticatedAt); err != nil {
+		return User{}, err
+	}
 	var wasVerified bool
-	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1`, accountID).Scan(&wasVerified); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1 FOR NO KEY UPDATE`, accountID).Scan(&wasVerified); err != nil {
 		return User{}, err
 	}
 	var user User
@@ -438,6 +480,11 @@ func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotat
 	`, accountID).Scan(&user.ID, &user.Email, &user.EmailVerified, &user.BetaAccess)
 	if err != nil {
 		return User{}, err
+	}
+	if !wasVerified {
+		if err := invalidatePendingCapabilitiesTx(ctx, tx, accountID); err != nil {
+			return User{}, err
+		}
 	}
 	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
 		return User{}, err
@@ -485,8 +532,11 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 		return User{}, err
 	}
 	defer tx.Rollback()
-	accountID, _, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenRecoverPassword, input.AuthenticatedAt)
+	accountID, err := lockAccountForToken(ctx, tx, input.TokenHash, TokenRecoverPassword, input.AuthenticatedAt)
 	if err != nil {
+		return User{}, err
+	}
+	if _, _, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenRecoverPassword, input.AuthenticatedAt); err != nil {
 		return User{}, err
 	}
 	var wasVerified bool
@@ -500,13 +550,13 @@ func (s *PostgresStore) ResetPasswordAndRotateSession(ctx context.Context, input
 	if err := affectedOrNotFound(result); err != nil {
 		return User{}, err
 	}
+	if err := invalidatePendingCapabilitiesTx(ctx, tx, accountID); err != nil {
+		return User{}, err
+	}
 	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
 		return User{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_desktop_connections WHERE account_id = $1`, accountID); err != nil {
-		return User{}, err
-	}
-	if err := deletePendingAccountTokens(ctx, tx, accountID, TokenChangeEmail); err != nil {
 		return User{}, err
 	}
 	if err := deleteDesktopConnectionsTx(ctx, tx, accountID); err != nil {
@@ -554,15 +604,39 @@ func revokePreVerificationCredentials(ctx context.Context, tx *sql.Tx, accountID
 	return nil
 }
 
-func (s *PostgresStore) CreateEmailChange(ctx context.Context, accountID, newEmail string, tokenHash []byte, expiresAt time.Time) error {
+func (s *PostgresStore) CreateEmailChange(ctx context.Context, accountID string, expectedGeneration int64, newEmail string, tokenHash []byte, expiresAt time.Time) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := lockSecurityGenerationTx(ctx, tx, accountID, expectedGeneration); err != nil {
+		return err
+	}
+	var verified bool
+	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1`, accountID).Scan(&verified); err != nil {
+		return err
+	}
+	if !verified {
+		return ErrEmailUnverified
+	}
 	var exists bool
-	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM sesame_accounts WHERE email = $1 AND id <> $2)`, newEmail, accountID).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM sesame_accounts WHERE email = $1 AND id <> $2)`, newEmail, accountID).Scan(&exists); err != nil {
 		return err
 	}
 	if exists {
 		return ErrEmailTaken
 	}
-	return s.replaceAccountToken(ctx, accountID, TokenChangeEmail, newEmail, tokenHash, expiresAt)
+	if err := deletePendingAccountTokens(ctx, tx, accountID, TokenChangeEmail); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO sesame_account_tokens (token_hash, account_id, purpose, payload, expires_at, security_generation)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, tokenHash, accountID, TokenChangeEmail, newEmail, expiresAt, expectedGeneration); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, input TokenSessionRotation) (EmailChangeResult, error) {
@@ -571,15 +645,33 @@ func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, 
 		return EmailChangeResult{}, err
 	}
 	defer tx.Rollback()
-	accountID, newEmail, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenChangeEmail, input.AuthenticatedAt)
+	accountID, err := lockAccountForToken(ctx, tx, input.TokenHash, TokenChangeEmail, input.AuthenticatedAt)
 	if err != nil {
 		return EmailChangeResult{}, err
 	}
 	var previousEmail string
-	if err := tx.QueryRowContext(ctx, `SELECT email FROM sesame_accounts WHERE id = $1 FOR UPDATE`, accountID).Scan(&previousEmail); err != nil {
+	var accountGeneration int64
+	var verified bool
+	if err := tx.QueryRowContext(ctx, `
+		SELECT email, security_generation, email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1
+	`, accountID).Scan(&previousEmail, &accountGeneration, &verified); err != nil {
+		return EmailChangeResult{}, err
+	}
+	var tokenGeneration int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT security_generation FROM sesame_account_tokens
+		WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > $3
+	`, input.TokenHash, TokenChangeEmail, input.AuthenticatedAt).Scan(&tokenGeneration); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return EmailChangeResult{}, ErrNotFound
+			return EmailChangeResult{}, ErrTokenExpired
 		}
+		return EmailChangeResult{}, err
+	}
+	if !verified || accountGeneration != tokenGeneration {
+		return EmailChangeResult{}, ErrTokenExpired
+	}
+	_, newEmail, err := consumeAccountToken(ctx, tx, input.TokenHash, TokenChangeEmail, input.AuthenticatedAt)
+	if err != nil {
 		return EmailChangeResult{}, err
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE sesame_accounts SET email = $2, email_verified_at = $3 WHERE id = $1`, accountID, newEmail, input.AuthenticatedAt)
@@ -587,6 +679,9 @@ func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, 
 		return EmailChangeResult{}, ErrEmailTaken
 	}
 	if err != nil {
+		return EmailChangeResult{}, err
+	}
+	if err := invalidatePendingCapabilitiesTx(ctx, tx, accountID); err != nil {
 		return EmailChangeResult{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM sesame_sessions WHERE account_id = $1`, accountID); err != nil {
@@ -606,6 +701,52 @@ func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, 
 		return EmailChangeResult{}, err
 	}
 	return EmailChangeResult{User: user, PreviousEmail: previousEmail}, nil
+}
+
+func (s *PostgresStore) EnrollPassword(ctx context.Context, accountID, passwordHash string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE sesame_accounts SET password_hash = $2
+		WHERE id = $1 AND password_hash = '' AND email_verified_at IS NOT NULL AND suspended_at IS NULL
+	`, accountID, passwordHash)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+	var verified bool
+	var hasPassword bool
+	err = s.db.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL, password_hash <> '' FROM sesame_accounts WHERE id = $1 AND suspended_at IS NULL`, accountID).Scan(&verified, &hasPassword)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if !verified {
+		return ErrEmailUnverified
+	}
+	if hasPassword {
+		return ErrPasswordAlreadySet
+	}
+	return ErrNotFound
+}
+
+func (s *PostgresStore) CredentialSetupRequired(ctx context.Context, accountID string) (bool, error) {
+	var required bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT account.email_verified_at IS NOT NULL AND account.password_hash = ''
+			AND NOT EXISTS (SELECT 1 FROM sesame_webauthn_credentials WHERE account_id = account.id)
+		FROM sesame_accounts AS account WHERE account.id = $1
+	`, accountID).Scan(&required)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	return required, err
 }
 
 func (s *PostgresStore) AccountAccess(ctx context.Context, accountID string) (Access, error) {
@@ -1242,6 +1383,29 @@ func (s *PostgresStore) replaceAccountToken(ctx context.Context, accountID, purp
 func deletePendingAccountTokens(ctx context.Context, tx *sql.Tx, accountID, purpose string) error {
 	_, err := tx.ExecContext(ctx, `DELETE FROM sesame_account_tokens WHERE account_id = $1 AND purpose = $2 AND used_at IS NULL`, accountID, purpose)
 	return err
+}
+
+func lockAccountForToken(ctx context.Context, tx *sql.Tx, tokenHash []byte, purpose string, now time.Time) (string, error) {
+	var accountID string
+	err := tx.QueryRowContext(ctx, `
+		SELECT account_id FROM sesame_account_tokens
+		WHERE token_hash = $1 AND purpose = $2 AND used_at IS NULL AND expires_at > $3
+	`, tokenHash, purpose, now).Scan(&accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrTokenExpired
+	}
+	if err != nil {
+		return "", err
+	}
+	var locked string
+	err = tx.QueryRowContext(ctx, `SELECT id FROM sesame_accounts WHERE id = $1 FOR NO KEY UPDATE`, accountID).Scan(&locked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrTokenExpired
+	}
+	if err != nil {
+		return "", err
+	}
+	return locked, nil
 }
 
 func consumeAccountToken(ctx context.Context, tx *sql.Tx, tokenHash []byte, purpose string, now time.Time) (string, string, error) {

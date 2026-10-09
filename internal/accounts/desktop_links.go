@@ -9,7 +9,7 @@ import (
 
 // Adds cancellable, regenerable link requests to the one-time redemption methods in DesktopStore.
 type DesktopLinkManager interface {
-	CreateOrReplaceDesktopLink(context.Context, string, []byte, time.Time) (DesktopLink, error)
+	CreateOrReplaceDesktopLink(context.Context, string, int64, []byte, time.Time) (DesktopLink, error)
 	DesktopLinkStatus(context.Context, string, time.Time) (DesktopLink, error)
 	CancelDesktopLink(context.Context, string) error
 }
@@ -25,12 +25,15 @@ type DesktopLink struct {
 	Device    *DesktopConnection `json:"device,omitempty"`
 }
 
-func (s *PostgresStore) CreateOrReplaceDesktopLink(ctx context.Context, accountID string, codeHash []byte, expiresAt time.Time) (DesktopLink, error) {
+func (s *PostgresStore) CreateOrReplaceDesktopLink(ctx context.Context, accountID string, expectedGeneration int64, codeHash []byte, expiresAt time.Time) (DesktopLink, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return DesktopLink{}, err
 	}
 	defer tx.Rollback()
+	if err := lockSecurityGenerationTx(ctx, tx, accountID, expectedGeneration); err != nil {
+		return DesktopLink{}, err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		UPDATE sesame_desktop_link_codes SET cancelled_at = NOW()
 		WHERE account_id = $1 AND used_at IS NULL AND cancelled_at IS NULL AND expires_at > NOW()
@@ -43,9 +46,9 @@ func (s *PostgresStore) CreateOrReplaceDesktopLink(ctx context.Context, accountI
 	}
 	now := time.Now().UTC()
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO sesame_desktop_link_codes (id, code_hash, account_id, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`, id, codeHash, accountID, now, expiresAt); err != nil {
+		INSERT INTO sesame_desktop_link_codes (id, code_hash, account_id, created_at, expires_at, security_generation)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, id, codeHash, accountID, now, expiresAt, expectedGeneration); err != nil {
 		return DesktopLink{}, err
 	}
 	if err := tx.Commit(); err != nil {

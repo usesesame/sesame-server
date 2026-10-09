@@ -34,6 +34,13 @@ func setAccountPassword(t *testing.T, env *supportTestEnv, accountID, password s
 	}
 }
 
+func markAccountVerified(t *testing.T, env *supportTestEnv, accountID string) {
+	t.Helper()
+	if _, err := env.db.ExecContext(context.Background(), `UPDATE sesame_accounts SET email_verified_at = NOW() WHERE id = $1`, accountID); err != nil {
+		t.Fatalf("verify account email: %v", err)
+	}
+}
+
 func outboxToken(t *testing.T, db *sql.DB, kind, to string) string {
 	t.Helper()
 	var actionURL string
@@ -80,6 +87,7 @@ func TestPasswordChangeInvalidatesPendingEmailChangeToken(t *testing.T) {
 	accountID, oldEmail, newEmail := accountTokenFixture(t)
 	session := env.seedAccount(t, accountID, oldEmail)
 	setAccountPassword(t, env, accountID, accountTokenTestPassword)
+	markAccountVerified(t, env, accountID)
 	changeToken := requestEmailChangeToken(t, handler, env, session, newEmail)
 
 	response := requestOn(t, handler, env, http.MethodPost, "/v1/account/password",
@@ -106,6 +114,7 @@ func TestPasswordResetInvalidatesPendingEmailChangeToken(t *testing.T) {
 	accountID, oldEmail, newEmail := accountTokenFixture(t)
 	session := env.seedAccount(t, accountID, oldEmail)
 	setAccountPassword(t, env, accountID, accountTokenTestPassword)
+	markAccountVerified(t, env, accountID)
 	changeToken := requestEmailChangeToken(t, handler, env, session, newEmail)
 
 	response := requestOn(t, handler, env, http.MethodPost, "/v1/auth/password/recovery/request",
@@ -137,6 +146,7 @@ func TestEmailChangeInvalidatesPendingRecoveryToken(t *testing.T) {
 	accountID, oldEmail, newEmail := accountTokenFixture(t)
 	session := env.seedAccount(t, accountID, oldEmail)
 	setAccountPassword(t, env, accountID, accountTokenTestPassword)
+	markAccountVerified(t, env, accountID)
 
 	response := requestOn(t, handler, env, http.MethodPost, "/v1/auth/password/recovery/request",
 		map[string]any{"email": oldEmail}, supportWebMutation())
