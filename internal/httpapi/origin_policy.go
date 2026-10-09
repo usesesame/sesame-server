@@ -258,7 +258,7 @@ func (a *api) secureMux(mux *http.ServeMux) http.Handler {
 		completed := false
 		defer func() {
 			status := recorder.statusCode()
-			if !completed {
+			if !completed && !recorder.committed() {
 				status = http.StatusInternalServerError
 			}
 			logRequest(request, loggedPattern, policy.audience, status, started)
