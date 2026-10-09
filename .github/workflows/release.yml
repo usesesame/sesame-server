@@ -120,21 +120,21 @@ jobs:
 
       - run: npm run compose:smoke
 
-      - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
         with:
           image: ${{ env.SESAME_API_IMAGE }}
           format: spdx-json
           output-file: api.spdx.json
           upload-artifact: false
 
-      - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
         with:
           image: ${{ env.SESAME_ACCOUNT_IMAGE }}
           format: spdx-json
           output-file: account.spdx.json
           upload-artifact: false
 
-      - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c
         with:
           image: ${{ env.SESAME_ADMIN_IMAGE }}
           format: spdx-json
