@@ -47,6 +47,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
       - run: npm run ci
 
       - run: npm run test:race
@@ -75,6 +78,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+
       - run: npm run ci
 
       - run: npm test
@@ -100,6 +106,9 @@ jobs:
           cache-dependency-path: web/admin/package-lock.json
 
       - run: npm ci
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
 
       - run: npm run ci
 
