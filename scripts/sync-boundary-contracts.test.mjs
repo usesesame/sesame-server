@@ -360,3 +360,52 @@ test('the cross-language signing fixture is asserted from Go', () => {
     'the Go fixture path must not escape the module, or the containerised build cannot see it',
   )
 })
+
+test('the Sync fuzz targets run inside the ci script', () => {
+  const scripts = JSON.parse(read('package.json')).scripts
+  assert.match(scripts.ci, /npm run test:fuzz/, 'ci no longer runs the Sync fuzz targets')
+  const fuzzTargets = [...read('internal', 'syncproto', 'fuzz_test.go').matchAll(/^func (Fuzz\w+)\(/gm)].map((match) => match[1])
+  assert.ok(fuzzTargets.length >= 4, 'the Sync fuzz targets are gone')
+  for (const target of fuzzTargets) {
+    assert.ok(
+      scripts['test:fuzz'].includes(`-fuzz ${target} `),
+      `test:fuzz does not run ${target}, so ci never explores it`,
+    )
+  }
+})
+
+test('a scheduled workflow runs the Sync fuzz targets', () => {
+  const workflow = read('.github', 'workflows', 'sync-fuzz.yml')
+  assert.match(workflow, /schedule:\s*\n\s+- cron:/, 'the fuzz workflow has no schedule')
+  assert.match(workflow, /workflow_dispatch:/, 'the fuzz workflow cannot be started by hand')
+  assert.match(workflow, /npm run test:fuzz/, 'the fuzz workflow does not run the fuzz targets')
+  assert.match(workflow, /permissions:\s*\n\s+contents: read/, 'the fuzz workflow asks for more than read access')
+  for (const action of workflow.matchAll(/uses:\s*(\S+)/g)) {
+    assert.match(action[1], /@[0-9a-f]{40}$/, `${action[1]} is not pinned to a commit`)
+  }
+})
+
+test('only the development preview runs Sync maintenance, and it honours the flag', () => {
+  const preview = read('cmd', 'api-sync-preview', 'main.go')
+  assert.match(preview, /syncstore\.RunMaintenance\(/, 'the preview binary no longer purges expired challenges and revoked devices')
+  assert.match(
+    preview,
+    /maintenance\.Enabled = func[\s\S]*?cloud_sync_available[\s\S]*?err == nil && value == "true"/,
+    'Sync maintenance must fail closed unless the cloud_sync_available flag reads true',
+  )
+  for (const file of sourceFiles('cmd', /\.go$/)) {
+    if (file.split(sep).join('/') === 'cmd/api-sync-preview/main.go') continue
+    assert.doesNotMatch(read(file), /syncstore\./, `${file} uses the Sync store outside the development preview`)
+  }
+})
+
+test('the revoked device purge never deletes a device that a stored envelope names', () => {
+  const store = read('internal', 'syncstore', 'store.go')
+  const purge = store.match(/func \(s \*Store\) PurgeRevokedDevices\([\s\S]*?\n\}\n/)
+  assert.ok(purge, 'PurgeRevokedDevices is gone')
+  assert.match(
+    purge[0],
+    /NOT EXISTS \(SELECT 1 FROM sesame_sync_envelopes e WHERE e\.device_id = d\.id\)/,
+    'the purge deletes devices without checking the envelopes that reference them, and the foreign key then fails the whole run',
+  )
+})
