@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"mime"
 	"net/http"
 	"time"
@@ -168,7 +167,7 @@ func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
 	if err != nil {
 		// The response stays identical so it reveals nothing about whether the email exists.
 		if !errors.Is(err, adminstore.ErrNotFound) {
-			slog.Warn("admin sign-in could not read the account",
+			requestLog(request.Context()).Warn("admin sign-in could not read the account",
 				"reason", "the stored MFA secret did not decrypt, or the admin database is unreachable",
 				"error", err)
 		}
@@ -215,7 +214,7 @@ func (a *api) adminSetupBegin(response http.ResponseWriter, request *http.Reques
 	if err != nil {
 		// A fresh link reporting itself expired means the encryption key does not match.
 		if errors.Is(err, adminstore.ErrSecretUnreadable) {
-			slog.Warn("admin setup link could not be opened",
+			requestLog(request.Context()).Warn("admin setup link could not be opened",
 				"reason", "SESAME_ADMIN_ENCRYPTION_KEY does not match the stored MFA secret")
 		}
 		writeError(response, http.StatusBadRequest, "admin_setup_expired", "That admin setup link is invalid or expired.")

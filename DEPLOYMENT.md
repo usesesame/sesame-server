@@ -393,6 +393,63 @@ Restore one backup at least quarterly: decrypt it with the identity, load it
 into a scratch database, and check the schema version and a known account row.
 Record the date and the result. A drill that has not run is not a pass.
 
+## Watching a running deployment
+
+The API writes one line per request to its container log:
+
+```bash
+docker compose -f deploy/compose/compose.prod.yaml \
+  --env-file deploy/compose/.env.production logs -f api
+```
+
+Caddy writes one access line per request to `api.usesesame.app` into the
+journal, where the Caddy service log lives:
+
+```bash
+journalctl -u caddy -f
+```
+
+Every request the API answers logs `Sesame API request` with `requestId`,
+`method`, `route`, `audience`, `status`, and `durationMs`. `route` is the
+registered pattern, so a support request logs as
+`/v1/account/support/{ticketID}` and never carries the ticket id. `audience` is
+`public`, `website`, `admin`, `desktop`, or `release`, and `unknown` for a
+request that matched no route. The response `X-Request-ID` header carries the
+same id as the line, and any handler error line for that request carries it
+too. The line is INFO, except a response with status 500 or higher, which is
+ERROR, and the `/livez`, `/readyz`, and `/healthz` probes, which are DEBUG.
+
+The hourly maintenance run logs `purged delivered email outbox records` and
+`purged failed email outbox records` with a `count` field only when it removed
+rows. A failed purge logs a warning instead:
+`Sesame API could not purge expired security records`,
+`Sesame API could not purge delivered email outbox records`, or
+`Sesame API could not purge failed email outbox records`. The counters are
+normal; the warnings are not. The Sync purge lines,
+`purged Sesame Sync enrollment challenges` and
+`purged revoked Sesame Sync devices`, appear only in the development preview,
+which is not deployed here.
+
+`GET /livez` answers 200 while the process runs. `GET /readyz`, and its
+deprecated alias `GET /healthz`, answer 200 only while the database answers,
+and 503 with `status` `not_ready` and `accounts` `unavailable` when it does
+not.
+
+Alert on:
+
+- The 5xx rate at `api.usesesame.app` from the Caddy access log. It covers the
+  502 and 504 responses Caddy sends when the API is down, which the API cannot
+  log itself.
+- `Sesame API request` lines with status 500 or higher, to name the route and
+  the `requestId` behind that rate. One failed request is not an incident;
+  alert on the rate over a window.
+- A `/readyz` probe that fails twice in a row. `/livez` stays green while the
+  database is unreachable.
+- Any maintenance warning above.
+
+Do not alert on the DEBUG probe lines, on 4xx statuses, or on `route=unmatched`.
+Those are normal.
+
 ## Operating notes
 
 - **Email action links are sealed, never stored in plaintext.** The API seals

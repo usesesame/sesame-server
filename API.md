@@ -19,7 +19,10 @@ SameSite=Strict. Those origin and CSRF checks are what protect unsafe requests.
 Only account auth routes accept passwords, and those values are never logged.
 JSON decoders reject unknown fields. Every response carries an `X-Request-ID`,
 which support may be given, but it must never be combined with secrets or
-email-action links.
+email-action links. The server keeps an incoming `X-Request-ID` that is 16 to 64
+letters, digits, hyphens or underscores and replaces any other value with a
+generated one. It writes the ID to the request log line and to the error log
+lines of that request.
 
 Credential routes are budgeted twice: first by the client address the request
 arrives from, then by the identity it targets. An address-keyed budget on its
@@ -441,6 +444,15 @@ attach, or a newer link.
 `403 sync_unavailable` while the `cloud_sync_available` runtime flag is false,
 which it is, and `Config.Sync` is left unset in `cmd/api/main.go`, so enabling
 Sync requires a code change as well as a flag change.
+
+The development-only `cmd/api-sync-preview` binary also runs a maintenance job.
+It removes expired and used enrollment challenges and revoked devices older than
+the retention period, and it never removes a device that a stored envelope still
+names. It runs once at start and then every `SESAME_SYNC_MAINTENANCE_INTERVAL`,
+which defaults to `1h` and must be between `1m` and `24h`.
+`SESAME_SYNC_REVOKED_DEVICE_RETENTION` sets the retention, which defaults to
+`2160h` and must be at least `24h`. The job does nothing while the
+`cloud_sync_available` flag is false.
 
 The routes are listed here so the contract is reviewable, not because they are
 usable:

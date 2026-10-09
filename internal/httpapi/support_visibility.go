@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"log/slog"
 
 	adminstore "usesesame.app/backend/internal/admin"
 )
@@ -41,7 +40,7 @@ func (a *api) supportUnqueuedReason(ctx context.Context, accountID string) strin
 	}
 	enabled, err := a.supportReplyEmailEnabled(ctx, accountID)
 	if err != nil {
-		slog.Error("Sesame support delivery reason lookup failed", "error", err)
+		requestLog(ctx).Error("Sesame support delivery reason lookup failed", "error", err)
 		return "not-queued"
 	}
 	if !enabled {

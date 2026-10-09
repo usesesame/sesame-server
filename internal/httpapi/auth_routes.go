@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -281,7 +280,7 @@ func (a *api) recordAccountEvent(ctx context.Context, accountID, eventType, labe
 		return
 	}
 	if err := store.RecordAccountEvent(ctx, accounts.AccountEvent{AccountID: accountID, Type: eventType, Label: label, Metadata: metadata}); err != nil {
-		slog.Warn("Sesame account event could not be recorded", "event", eventType)
+		requestLog(ctx).Warn("Sesame account event could not be recorded", "event", eventType)
 	}
 }
 
@@ -298,6 +297,6 @@ func (a *api) sendSecurityEmail(ctx context.Context, to, kind, subject, body str
 		Kind: kind, To: to, Subject: subject, Body: body,
 		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
 	}); err != nil {
-		slog.Warn("Sesame security notification could not be sent", "kind", kind)
+		requestLog(ctx).Warn("Sesame security notification could not be sent", "kind", kind)
 	}
 }
