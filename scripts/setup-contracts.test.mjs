@@ -137,3 +137,80 @@ test('an interrupted setup leaves the previous secrets in place', async () => {
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+async function runSetupIn(directory, existing) {
+  await mkdir(join(directory, 'scripts'), { recursive: true })
+  await copyFile(join(root, 'scripts', 'setup.mjs'), join(directory, 'scripts', 'setup.mjs'))
+  await copyFile(join(root, 'scripts', 'setup-lib.mjs'), join(directory, 'scripts', 'setup-lib.mjs'))
+  const envPath = join(directory, 'deploy', 'compose', '.env')
+  if (existing !== undefined) {
+    await mkdir(join(directory, 'deploy', 'compose'), { recursive: true })
+    await writeFile(envPath, existing, { mode: 0o600 })
+  }
+  const result = spawnSync('node', [join(directory, 'scripts', 'setup.mjs')], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  return parseEnvText(await readFile(envPath, 'utf8'))
+}
+
+test('setup writes cookie flags that match the origin scheme and keeps explicit values', async () => {
+  const fresh = await mkdtemp(join(tmpdir(), 'sesame-setup-cookies-'))
+  const secure = await mkdtemp(join(tmpdir(), 'sesame-setup-cookies-'))
+  const explicit = await mkdtemp(join(tmpdir(), 'sesame-setup-cookies-'))
+  try {
+    const local = await runSetupIn(fresh)
+    assert.equal(local.get('SESAME_SESSION_SECURE'), 'false')
+    assert.equal(local.get('SESAME_ADMIN_SESSION_SECURE'), 'false')
+
+    const behindTLS = await runSetupIn(secure, 'SESAME_ACCOUNT_ORIGIN=https://account.example.invalid\nSESAME_ADMIN_ORIGIN=https://admin.example.invalid\n')
+    assert.equal(behindTLS.get('SESAME_SESSION_SECURE'), 'true')
+    assert.equal(behindTLS.get('SESAME_ADMIN_SESSION_SECURE'), 'true')
+
+    const kept = await runSetupIn(explicit, 'SESAME_ACCOUNT_ORIGIN=https://account.example.invalid\nSESAME_SESSION_SECURE=false\n')
+    assert.equal(kept.get('SESAME_SESSION_SECURE'), 'false')
+  } finally {
+    await Promise.all([fresh, secure, explicit].map((directory) => rm(directory, { recursive: true, force: true })))
+  }
+})
+
+test('the native dev API takes its cookie flags from the compose env file and lets the shell override them', async () => {
+  const { developmentApiEnvironment } = await import('./setup-lib.mjs')
+  assert.equal(typeof developmentApiEnvironment, 'function')
+  const fromFile = developmentApiEnvironment({}, new Map([
+    ['SESAME_SESSION_SECURE', 'true'],
+    ['SESAME_ADMIN_SESSION_SECURE', 'true'],
+    ['SESAME_ACCOUNT_ORIGIN', 'https://account.example.invalid'],
+  ]))
+  assert.equal(fromFile.SESAME_SESSION_SECURE, 'true')
+  assert.equal(fromFile.SESAME_ADMIN_SESSION_SECURE, 'true')
+  assert.equal(fromFile.SESAME_WEB_ORIGIN, 'https://account.example.invalid')
+  const overridden = developmentApiEnvironment({ SESAME_SESSION_SECURE: 'false' }, new Map([['SESAME_SESSION_SECURE', 'true']]))
+  assert.equal(overridden.SESAME_SESSION_SECURE, 'false')
+  const defaults = developmentApiEnvironment({}, new Map())
+  assert.equal(defaults.SESAME_SESSION_SECURE, 'false')
+  assert.equal(defaults.SESAME_ADMIN_SESSION_SECURE, 'false')
+  assert.equal(defaults.SESAME_API_ADDR, '127.0.0.1:8787')
+})
+
+test('every npm script and script file the stack names exists', async () => {
+  const { readdirSync } = await import('node:fs')
+  const scripts = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).scripts
+  const files = ['README.md', 'DEPLOYMENT.md', '.env.example']
+  for (const directory of [join('deploy', 'compose'), join('deploy', 'caddy')]) {
+    for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
+      if (entry.isFile()) files.push(join(directory, entry.name))
+    }
+  }
+  for (const entry of readdirSync(join(root, 'scripts'))) {
+    if (entry.endsWith('.mjs') && !entry.endsWith('.test.mjs')) files.push(join('scripts', entry))
+  }
+  assert.ok(files.length > 15)
+  for (const file of files) {
+    const text = readFileSync(join(root, file), 'utf8')
+    for (const match of text.matchAll(/npm run ([A-Za-z0-9:_-]+)/g)) {
+      assert.ok(scripts[match[1]], `${file} names npm run ${match[1]}, which package.json does not define`)
+    }
+    for (const match of text.matchAll(/scripts\/([A-Za-z0-9._-]+\.mjs)/g)) {
+      assert.ok(existsSync(join(root, 'scripts', match[1])), `${file} names scripts/${match[1]}, which does not exist`)
+    }
+  }
+})
