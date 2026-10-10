@@ -12,6 +12,10 @@ same steps with their own domain.
 | `api.usesesame.app` | Go API container on `127.0.0.1:8787` | this repository |
 | `account.usesesame.app` | nginx container on `127.0.0.1:4175` | `web/account` |
 | `admin.usesesame.app` | nginx container on `127.0.0.1:4174` | `web/admin` |
+| `downloads.usesesame.app` | artifact gateway container on `127.0.0.1:8791` | this repository |
+
+The first four rows are the origins the product expects. The downloads row
+only serves release files the API has signed a short-lived URL for.
 
 Keep the four origins separate. They are a security boundary. The API accepts
 credentialed browser traffic only from the exact account origin, and it
@@ -28,7 +32,9 @@ to loopback.
 - A Debian host with Docker Engine, the Compose plugin, and Caddy.
 - DNS A and AAAA records for `usesesame.app`, `www`, `api`, `account`, and
   `admin`, all pointing at the host. Caddy cannot issue certificates until
-  these resolve.
+  these resolve. The Caddyfile example also has blocks for `downloads` and
+  `mail`. Point those names at the host too, or delete the blocks you do not
+  use.
 - An SMTP relay that supports STARTTLS, at a provider or on this host.
   Without working mail there is no email verification, no password recovery,
   and no email change.
@@ -96,6 +102,31 @@ These values matter most. The comments in the example explain them as well.
   mail only from the pinned Compose network. A relay on this host is reached
   by its certificate name when `SESAME_SMTP_HOST_GATEWAY` names it. Never
   point the address at a relay operated for another deployment.
+
+These settings are optional or have a default:
+
+- `SESAME_DEPLOYMENT_PROFILE` is `operator` unless you set it. Set it to
+  `project` only for Sesame's own deployment, which adds the release, plan,
+  and download routes described in `API.md`. Any other value stops the API.
+- `SESAME_RELEASE_CANDIDATE_PUBLIC_KEY`, `SESAME_RELEASE_CANDIDATE_KEY_ID`,
+  and `SESAME_RELEASE_CANDIDATE_TOKEN` open `POST /v1/release-candidates` for
+  the desktop repository's CI. The route exists only under the `project`
+  profile. Leave them empty to keep it closed.
+- `SESAME_SMTP_FROM`, `SESAME_SMTP_USERNAME`, and `SESAME_SMTP_PASSWORD`
+  belong to the relay named by `SESAME_SMTP_ADDR`.
+  `SESAME_SUPPORT_NOTIFY_EMAIL` receives a short notice for each new support
+  request.
+- `SESAME_REGISTRATION_MODE` is `closed`, `invite`, or `public`, and
+  `SESAME_RP_NAME` is the name a passkey prompt shows.
+- The production file sets `SESAME_SESSION_SECURE` and
+  `SESAME_ADMIN_SESSION_SECURE` to `true`, and no variable turns them off.
+  `deploy/compose/compose.yaml` reads both from `deploy/compose/.env`.
+- The production file does not pass `SESAME_SESSION_DOMAIN`,
+  `SESAME_ADMIN_SESSION_DOMAIN`, `SESAME_CAPABILITY_KEY_ID`,
+  `SESAME_MINIMUM_DESKTOP_VERSION`, or `SESAME_LATEST_DESKTOP_VERSION`. The
+  API therefore uses host-only cookies, the key id `capability-v1`, and
+  desktop version `0.1.0` for both bounds. Add a variable to the `api`
+  service in `compose.prod.yaml` if you need another value.
 
 Set `SESAME_BACKUP_AGE_RECIPIENTS` to one or more age public recipients,
 separated by commas. Generate the identity with `age-keygen` on a device that
@@ -168,11 +199,27 @@ defect, which is why an absent one fails the build.
 ## 4. Put the proxy in front
 
 ```bash
+sudo systemctl edit caddy
+```
+
+In the editor, give Caddy the address it registers with the certificate
+authority, then save:
+
+```ini
+[Service]
+Environment=SESAME_ACME_EMAIL=you@example.com
+```
+
+Then install the Caddyfile and reload:
+
+```bash
 sudo cp deploy/caddy/Caddyfile.example /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
-Caddy issues and renews certificates for all four names on its own.
+The Caddyfile example reads the address from `SESAME_ACME_EMAIL` and holds no
+mailbox of its own. Caddy issues and renews certificates for every name in the
+file on its own.
 
 Keep the website's headers in the Caddyfile in step with `public/_headers`
 in the website repository, including the inline script hash in its CSP.
@@ -308,6 +355,14 @@ checkout left plaintext env copies under `deploy/state/history/`, delete that
 directory; nothing reads it, and it holds every secret from that deployment.
 
 ## Upgrading an existing stack
+
+An earlier `compose.prod.yaml` set `SESAME_DEPLOYMENT_PROFILE` to `project` by
+itself. It now reads the variable and defaults to `operator`. A deployment that
+serves Sesame's release, plan, and download routes must add
+`SESAME_DEPLOYMENT_PROFILE=project` to `.env.production` before its next
+deploy, because the deploy tool rewrites only the three image lines. Without
+the line the API runs as `operator` and answers `404` on the release
+administration routes and `503` on the download routes.
 
 An existing `.env.production` keeps its own values. The deploy tool rewrites
 only the three image lines, so nothing narrows a wide

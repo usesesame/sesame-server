@@ -9,6 +9,7 @@
 node_modules/
 dist/
 .vite/
+!/internal/selfhost/console/dist/
 
 # Go build and coverage output. scripts/run-go.mjs defaults GOCACHE into the
 # repository so a build does not depend on the machine's shared cache.

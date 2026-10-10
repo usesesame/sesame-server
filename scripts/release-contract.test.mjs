@@ -92,9 +92,9 @@ test('gates publication and pins release actions', () => {
 })
 
 test('pins release container inputs', () => {
-  for (const file of ['../Dockerfile', '../web/account/Dockerfile', '../web/admin/Dockerfile']) {
+  for (const file of ['../Dockerfile', '../Dockerfile.selfhost', '../web/account/Dockerfile', '../web/admin/Dockerfile']) {
     const dockerfile = readFileSync(new URL(file, import.meta.url), 'utf8')
-    const bases = [...dockerfile.matchAll(/^FROM ([^\s]+)(?: AS \w+)?$/gm)].map(match => match[1])
+    const bases = [...dockerfile.matchAll(/^FROM (?:--platform=\S+ )?([^\s]+)(?: AS \w+)?$/gm)].map(match => match[1])
     assert.ok(bases.length > 0)
     for (const base of bases) assert.match(base, /@sha256:[0-9a-f]{64}$/)
   }
@@ -102,4 +102,27 @@ test('pins release container inputs', () => {
     const config = readFileSync(new URL(file, import.meta.url), 'utf8')
     assert.match(config, /image: postgres:18-alpine@sha256:[0-9a-f]{64}/)
   }
+})
+
+test('publishes the self-host image for two platforms only after verification and a container check', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8')
+  const start = workflow.indexOf('\n  selfhost:\n')
+  assert.ok(start > 0, 'the release workflow has no selfhost job')
+  const job = workflow.slice(start)
+  assert.match(job, /needs: verify\n/)
+  assert.match(job, /environment: server-release/)
+  assert.match(job, /build linux\/amd64 /)
+  assert.match(job, /build linux\/arm64 /)
+  const gates = ['npm run release:check', 'npm run selfhost:smoke']
+  for (const gate of gates) {
+    const position = workflow.indexOf(gate)
+    assert.ok(position > 0 && position < start, `${gate} must run in the verify job`)
+  }
+  const check = job.indexOf('Check the images before they are published')
+  const login = job.indexOf('docker/login-action')
+  const push = job.indexOf('docker push "$SELFHOST_AMD64_IMAGE"')
+  assert.ok(check > 0 && check < login && login < push, 'the images must be checked before login and push')
+  assert.equal(job.match(/uses: actions\/attest@/g)?.length, 3)
+  assert.equal(job.match(/sbom-path: selfhost-(?:amd64|arm64)\.spdx\.json/g)?.length, 2)
+  assert.match(job, /subject-digest: \$\{\{ steps\.push\.outputs\.index_digest \}\}/)
 })

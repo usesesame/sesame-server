@@ -51,6 +51,9 @@ const value = (name, make) => {
 }
 
 const secret = () => randomBytes(32).toString('base64url')
+const accountOrigin = value('SESAME_ACCOUNT_ORIGIN', () => 'http://localhost:4175')
+const adminOrigin = value('SESAME_ADMIN_ORIGIN', () => 'http://localhost:4174')
+const secureCookiesFor = (origin) => (origin.startsWith('https://') ? 'true' : 'false')
 const capabilitySigningKey = value('SESAME_CAPABILITY_SIGNING_KEY', secret)
 const settings = new Map([
   ['SESAME_DATABASE_PASSWORD', value('SESAME_DATABASE_PASSWORD', secret)],
@@ -60,8 +63,10 @@ const settings = new Map([
   ['SESAME_CAPABILITY_SIGNING_KEY', capabilitySigningKey],
   ['SESAME_ADMIN_ENCRYPTION_KEY', value('SESAME_ADMIN_ENCRYPTION_KEY', secret)],
   ['SESAME_ADMIN_IP_PEPPER', value('SESAME_ADMIN_IP_PEPPER', secret)],
-  ['SESAME_ACCOUNT_ORIGIN', value('SESAME_ACCOUNT_ORIGIN', () => 'http://localhost:4175')],
-  ['SESAME_ADMIN_ORIGIN', value('SESAME_ADMIN_ORIGIN', () => 'http://localhost:4174')],
+  ['SESAME_ACCOUNT_ORIGIN', accountOrigin],
+  ['SESAME_ADMIN_ORIGIN', adminOrigin],
+  ['SESAME_SESSION_SECURE', value('SESAME_SESSION_SECURE', () => secureCookiesFor(accountOrigin))],
+  ['SESAME_ADMIN_SESSION_SECURE', value('SESAME_ADMIN_SESSION_SECURE', () => secureCookiesFor(adminOrigin))],
   ['SESAME_PUBLIC_SITE_ORIGIN', value('SESAME_PUBLIC_SITE_ORIGIN', () => '')],
   ['SESAME_API_ORIGIN', value('SESAME_API_ORIGIN', () => 'http://localhost:8787')],
   // The portal links back to a public site. Without one it points at itself,

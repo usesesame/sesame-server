@@ -1,0 +1,21 @@
+services:
+  sesame:
+    ports: !reset []
+    networks:
+      - default
+      - traefik
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${TRAEFIK_NETWORK:-traefik}
+      traefik.http.routers.sesame.rule: Host(`${SESAME_HOST:?Set SESAME_HOST to the name people use, for example sesame.example.net}`)
+      traefik.http.routers.sesame.entrypoints: websecure
+      traefik.http.routers.sesame.tls.certresolver: ${TRAEFIK_CERT_RESOLVER:-letsencrypt}
+      traefik.http.routers.sesame.middlewares: sesame-headers
+      traefik.http.middlewares.sesame-headers.headers.stsSeconds: "31536000"
+      traefik.http.services.sesame.loadbalancer.server.port: "8787"
+      traefik.http.services.sesame.loadbalancer.passhostheader: "true"
+
+networks:
+  traefik:
+    name: ${TRAEFIK_NETWORK:-traefik}
+    external: true

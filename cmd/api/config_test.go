@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"usesesame.app/backend/internal/httpapi"
@@ -139,5 +143,33 @@ func TestSupportNotifyAddressValidation(t *testing.T) {
 				t.Fatalf("address = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestOperatorMessagesNameOnlyCommandsThatExist(t *testing.T) {
+	manifest, err := os.ReadFile("../../package.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(manifest, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reference := range regexp.MustCompile(`npm run ([A-Za-z0-9:_-]+)`).FindAllStringSubmatch(string(source), -1) {
+		if _, ok := parsed.Scripts[reference[1]]; !ok {
+			t.Errorf("cmd/api/main.go names npm run %s, which package.json does not define", reference[1])
+		}
+	}
+	if !strings.Contains(string(source), "adminctl reset <email>") {
+		t.Error("the unreadable admin secret warning must name adminctl reset, the command that issues a new setup link")
+	}
+	if _, err := os.Stat("../adminctl/main.go"); err != nil {
+		t.Errorf("cmd/adminctl must exist for the warning to be true: %v", err)
 	}
 }

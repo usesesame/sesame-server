@@ -4,7 +4,6 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const backendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const repositoryRoot = resolve(backendRoot, '..')
 const [action, email] = process.argv.slice(2)
 if (!['bootstrap', 'reset', 'invite'].includes(action)) {
   console.error('Usage: npm run admin:bootstrap -- <bootstrap|reset|invite> admin@example.com')
@@ -33,17 +32,12 @@ function readEnvFile(path) {
   return values
 }
 
-// A self-hosted deployment keeps its secrets in the file `npm run setup`
-// writes; the monorepo still keeps them in the repository-root .env that
-// `npm run api:up` writes. Read whichever exists, nearest first.
-const fileValues = existsSync(resolve(backendRoot, 'deploy', 'compose', '.env'))
-  ? readEnvFile(resolve(backendRoot, 'deploy', 'compose', '.env'))
-  : readEnvFile(resolve(repositoryRoot, '.env'))
+const fileValues = readEnvFile(resolve(backendRoot, 'deploy', 'compose', '.env'))
 const adminKey = process.env.SESAME_ADMIN_ENCRYPTION_KEY?.trim() || fileValues.get('SESAME_ADMIN_ENCRYPTION_KEY')
 if (!adminKey) {
   console.error(
-    'SESAME_ADMIN_ENCRYPTION_KEY is not set and the repository root .env does not define it.\n' +
-      'Run `npm run api:up` once to create the local admin secrets.',
+    'SESAME_ADMIN_ENCRYPTION_KEY is not set and deploy/compose/.env does not define it.\n' +
+      'Run `npm run setup` once to create the local admin secrets.',
   )
   process.exit(2)
 }
@@ -52,7 +46,7 @@ if (!adminKey) {
 const fileKey = fileValues.get('SESAME_ADMIN_ENCRYPTION_KEY')
 if (fileKey && process.env.SESAME_ADMIN_ENCRYPTION_KEY?.trim() && fileKey !== process.env.SESAME_ADMIN_ENCRYPTION_KEY.trim()) {
   console.error(
-    'SESAME_ADMIN_ENCRYPTION_KEY in your shell differs from the one in the repository root .env.\n' +
+    'SESAME_ADMIN_ENCRYPTION_KEY in your shell differs from the one in deploy/compose/.env.\n' +
       'Docker Compose starts the API with the .env value, so the shell value would write an MFA secret\n' +
       'the API cannot read. Unset the shell variable, or point DATABASE_URL at the matching deployment.',
   )

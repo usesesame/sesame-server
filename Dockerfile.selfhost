@@ -1,0 +1,40 @@
+FROM --platform=$BUILDPLATFORM node:26.10.0-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS console
+WORKDIR /src
+COPY web/console/package.json web/console/package-lock.json ./
+RUN npm ci
+COPY web/console .
+RUN npm run build
+
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine@sha256:85dc1069ac644ea3c527b177303a406eb3358192816cd7f9e5848eb658851673 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+COPY --from=console /src/dist ./internal/selfhost/console/dist
+ARG TARGETOS
+ARG TARGETARCH
+ARG SESAME_VERSION=0.1.0-dev
+ARG SESAME_COMMIT=unknown
+ARG SESAME_UPDATE_PUBLIC_KEYS=
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X usesesame.app/backend/internal/buildinfo.Version=${SESAME_VERSION} -X usesesame.app/backend/internal/buildinfo.Commit=${SESAME_COMMIT} -X usesesame.app/backend/internal/buildinfo.UpdatePublicKeys=${SESAME_UPDATE_PUBLIC_KEYS}" -o /out/sesame-server ./cmd/sesame-server && \
+    mkdir -m 0700 /out/data
+
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+ARG SESAME_VERSION=0.1.0-dev
+ARG SESAME_COMMIT=unknown
+ARG SESAME_SOURCE_URL=https://github.com/usesesame/sesame-server
+LABEL org.opencontainers.image.title="Sesame self-hosted server" \
+      org.opencontainers.image.version="${SESAME_VERSION}" \
+      org.opencontainers.image.revision="${SESAME_COMMIT}" \
+      org.opencontainers.image.source="${SESAME_SOURCE_URL}"
+COPY --from=build --chown=65532:65532 /out/data /data
+COPY --from=build /out/sesame-server /sesame-server
+USER nonroot:nonroot
+VOLUME ["/data"]
+ENV SESAME_DATA_DIR=/data \
+    SESAME_ADDR=0.0.0.0:8787 \
+    SESAME_INSTALL_KIND=container
+EXPOSE 8787
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/sesame-server", "healthcheck"]
+ENTRYPOINT ["/sesame-server"]

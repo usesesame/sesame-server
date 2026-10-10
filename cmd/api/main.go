@@ -152,7 +152,7 @@ func main() {
 				"accounts", len(unreadable),
 				"reason", "SESAME_ADMIN_ENCRYPTION_KEY differs from the key that wrote these MFA secrets",
 				"effect", "sign-in for these accounts will fail as though the password were wrong",
-				"fix", "restore the original key, or run `npm run backend:admin:bootstrap -- reset <email>` to issue a new setup link")
+				"fix", "restore the original key, or run `adminctl reset <email>` to issue a new setup link")
 		}
 	} else {
 		slog.Warn("Sesame admin API is disabled", "reason", "SESAME_ADMIN_ENCRYPTION_KEY is not configured")

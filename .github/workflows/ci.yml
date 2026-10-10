@@ -117,3 +117,48 @@ jobs:
       - run: npm test
 
       - run: npm run build
+
+  selfhost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/console/.node-version
+          cache: npm
+          cache-dependency-path: web/console/package-lock.json
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - run: npm ci
+        working-directory: web/console
+
+      - name: Audit npm dependencies
+        run: npm audit --audit-level=high
+        working-directory: web/console
+
+      - run: npm run release:check
+        working-directory: web/console
+
+      - run: npm run selfhost:smoke -- --skip-console-build
+
+  selfhost-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - name: Build both platforms
+        run: |
+          docker build --file Dockerfile.selfhost --platform linux/amd64 --tag sesame-selfhost:ci-amd64 .
+          docker build --file Dockerfile.selfhost --platform linux/arm64 --tag sesame-selfhost:ci-arm64 .
+
+      - run: node scripts/selfhost-image-check.mjs --image sesame-selfhost:ci-amd64 --arch amd64 --run
+      - run: node scripts/selfhost-image-check.mjs --image sesame-selfhost:ci-arm64 --arch arm64

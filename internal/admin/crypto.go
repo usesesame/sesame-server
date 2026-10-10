@@ -1,21 +1,14 @@
 package admin
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/hmac"
-	"crypto/rand"
-	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/base32"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"errors"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
+
+	"usesesame.app/backend/internal/authkit"
 )
 
 func ParseEncryptionKey(value string) ([]byte, error) {
@@ -31,79 +24,27 @@ func ParseEncryptionKey(value string) ([]byte, error) {
 	return nil, errors.New("SESAME_ADMIN_ENCRYPTION_KEY must encode exactly 32 bytes")
 }
 
+var totpSealContext = []byte("sesame-admin-totp-v1")
+
 func encryptSecret(key, plaintext []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-	return append(nonce, gcm.Seal(nil, nonce, plaintext, []byte("sesame-admin-totp-v1"))...), nil
+	return authkit.Seal(key, plaintext, totpSealContext)
 }
 
 func decryptSecret(key, encoded []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	if len(encoded) <= gcm.NonceSize() {
-		return nil, errors.New("encrypted secret is invalid")
-	}
-	return gcm.Open(nil, encoded[:gcm.NonceSize()], encoded[gcm.NonceSize():], []byte("sesame-admin-totp-v1"))
+	return authkit.Open(key, encoded, totpSealContext)
 }
 
 func NewTOTPSecret() (string, error) {
-	raw := make([]byte, 20)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(raw), nil
+	return authkit.NewTOTPSecret()
 }
 
 func TOTPURI(email, secret string) string {
-	label := url.PathEscape("Sesame Admin:" + strings.ToLower(strings.TrimSpace(email)))
-	return "otpauth://totp/" + label + "?secret=" + url.QueryEscape(secret) + "&issuer=Sesame%20Admin&algorithm=SHA1&digits=6&period=30"
+	return authkit.TOTPURI("Sesame Admin", email, secret)
 }
 
 // Returns the matched time-step counter for replay prevention; -1 and false when no window matches.
 func VerifyTOTP(secret, code string, now time.Time) (counter int64, ok bool) {
-	code = strings.TrimSpace(code)
-	if len(code) != 6 {
-		return -1, false
-	}
-	want, err := strconv.Atoi(code)
-	if err != nil {
-		return -1, false
-	}
-	decoded, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(secret))
-	if err != nil || len(decoded) < 16 {
-		return -1, false
-	}
-	baseCounter := now.Unix() / 30
-	for offset := int64(-1); offset <= 1; offset++ {
-		candidate := baseCounter + offset
-		var message [8]byte
-		binary.BigEndian.PutUint64(message[:], uint64(candidate))
-		mac := hmac.New(sha1.New, decoded)
-		_, _ = mac.Write(message[:])
-		digest := mac.Sum(nil)
-		index := digest[len(digest)-1] & 0x0f
-		value := (uint32(digest[index])&0x7f)<<24 | uint32(digest[index+1])<<16 | uint32(digest[index+2])<<8 | uint32(digest[index+3])
-		if int(value%1_000_000) == want {
-			return candidate, true
-		}
-	}
-	return -1, false
+	return authkit.VerifyTOTP(secret, code, now)
 }
 
 func HashIP(value, pepper string) string {
@@ -112,16 +53,9 @@ func HashIP(value, pepper string) string {
 }
 
 func NewToken() (string, []byte, error) {
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", nil, err
-	}
-	token := base64.RawURLEncoding.EncodeToString(raw)
-	hash := sha256.Sum256([]byte(token))
-	return token, hash[:], nil
+	return authkit.NewToken()
 }
 
 func HashToken(token string) []byte {
-	hash := sha256.Sum256([]byte(token))
-	return hash[:]
+	return authkit.HashToken(token)
 }
