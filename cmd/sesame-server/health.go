@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"usesesame.app/backend/internal/selfhost/config"
@@ -12,26 +11,19 @@ import (
 
 const probeTimeout = 3 * time.Second
 
-func main() {
-	if err := probe(context.Background(), os.LookupEnv, newClient()); err != nil {
-		fmt.Fprintln(os.Stderr, "healthcheck failed:", err)
-		os.Exit(1)
-	}
-}
-
-func newClient() *http.Client {
-	return &http.Client{
+func healthcheck(ctx context.Context, invocation Invocation) error {
+	client := &http.Client{
 		Timeout:       probeTimeout,
 		Transport:     &http.Transport{},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
+	return probeReady(ctx, invocation.Config.Addr, client)
 }
 
-func probe(ctx context.Context, lookup config.Lookup, client *http.Client) error {
-	address := config.HealthAddress(lookup)
-	target, err := config.ReadyURL(address)
+func probeReady(ctx context.Context, addr string, client *http.Client) error {
+	target, err := config.ReadyURL(addr)
 	if err != nil {
-		return fmt.Errorf("%s or %s is %q: %w", config.EnvAddr, config.EnvHostedAddr, address, err)
+		return fmt.Errorf("%s is %q: %w", config.EnvAddr, addr, err)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
