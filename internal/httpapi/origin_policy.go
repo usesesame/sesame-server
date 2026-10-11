@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type routeAudience uint8
@@ -233,7 +235,12 @@ func (a *api) enforce(response http.ResponseWriter, request *http.Request, polic
 
 func (a *api) secureMux(mux *http.ServeMux) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		response.Header().Set("X-Request-ID", newRequestID())
+		started := time.Now()
+		requestID := requestIDFor(request)
+		request = request.WithContext(context.WithValue(request.Context(), requestIDContextKey{}, requestID))
+		recorder := &statusRecorder{ResponseWriter: response}
+		response = recorder
+		response.Header().Set(requestIDHeader, requestID)
 		response.Header().Set("X-Content-Type-Options", "nosniff")
 		response.Header().Set("Referrer-Policy", "no-referrer")
 		response.Header().Set("Cross-Origin-Resource-Policy", "same-site")
@@ -244,22 +251,39 @@ func (a *api) secureMux(mux *http.ServeMux) http.Handler {
 
 		_, pattern := mux.Handler(request)
 		policy, matched := a.routes.policies[pattern]
-		switch {
-		case matched && strings.HasPrefix(pattern, http.MethodOptions+" "):
-			mux.ServeHTTP(response, request)
-		case matched:
-			if a.enforce(response, request, policy) {
-				mux.ServeHTTP(response, request)
+		loggedPattern := pattern
+		if !matched {
+			loggedPattern = ""
+		}
+		completed := false
+		defer func() {
+			status := recorder.statusCode()
+			if !completed && !recorder.committed() {
+				status = http.StatusInternalServerError
 			}
-		default:
-			if allow, known := a.allowedMethodsOnPath(request, mux); known {
-				response.Header().Set("Allow", allow)
-				writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "This endpoint does not allow that method.")
-				return
-			}
+			logRequest(request, loggedPattern, policy.audience, status, started)
+		}()
+		a.dispatch(mux, response, request, pattern, policy, matched)
+		completed = true
+	})
+}
+
+func (a *api) dispatch(mux *http.ServeMux, response http.ResponseWriter, request *http.Request, pattern string, policy routePolicy, matched bool) {
+	switch {
+	case matched && strings.HasPrefix(pattern, http.MethodOptions+" "):
+		mux.ServeHTTP(response, request)
+	case matched:
+		if a.enforce(response, request, policy) {
 			mux.ServeHTTP(response, request)
 		}
-	})
+	default:
+		if allow, known := a.allowedMethodsOnPath(request, mux); known {
+			response.Header().Set("Allow", allow)
+			writeError(response, http.StatusMethodNotAllowed, "method_not_allowed", "This endpoint does not allow that method.")
+			return
+		}
+		mux.ServeHTTP(response, request)
+	}
 }
 
 func newRequestID() string {

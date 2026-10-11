@@ -6,7 +6,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -557,7 +556,7 @@ func (a *api) adminAuditExport(response http.ResponseWriter, request *http.Reque
 	}
 	writer.Flush()
 	if err := writer.Error(); err != nil {
-		slog.Error("Sesame admin audit export failed", "error", err)
+		requestLog(request.Context()).Error("Sesame admin audit export failed", "error", err)
 	}
 }
 
@@ -753,13 +752,13 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 		if prior.AccountID == "" {
 			if a.config.EmailSender != nil {
 				if _, ok := a.config.EmailSender.(TransactionalEmailSender); !ok {
-					slog.Error("Sesame support link email requires a transactional email sender")
+					requestLog(request.Context()).Error("Sesame support link email requires a transactional email sender")
 					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
 					return
 				}
 				token, tokenHash, err := accounts.NewSessionToken()
 				if err != nil {
-					slog.Error("Sesame support link token could not be generated", "error", err)
+					requestLog(request.Context()).Error("Sesame support link token could not be generated", "error", err)
 					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
 					return
 				}
@@ -776,13 +775,13 @@ func (a *api) adminSupportTicketRoute(response http.ResponseWriter, request *htt
 		} else {
 			sendEmail, err := a.supportReplyEmailEnabled(request.Context(), prior.AccountID)
 			if err != nil {
-				slog.Error("Sesame support reply email preference lookup failed", "error", err)
+				requestLog(request.Context()).Error("Sesame support reply email preference lookup failed", "error", err)
 				writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
 				return
 			}
 			if sendEmail {
 				if _, ok := a.config.EmailSender.(TransactionalEmailSender); !ok {
-					slog.Error("Sesame support reply email requires a transactional email sender")
+					requestLog(request.Context()).Error("Sesame support reply email requires a transactional email sender")
 					writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support is temporarily unavailable.")
 					return
 				}

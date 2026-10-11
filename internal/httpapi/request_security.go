@@ -355,6 +355,6 @@ func writeJSON(response http.ResponseWriter, status int, value any) {
 	response.Header().Set("Content-Type", "application/json; charset=utf-8")
 	response.WriteHeader(status)
 	if err := json.NewEncoder(response).Encode(value); err != nil {
-		slog.Error("Sesame API response encoding failed", "error", err, "status", status)
+		slog.Error("Sesame API response encoding failed", "requestId", response.Header().Get(requestIDHeader), "error", err, "status", status)
 	}
 }

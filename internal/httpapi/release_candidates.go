@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -33,12 +32,12 @@ func (a *api) releaseCandidateIngest(response http.ResponseWriter, request *http
 		return
 	}
 	if reason := releaseCandidateValidationError(candidate); reason != "" {
-		slog.Warn("release candidate validation failed", "reason", reason)
+		requestLog(request.Context()).Warn("release candidate validation failed", "reason", reason)
 		writeError(response, http.StatusBadRequest, "invalid_release_candidate", "This release candidate did not pass cryptographic verification.")
 		return
 	}
 	if !a.verifyReleaseCandidate(candidate) {
-		slog.Warn("release candidate signature verification failed")
+		requestLog(request.Context()).Warn("release candidate signature verification failed")
 		writeError(response, http.StatusBadRequest, "invalid_release_candidate", "This release candidate did not pass cryptographic verification.")
 		return
 	}
