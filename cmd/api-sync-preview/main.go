@@ -79,6 +79,16 @@ func main() {
 			"effect", "every /v1/sync route will answer 403 until an administrator turns it on")
 	}
 
+	maintenance, err := syncstore.ParseMaintenanceConfig(os.Getenv("SESAME_SYNC_MAINTENANCE_INTERVAL"), os.Getenv("SESAME_SYNC_REVOKED_DEVICE_RETENTION"))
+	if err != nil {
+		slog.Error("api-sync-preview configuration is invalid", "error", err)
+		os.Exit(1)
+	}
+	maintenance.Enabled = func(ctx context.Context) bool {
+		value, err := admin.FeatureFlag(ctx, "cloud_sync_available")
+		return err == nil && value == "true"
+	}
+
 	config := httpapi.Config{
 		Version:              "0.1.0-sync-preview",
 		AllowedOrigin:        webOrigin,
@@ -108,6 +118,11 @@ func main() {
 		WriteTimeout:      20 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	maintenanceDone := make(chan struct{})
+	go func() {
+		defer close(maintenanceDone)
+		syncstore.RunMaintenance(ctx, syncstore.New(syncDB), maintenance)
+	}()
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -122,6 +137,12 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
+	}
+	stop()
+	select {
+	case <-maintenanceDone:
+	case <-time.After(8 * time.Second):
+		slog.Error("Sesame Sync maintenance did not stop before the shutdown deadline")
 	}
 }
 

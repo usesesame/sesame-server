@@ -216,18 +216,69 @@ func (s *Store) PurgeExpiredChallenges(ctx context.Context) (int64, error) {
 }
 
 func (s *Store) PurgeRevokedDevices(ctx context.Context, olderThan time.Duration) (int64, error) {
-	result, err := s.db.ExecContext(ctx, `
-		DELETE FROM sesame_sync_devices
-		WHERE state = 'revoked' AND revoked_at IS NOT NULL AND revoked_at < $1
-	`, time.Now().Add(-olderThan))
+	candidates, err := s.revokedDevicesWithoutEnvelopes(ctx, time.Now().Add(-olderThan))
 	if err != nil {
-		return 0, fmt.Errorf("purge revoked sync devices: %w", err)
+		return 0, err
 	}
-	removed, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("purge revoked sync devices: %w", err)
+	var removed int64
+	var failures []error
+	for _, deviceID := range candidates {
+		if err := ctx.Err(); err != nil {
+			return removed, err
+		}
+		result, err := s.db.ExecContext(ctx, `
+			DELETE FROM sesame_sync_devices d
+			WHERE d.id = $1 AND d.state = 'revoked'
+			  AND NOT EXISTS (SELECT 1 FROM sesame_sync_envelopes e WHERE e.device_id = d.id)
+		`, deviceID)
+		if err != nil {
+			if isRetainedReference(err) {
+				continue
+			}
+			failures = append(failures, fmt.Errorf("purge revoked sync device: %w", err))
+			continue
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			failures = append(failures, fmt.Errorf("purge revoked sync device: %w", err))
+			continue
+		}
+		removed += count
 	}
-	return removed, nil
+	return removed, errors.Join(failures...)
 }
+
+func (s *Store) revokedDevicesWithoutEnvelopes(ctx context.Context, revokedBefore time.Time) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT d.id FROM sesame_sync_devices d
+		WHERE d.state = 'revoked' AND d.revoked_at IS NOT NULL AND d.revoked_at < $1
+		  AND NOT EXISTS (SELECT 1 FROM sesame_sync_envelopes e WHERE e.device_id = d.id)
+		ORDER BY d.revoked_at
+		LIMIT $2
+	`, revokedBefore, purgeDeviceBatch)
+	if err != nil {
+		return nil, fmt.Errorf("list revoked sync devices: %w", err)
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan revoked sync device: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list revoked sync devices: %w", err)
+	}
+	return ids, nil
+}
+
+func isRetainedReference(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && (pgErr.Code == "23001" || pgErr.Code == "23503")
+}
+
+const purgeDeviceBatch = 500
 
 const RevokedDeviceRetention = 90 * 24 * time.Hour
