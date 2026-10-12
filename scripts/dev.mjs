@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseEnvText } from './setup-lib.mjs'
+import { developmentApiEnvironment, parseEnvText } from './setup-lib.mjs'
 
 const backendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const composeFile = resolve(backendRoot, 'deploy', 'compose', 'compose.yaml')
@@ -15,22 +15,7 @@ if (!existsSync(envFile)) {
 }
 
 const composeEnvironment = parseEnvText(readFileSync(envFile, 'utf8'))
-const fromCompose = (name, fallback) => process.env[name] || composeEnvironment.get(name) || fallback
-const databasePassword = fromCompose('SESAME_DATABASE_APP_PASSWORD', 'sesame-development-only')
-const localDatabaseUrl = `postgres://sesame_app:${encodeURIComponent(databasePassword)}@127.0.0.1:5432/sesame?sslmode=disable`
-
-const environment = {
-  ...process.env,
-  DATABASE_URL: process.env.DATABASE_URL || localDatabaseUrl,
-  SESAME_API_ADDR: process.env.SESAME_API_ADDR || '127.0.0.1:8787',
-  SESAME_WEB_ORIGIN: process.env.SESAME_WEB_ORIGIN || fromCompose('SESAME_ACCOUNT_ORIGIN', 'http://localhost:4175'),
-  SESAME_SESSION_SECURE: process.env.SESAME_SESSION_SECURE || 'false',
-  SESAME_ADMIN_ORIGIN: fromCompose('SESAME_ADMIN_ORIGIN', 'http://localhost:4174'),
-  SESAME_ADMIN_SESSION_SECURE: process.env.SESAME_ADMIN_SESSION_SECURE || 'false',
-  SESAME_CAPABILITY_SIGNING_KEY: fromCompose('SESAME_CAPABILITY_SIGNING_KEY', ''),
-  SESAME_ADMIN_ENCRYPTION_KEY: fromCompose('SESAME_ADMIN_ENCRYPTION_KEY', ''),
-  SESAME_ADMIN_IP_PEPPER: fromCompose('SESAME_ADMIN_IP_PEPPER', ''),
-}
+const environment = developmentApiEnvironment(process.env, composeEnvironment)
 
 function runCompose(args) {
   const command = spawnSync(

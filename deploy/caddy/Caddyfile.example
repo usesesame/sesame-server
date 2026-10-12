@@ -3,9 +3,11 @@
 #   sudo cp Caddyfile.example /etc/caddy/Caddyfile
 #   sudo systemctl reload caddy
 #
-# Caddy obtains and renews certificates for all four names automatically, so
+# Caddy obtains and renews certificates for every name below automatically, so
 # nothing here holds a key. Point every name at this host in DNS first, or the
-# ACME challenge fails.
+# ACME challenge fails. Set SESAME_ACME_EMAIL in the Caddy service environment
+# to a mailbox you read, because the certificate authority sends expiry and
+# account notices there.
 #
 # Four origins, four cookie boundaries. Do not collapse them onto one host: the
 # API accepts credentialed browser traffic only from the exact account origin
@@ -13,7 +15,7 @@
 # kept session-free on purpose.
 
 {
-	email admin@usesesame.app
+	email {$SESAME_ACME_EMAIL}
 }
 
 # The marketing site. A static build from the sesame-website repository.

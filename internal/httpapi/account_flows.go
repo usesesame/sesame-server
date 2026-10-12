@@ -162,8 +162,12 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusServiceUnavailable, "email_verification_unavailable", "Email verification is temporarily unavailable.")
 		return
 	}
+	setupRequired, err := store.CredentialSetupRequired(request.Context(), user.ID)
+	if err != nil {
+		setupRequired = false
+	}
 	a.setSessionCookie(response, token)
-	writeJSON(response, http.StatusOK, map[string]any{"user": user})
+	writeJSON(response, http.StatusOK, map[string]any{"user": user, "credentialSetupRequired": setupRequired})
 }
 
 func (a *api) requestPasswordRecovery(response http.ResponseWriter, request *http.Request) {
@@ -295,7 +299,7 @@ func (a *api) requestEmailChange(response http.ResponseWriter, request *http.Req
 	if !ok {
 		return
 	}
-	user, _, _, ok := a.recentSessionForRequest(response, request)
+	user, session, _, ok := a.recentSessionForRequest(response, request)
 	if !ok {
 		return
 	}
@@ -320,7 +324,16 @@ func (a *api) requestEmailChange(response http.ResponseWriter, request *http.Req
 	token, tokenHash, err := accounts.NewSessionToken()
 	expiresAt := time.Now().Add(emailChangeTTL)
 	if err == nil {
-		err = store.CreateEmailChange(request.Context(), user.ID, newEmail, tokenHash, expiresAt)
+		err = store.CreateEmailChange(request.Context(), user.ID, session.SecurityGeneration, newEmail, tokenHash, expiresAt)
+	}
+	if errors.Is(err, accounts.ErrEmailUnverified) {
+		writeError(response, http.StatusForbidden, "email_verification_required", "Verify your current email address before changing it.")
+		return
+	}
+	if errors.Is(err, accounts.ErrSecurityStateChanged) {
+		a.clearSessionCookie(response)
+		writeError(response, http.StatusUnauthorized, "session_expired", "Your session has expired. Sign in to continue.")
+		return
 	}
 	if errors.Is(err, accounts.ErrEmailTaken) {
 		writeError(response, http.StatusConflict, "email_unavailable", "That email address cannot be used.")
@@ -589,6 +602,11 @@ func (a *api) accountBootstrap(response http.ResponseWriter, request *http.Reque
 			supportUnread += ticket.UnreadCount
 		}
 	}
+	setupRequired, err := store.CredentialSetupRequired(request.Context(), user.ID)
+	if err != nil {
+		writeError(response, http.StatusServiceUnavailable, "account_bootstrap_unavailable", "Account details are temporarily unavailable.")
+		return
+	}
 	payload := map[string]any{
 		"account":           user,
 		"access":            access,
@@ -602,9 +620,10 @@ func (a *api) accountBootstrap(response http.ResponseWriter, request *http.Reque
 		},
 		"notificationCounts": map[string]int{"security": 0, "support": supportUnread, "product": 0},
 		"security": map[string]any{
-			"activeSessions":         len(sessions),
-			"connectedDesktops":      len(devices),
-			"recentAuthenticationAt": session.AuthenticatedAt,
+			"activeSessions":          len(sessions),
+			"connectedDesktops":       len(devices),
+			"recentAuthenticationAt":  session.AuthenticatedAt,
+			"credentialSetupRequired": setupRequired,
 		},
 	}
 	encoded, err := json.Marshal(payload)

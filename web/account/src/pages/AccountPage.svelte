@@ -36,6 +36,7 @@
   import { deletePasskey, listPasskeys, passkeysSupported, registerPasskey, type PasskeyInfo } from '../lib/passkey'
   import { siteOrigin } from '../lib/runtime-config'
   import { capabilities, capabilityEnabled, type CapabilityConfig } from '../lib/capabilities'
+  import PasswordSetupForm from '../lib/PasswordSetupForm.svelte'
 
   export let account: Account | null
   export let authState: AuthState = { state: 'loading' }
@@ -68,6 +69,7 @@
   let supportUnread = 0
   let capabilityConfig: CapabilityConfig | null = null
   let accessLoaded = false
+  let credentialSetupRequired = false
 	let downloadStarting = ''
 
   let currentPassword = ''
@@ -157,6 +159,7 @@
       access = bootstrap.access
       capabilityConfig = configuration
       supportUnread = bootstrap.notificationCounts.support
+      credentialSetupRequired = bootstrap.security?.credentialSetupRequired === true
       downloads = await getAccountDownloads().catch(() => [])
     } catch { /* Account can still manage security if entitlement data is unavailable. */ }
     accessLoaded = true
@@ -456,6 +459,13 @@
       {#if error}<p class="auth-error" role="alert">{error}</p>{/if}
 
       {#if tab === 'overview'}
+        {#if credentialSetupRequired}
+          <div class="panel-section">
+            <p class="account-label">Set a password</p>
+            <p class="panel-hint">This account has no password yet, so you cannot sign in again after this session ends. Choose one now, or add a passkey on the Security tab.</p>
+            <PasswordSetupForm onComplete={() => { credentialSetupRequired = false; notice = 'Password set.' }} />
+          </div>
+        {/if}
         <div class="panel-section account-summary">
           <div><p class="account-label">Signed in as</p><strong class="account-email">{account.email}</strong></div>
           <span class:verified={account.emailVerified} class="verification-state">{account.emailVerified ? 'Email verified' : 'Email not verified'}</span>
