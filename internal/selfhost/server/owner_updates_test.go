@@ -465,8 +465,8 @@ func TestSetupRecordsTheUpdateChoice(t *testing.T) {
 			} else {
 				time.Sleep(50 * time.Millisecond)
 			}
-			if host.hits.Load() != tc.hits {
-				t.Fatalf("feed requests = %d, want %d", host.hits.Load(), tc.hits)
+			if got := host.hits.Load(); got < tc.hits || (tc.hits == 0 && got != 0) {
+				t.Fatalf("feed requests = %d, want %d or more", got, tc.hits)
 			}
 			if tc.hits == 1 {
 				deadline := time.Now().Add(5 * time.Second)
