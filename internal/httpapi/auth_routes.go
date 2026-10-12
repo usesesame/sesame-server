@@ -258,7 +258,7 @@ func (a *api) setupPassword(response http.ResponseWriter, request *http.Request)
 	if !ok {
 		return
 	}
-	user, _, _, ok := a.recentSessionForRequest(response, request)
+	user, session, _, ok := a.recentSessionForRequest(response, request)
 	if !ok {
 		return
 	}
@@ -275,7 +275,12 @@ func (a *api) setupPassword(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusServiceUnavailable, "password_setup_unavailable", "Setting your password is temporarily unavailable.")
 		return
 	}
-	err = store.EnrollPassword(request.Context(), user.ID, passwordHash)
+	err = store.EnrollPassword(request.Context(), user.ID, session.SecurityGeneration, passwordHash)
+	if errors.Is(err, accounts.ErrSecurityStateChanged) {
+		a.clearSessionCookie(response)
+		writeError(response, http.StatusUnauthorized, "session_expired", "Your session has expired. Sign in to continue.")
+		return
+	}
 	if errors.Is(err, accounts.ErrEmailUnverified) {
 		writeError(response, http.StatusForbidden, "email_verification_required", "Verify your email address before setting a password.")
 		return

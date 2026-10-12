@@ -493,13 +493,13 @@ func TestEnrollPasswordSetsOnlyTheEmptyPasswordOfAVerifiedAccount(t *testing.T) 
 		}
 	}
 
-	if err := store.EnrollPassword(ctx, "acct-enroll-unverified", "fictional-new-hash"); !errors.Is(err, ErrEmailUnverified) {
+	if err := store.EnrollPassword(ctx, "acct-enroll-unverified", securityGenerationOf(t, db, "acct-enroll-unverified"), "fictional-new-hash"); !errors.Is(err, ErrEmailUnverified) {
 		t.Fatalf("unverified account = %v, want ErrEmailUnverified", err)
 	}
-	if err := store.EnrollPassword(ctx, "acct-enroll-has-password", "fictional-new-hash"); !errors.Is(err, ErrPasswordAlreadySet) {
+	if err := store.EnrollPassword(ctx, "acct-enroll-has-password", securityGenerationOf(t, db, "acct-enroll-has-password"), "fictional-new-hash"); !errors.Is(err, ErrPasswordAlreadySet) {
 		t.Fatalf("account with a password = %v, want ErrPasswordAlreadySet", err)
 	}
-	if err := store.EnrollPassword(ctx, "acct-enroll-missing", "fictional-new-hash"); !errors.Is(err, ErrNotFound) {
+	if err := store.EnrollPassword(ctx, "acct-enroll-missing", 0, "fictional-new-hash"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing account = %v, want ErrNotFound", err)
 	}
 
@@ -509,7 +509,7 @@ func TestEnrollPasswordSetsOnlyTheEmptyPasswordOfAVerifiedAccount(t *testing.T) 
 		group.Add(1)
 		go func(index int) {
 			defer group.Done()
-			errs[index] = store.EnrollPassword(ctx, "acct-enroll-ready", "fictional-new-hash")
+			errs[index] = store.EnrollPassword(ctx, "acct-enroll-ready", securityGenerationOf(t, db, "acct-enroll-ready"), "fictional-new-hash")
 		}(i)
 	}
 	group.Wait()
@@ -531,6 +531,43 @@ func TestEnrollPasswordSetsOnlyTheEmptyPasswordOfAVerifiedAccount(t *testing.T) 
 	}
 	if _, hash, err := store.FindByID(ctx, "acct-enroll-has-password"); err != nil || hash != "fictional-current-hash" {
 		t.Fatalf("existing hash = %q, error = %v", hash, err)
+	}
+}
+
+func TestEnrollPasswordRejectsAGenerationSeenBeforeSignOutEverywhere(t *testing.T) {
+	store, db := lifecycleTestStore(t)
+	ctx := context.Background()
+	seedSecurityAccount(t, db, "acct-enroll-stale", true)
+	if _, err := db.ExecContext(ctx, `UPDATE sesame_accounts SET password_hash = '' WHERE id = $1`, "acct-enroll-stale"); err != nil {
+		t.Fatalf("clear password: %v", err)
+	}
+	seen := securityGenerationOf(t, db, "acct-enroll-stale")
+	if err := store.RevokeAllSessions(ctx, "acct-enroll-stale"); err != nil {
+		t.Fatalf("sign out everywhere: %v", err)
+	}
+
+	if err := store.EnrollPassword(ctx, "acct-enroll-stale", seen, "fictional-new-hash"); !errors.Is(err, ErrSecurityStateChanged) {
+		t.Fatalf("enrollment with a stale generation = %v, want ErrSecurityStateChanged", err)
+	}
+	if _, hash, err := store.FindByID(ctx, "acct-enroll-stale"); err != nil || hash != "" {
+		t.Fatalf("stored hash = %q, error = %v, want empty", hash, err)
+	}
+}
+
+func TestEnrollPasswordCancelsPendingDesktopLinkCodes(t *testing.T) {
+	store, db := lifecycleTestStore(t)
+	ctx := context.Background()
+	seedSecurityAccount(t, db, "acct-enroll-codes", true)
+	if _, err := db.ExecContext(ctx, `UPDATE sesame_accounts SET password_hash = '' WHERE id = $1`, "acct-enroll-codes"); err != nil {
+		t.Fatalf("clear password: %v", err)
+	}
+	pending := issueDesktopLinkCode(t, store, db, "acct-enroll-codes", 0x61)
+
+	if err := store.EnrollPassword(ctx, "acct-enroll-codes", securityGenerationOf(t, db, "acct-enroll-codes"), "fictional-new-hash"); err != nil {
+		t.Fatalf("enroll password: %v", err)
+	}
+	if err := redeemDesktopLinkCode(store, pending, 0x62); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("redeeming a code issued before password setup = %v, want ErrNotFound", err)
 	}
 }
 
@@ -569,7 +606,7 @@ func TestCredentialSetupIsRequiredAfterFirstVerificationUntilACredentialExists(t
 	if removed, err := store.DeleteCredential(ctx, "acct-setup-state", bytes.Repeat([]byte{0x23}, 16)); err != nil || !removed {
 		t.Fatalf("delete passkey removed = %v, error = %v", removed, err)
 	}
-	if err := store.EnrollPassword(ctx, "acct-setup-state", "fictional-new-hash"); err != nil {
+	if err := store.EnrollPassword(ctx, "acct-setup-state", securityGenerationOf(t, db, "acct-setup-state"), "fictional-new-hash"); err != nil {
 		t.Fatalf("enroll password: %v", err)
 	}
 	if required, err := store.CredentialSetupRequired(ctx, "acct-setup-state"); err != nil || required {

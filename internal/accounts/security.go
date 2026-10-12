@@ -31,7 +31,7 @@ type AccountSecurityStore interface {
 	CreatePasswordRecovery(context.Context, string, []byte, time.Time) (User, bool, error)
 	ResetPasswordAndRotateSession(context.Context, TokenPasswordRotation) (User, error)
 	CreateEmailChange(context.Context, string, int64, string, []byte, time.Time) error
-	EnrollPassword(context.Context, string, string) error
+	EnrollPassword(context.Context, string, int64, string) error
 	CredentialSetupRequired(context.Context, string) (bool, error)
 	ConfirmEmailChangeAndRotateSession(context.Context, TokenSessionRotation) (EmailChangeResult, error)
 	AccountAccess(context.Context, string) (Access, error)
@@ -703,8 +703,16 @@ func (s *PostgresStore) ConfirmEmailChangeAndRotateSession(ctx context.Context, 
 	return EmailChangeResult{User: user, PreviousEmail: previousEmail}, nil
 }
 
-func (s *PostgresStore) EnrollPassword(ctx context.Context, accountID, passwordHash string) error {
-	result, err := s.db.ExecContext(ctx, `
+func (s *PostgresStore) EnrollPassword(ctx context.Context, accountID string, expectedGeneration int64, passwordHash string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := lockSecurityGenerationTx(ctx, tx, accountID, expectedGeneration); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE sesame_accounts SET password_hash = $2
 		WHERE id = $1 AND password_hash = '' AND email_verified_at IS NOT NULL AND suspended_at IS NULL
 	`, accountID, passwordHash)
@@ -716,11 +724,14 @@ func (s *PostgresStore) EnrollPassword(ctx context.Context, accountID, passwordH
 		return err
 	}
 	if affected > 0 {
-		return nil
+		if err := invalidatePendingCapabilitiesTx(ctx, tx, accountID); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 	var verified bool
 	var hasPassword bool
-	err = s.db.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL, password_hash <> '' FROM sesame_accounts WHERE id = $1 AND suspended_at IS NULL`, accountID).Scan(&verified, &hasPassword)
+	err = tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL, password_hash <> '' FROM sesame_accounts WHERE id = $1 AND suspended_at IS NULL`, accountID).Scan(&verified, &hasPassword)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
