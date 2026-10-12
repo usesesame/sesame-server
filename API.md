@@ -135,24 +135,38 @@ body.
   session.
 - `POST /v1/auth/email/verification/request` with no body returns `202`.
 - `POST /v1/auth/email/verification/confirm` with `{token}` returns
-  `200 {user}` and a replacement browser session. Verification revokes every
-  browser session, passkey, and desktop connection created while the account was
-  unverified, and cancels its pending desktop-link codes, in the same transaction
-  that marks the address verified.
+  `200 {user,credentialSetupRequired}` and a replacement browser session.
+  Verification revokes every browser session, passkey, and desktop connection
+  created while the account was unverified, cancels its pending desktop-link
+  codes, and deletes its pending email-change tokens, in the same transaction
+  that marks the address verified. `credentialSetupRequired` is true when the
+  account has no password and no passkey, which is the case after a first
+  verification.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
   malformed, and known emails receive the same response shape.
 - `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` returns
   `200 {user,otherSessionsRevoked:true}` and a replacement session. Every
   linked desktop token is revoked with the old browser sessions.
-- `POST /v1/account/email/change/request` with `{newEmail}` returns `202`.
+- `POST /v1/account/email/change/request` with `{newEmail}` returns `202`. An
+  account whose email is not verified receives `403 email_verification_required`.
 - `POST /v1/account/email/change/confirm` with `{token}` returns
   `200 {user,otherSessionsRevoked:true}` and a replacement session.
+
+Every account carries a security generation. Verification of a first email
+address, password change, password reset, sign out everywhere, and a completed
+email change each advance
+it in the same transaction that revokes the account's sessions. An email-change
+token and a desktop-link code record the generation they were issued under, and
+a token or code from an earlier generation is refused. A request that was
+authenticated before one of those actions and reaches the database after it
+receives `401 session_expired` instead of issuing a new token or code.
 
 Verification tokens live for 24 hours. Recovery and email-change tokens live
 for 30 minutes. Only SHA-256 token hashes are stored. Tokens are single-use;
 creating another token for the same purpose invalidates the previous one. A
-password change or password reset invalidates every pending email-change
-token, and a completed email change invalidates every pending recovery token.
+password change, password reset, sign out everywhere, or a completed email change
+invalidates every pending email-change token and every unused desktop-link code,
+and a completed email change invalidates every pending recovery token.
 The queued action email stores its link sealed with the deployment's admin
 encryption key, never in plaintext; a delivered or failed outbox row is
 purged seven days after its last update.
@@ -173,7 +187,15 @@ pending desktop-link codes, and revokes every desktop connection regardless of
 when it was created. Credentials an attacker attached to an unverified account
 do not survive verification or recovery. Verification clears the password set
 at registration, so the address owner who did not start that registration sets
-a new password through password recovery.
+a new password right after verifying, with
+`POST /v1/account/password/setup` and `{newPassword}`. It returns `204`. It
+requires a recently authenticated session, a verified email, and an account
+that has no password yet, and it answers `409 password_already_set` otherwise.
+The account portal shows this step after verification and again on the account
+overview while `credentialSetupRequired` is true. A passkey registered from the
+same session also ends the setup state. A session older than the recent-auth
+window receives `403 recent_auth_required`, and the owner then uses password
+recovery.
 
 ## Recent authentication and browser sessions
 
@@ -222,7 +244,8 @@ refuses the sign-in instead of creating a session.
 
 - `GET /v1/auth/me` returns the signed-in account id and email only.
 - `GET /v1/account/bootstrap` returns the combined first-paint state the website
-  needs, so a signed-in page load does not fan out into several requests.
+  needs, so a signed-in page load does not fan out into several requests. Its
+  `security` object includes `credentialSetupRequired`.
 - `GET /v1/account/activity` returns `{events:[...]}`, the account's own 50 most
   recent security events.
 - `GET /v1/account/notifications` returns `{securityMandatory:true,preferences}`.

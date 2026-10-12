@@ -34,6 +34,7 @@ export const API_ROUTES = {
   confirmPasswordRecovery: '/v1/auth/password/recovery/confirm',
   reauthenticate: '/v1/account/reauthenticate',
   password: '/v1/account/password',
+  passwordSetup: '/v1/account/password/setup',
   emailChangeRequest: '/v1/account/email/change/request',
   emailChangeConfirm: '/v1/account/email/change/confirm',
   sessions: '/v1/account/sessions',
