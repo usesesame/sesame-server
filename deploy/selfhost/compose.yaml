@@ -1,0 +1,44 @@
+name: sesame-selfhost
+
+services:
+  sesame:
+    image: ghcr.io/usesesame/sesame-server-selfhost:${SESAME_IMAGE_TAG:?Set SESAME_IMAGE_TAG to the release you want to run, for example 0.1.0}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    environment:
+      SESAME_PUBLIC_URL: ${SESAME_PUBLIC_URL:-http://localhost:8787}
+      SESAME_TRUSTED_PROXIES: ${SESAME_TRUSTED_PROXIES:-}
+      SESAME_LOG_LEVEL: ${SESAME_LOG_LEVEL:-info}
+      SESAME_BACKUP_INTERVAL: ${SESAME_BACKUP_INTERVAL:-24h}
+      SESAME_INSTALL_KIND: container
+    volumes:
+      - sesame-data:/data
+    healthcheck:
+      test: ["CMD", "/sesame-server", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  sesame-data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.88.0/24

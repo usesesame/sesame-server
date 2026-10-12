@@ -1165,3 +1165,66 @@ test('production keeps the container hardening baseline for every application se
   assert.equal(db.volumes.includes('database:/var/lib/postgresql'), true, 'PostgreSQL must keep its data volume')
   assert.match(db.image, /^postgres:[^@]+@sha256:[0-9a-f]{64}$/, 'PostgreSQL must stay digest pinned')
 })
+
+function stackFile(...parts) {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  return readFileSync(join(root, ...parts), 'utf8')
+}
+
+test('production and the candidate check take the deployment profile from the env file and default to operator', () => {
+  for (const file of ['compose.prod.yaml', 'compose.candidate-check.yaml']) {
+    const compose = stackFile('deploy', 'compose', file)
+    assert.ok(
+      compose.includes('SESAME_DEPLOYMENT_PROFILE: ${SESAME_DEPLOYMENT_PROFILE:-operator}'),
+      `${file} must read SESAME_DEPLOYMENT_PROFILE and default to operator`,
+    )
+    assert.ok(!/SESAME_DEPLOYMENT_PROFILE: project/.test(compose), `${file} must not hardcode the project profile`)
+  }
+  const example = stackFile('deploy', 'compose', '.env.production.example')
+  assert.match(example, /^SESAME_DEPLOYMENT_PROFILE=operator$/m, 'the production env example must default to operator')
+})
+
+test('the development stack reads its cookie flags from the env file and production keeps them on', () => {
+  const development = stackFile('deploy', 'compose', 'compose.yaml')
+  assert.ok(development.includes('SESAME_SESSION_SECURE: ${SESAME_SESSION_SECURE:-false}'))
+  assert.ok(development.includes('SESAME_ADMIN_SESSION_SECURE: ${SESAME_ADMIN_SESSION_SECURE:-false}'))
+  assert.ok(!/SESSION_SECURE: "false"/.test(development), 'compose.yaml must not hardcode insecure cookies')
+  const production = stackFile('deploy', 'compose', 'compose.prod.yaml')
+  assert.ok(production.includes('SESAME_SESSION_SECURE: "true"'))
+  assert.ok(production.includes('SESAME_ADMIN_SESSION_SECURE: "true"'))
+})
+
+test('the Caddyfile example takes the ACME contact from the operator', () => {
+  const caddyfile = stackFile('deploy', 'caddy', 'Caddyfile.example')
+  assert.match(caddyfile, /^\s*email \{\$SESAME_ACME_EMAIL\}\s*$/m, 'the global ACME email must come from SESAME_ACME_EMAIL')
+  assert.ok(!/[A-Za-z0-9._-]+@usesesame\.app/.test(caddyfile), 'the Caddyfile must not name a Sesame mailbox')
+  assert.ok(stackFile('DEPLOYMENT.md').includes('SESAME_ACME_EMAIL'), 'DEPLOYMENT.md must tell the operator to set SESAME_ACME_EMAIL')
+})
+
+test('every variable the production stack passes is in the env example and every optional one is in the guide', () => {
+  const compose = stackFile('deploy', 'compose', 'compose.prod.yaml')
+  const example = stackFile('deploy', 'compose', '.env.production.example')
+  const guide = stackFile('DEPLOYMENT.md')
+  const passed = [...new Set([...compose.matchAll(/\$\{([A-Z][A-Z0-9_]*)/g)].map((match) => match[1]))]
+  assert.ok(passed.length > 20)
+  for (const name of passed) {
+    assert.match(example, new RegExp(`^#? ?${name}=`, 'm'), `.env.production.example is missing ${name}`)
+  }
+  const optional = [...new Set([...compose.matchAll(/\$\{([A-Z][A-Z0-9_]*):-/g)].map((match) => match[1]))]
+  assert.ok(optional.length > 10)
+  for (const name of optional) {
+    assert.ok(guide.includes(name), `DEPLOYMENT.md does not describe ${name}`)
+  }
+})
+
+test('the API template lists every variable cmd/api reads', () => {
+  const source = stackFile('cmd', 'api', 'main.go')
+  const template = stackFile('.env.example')
+  const names = [...new Set([...source.matchAll(/"(SESAME_[A-Z0-9_]+|DATABASE_URL)"/g)].map((match) => match[1]))]
+  assert.ok(names.length > 25)
+  for (const name of names) {
+    assert.match(template, new RegExp(`^#? ?${name}=`, 'm'), `.env.example is missing ${name}`)
+  }
+  assert.ok(!/^SESAME_API_VERSION=/m.test(template), 'SESAME_API_VERSION is read by nothing')
+  assert.match(template, /^SESAME_WEB_ORIGIN=http:\/\/localhost:4175$/m, 'the account portal listens on 4175')
+})

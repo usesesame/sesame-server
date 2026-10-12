@@ -84,6 +84,12 @@ jobs:
 
       - run: npm run compose:config
 
+      - run: npm ci
+        working-directory: web/console
+      - run: npm run release:check
+        working-directory: web/console
+      - run: npm run selfhost:smoke -- --skip-console-build
+
   images:
     needs: verify
     runs-on: ubuntu-latest
@@ -305,3 +311,119 @@ jobs:
           gh release view "v$SESAME_RELEASE_VERSION" >/dev/null 2>&1 || \
             gh release create "v$SESAME_RELEASE_VERSION" --title "Sesame server $SESAME_RELEASE_VERSION" --notes "server-release.json carries the digest references the deploy tool consumes. Provenance attestations live on the images."
           gh release upload "v$SESAME_RELEASE_VERSION" server-release.json api.spdx.json account.spdx.json admin.spdx.json --clobber
+
+  selfhost:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: server-release
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      SELFHOST_REPOSITORY: ghcr.io/${{ github.repository }}-selfhost
+      SESAME_RELEASE_VERSION: ${{ needs.verify.outputs.version }}
+      SESAME_RELEASE_COMMIT: ${{ needs.verify.outputs.commit }}
+      SESAME_RELEASE_SOURCE_URL: https://github.com/${{ github.repository }}
+      SELFHOST_AMD64_IMAGE: ghcr.io/${{ github.repository }}-selfhost:${{ needs.verify.outputs.version }}-linux-amd64
+      SELFHOST_ARM64_IMAGE: ghcr.io/${{ github.repository }}-selfhost:${{ needs.verify.outputs.version }}-linux-arm64
+      SELFHOST_IMAGE: ghcr.io/${{ github.repository }}-selfhost:${{ needs.verify.outputs.version }}
+      SESAME_UPDATE_PUBLIC_KEYS: ${{ vars.SESAME_UPDATE_PUBLIC_KEYS }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+
+      - name: Build both platforms
+        run: |
+          set -euo pipefail
+          build() {
+            docker build --file Dockerfile.selfhost --platform "$1" --tag "$2" \
+              --build-arg "SESAME_VERSION=$SESAME_RELEASE_VERSION" \
+              --build-arg "SESAME_COMMIT=$SESAME_RELEASE_COMMIT" \
+              --build-arg "SESAME_SOURCE_URL=$SESAME_RELEASE_SOURCE_URL" \
+              --build-arg "SESAME_UPDATE_PUBLIC_KEYS=$SESAME_UPDATE_PUBLIC_KEYS" .
+          }
+          build linux/amd64 "$SELFHOST_AMD64_IMAGE"
+          build linux/arm64 "$SELFHOST_ARM64_IMAGE"
+
+      - name: Check the images before they are published
+        run: |
+          set -euo pipefail
+          node scripts/selfhost-image-check.mjs --image "$SELFHOST_AMD64_IMAGE" --arch amd64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT" --run
+          node scripts/selfhost-image-check.mjs --image "$SELFHOST_ARM64_IMAGE" --arch arm64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT"
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: push
+        run: |
+          set -euo pipefail
+          docker push "$SELFHOST_AMD64_IMAGE"
+          docker push "$SELFHOST_ARM64_IMAGE"
+          amd64_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "$SELFHOST_AMD64_IMAGE")
+          arm64_ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "$SELFHOST_ARM64_IMAGE")
+          docker buildx imagetools create --tag "$SELFHOST_IMAGE" "$amd64_ref" "$arm64_ref"
+          index_digest=$(docker buildx imagetools inspect "$SELFHOST_IMAGE" --format '{{json .Manifest}}' | jq -r .digest)
+          if [[ ! "$index_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "the published index digest is malformed: $index_digest" >&2
+            exit 1
+          fi
+          platforms=$(docker buildx imagetools inspect "$SELFHOST_IMAGE" --format '{{json .Manifest}}' | jq -r '[.manifests[] | .platform.os + "/" + .platform.architecture + "@" + .digest] | sort | join(",")')
+          test "$platforms" = "linux/amd64@${amd64_ref##*@},linux/arm64@${arm64_ref##*@}"
+          echo "amd64_ref=$amd64_ref" >> "$GITHUB_OUTPUT"
+          echo "arm64_ref=$arm64_ref" >> "$GITHUB_OUTPUT"
+          echo "amd64_digest=${amd64_ref##*@}" >> "$GITHUB_OUTPUT"
+          echo "arm64_digest=${arm64_ref##*@}" >> "$GITHUB_OUTPUT"
+          echo "index_digest=$index_digest" >> "$GITHUB_OUTPUT"
+
+      - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
+        with:
+          image: ${{ steps.push.outputs.amd64_ref }}
+          format: spdx-json
+          output-file: selfhost-amd64.spdx.json
+          upload-artifact: false
+
+      - uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26
+        with:
+          image: ${{ steps.push.outputs.arm64_ref }}
+          format: spdx-json
+          output-file: selfhost-arm64.spdx.json
+          upload-artifact: false
+
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ghcr.io/${{ github.repository }}-selfhost
+          subject-digest: ${{ steps.push.outputs.index_digest }}
+          push-to-registry: true
+
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ghcr.io/${{ github.repository }}-selfhost
+          subject-digest: ${{ steps.push.outputs.amd64_digest }}
+          sbom-path: selfhost-amd64.spdx.json
+          push-to-registry: true
+
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ghcr.io/${{ github.repository }}-selfhost
+          subject-digest: ${{ steps.push.outputs.arm64_digest }}
+          sbom-path: selfhost-arm64.spdx.json
+          push-to-registry: true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: selfhost-release-${{ needs.verify.outputs.version }}
+          path: |
+            selfhost-amd64.spdx.json
+            selfhost-arm64.spdx.json
+          if-no-files-found: error

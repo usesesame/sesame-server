@@ -20,6 +20,7 @@
     "deploy:release": "node ./scripts/deploy-release.mjs",
     "release:images:build": "node ./scripts/build-release-images.mjs",
     "compose:smoke": "node ./scripts/compose-smoke.mjs",
+    "selfhost:smoke": "node ./scripts/selfhost-smoke.mjs",
     "openapi:generate": "node ./scripts/openapi.mjs generate",
     "openapi:check": "node ./scripts/openapi.mjs check",
     "vuln:check": "node ./scripts/run-go.mjs run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",

@@ -36,6 +36,15 @@ updates:
       default-days: 7
       semver-major-days: 14
 
+  - package-ecosystem: npm
+    directory: /web/console
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+
   # The API and both portal images. A base image is as much a dependency as a
   # module, and nothing else here moves those tags.
   - package-ecosystem: docker
