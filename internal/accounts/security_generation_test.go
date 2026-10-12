@@ -503,13 +503,14 @@ func TestEnrollPasswordSetsOnlyTheEmptyPasswordOfAVerifiedAccount(t *testing.T) 
 		t.Fatalf("missing account = %v, want ErrNotFound", err)
 	}
 
+	seen := securityGenerationOf(t, db, "acct-enroll-ready")
 	var group sync.WaitGroup
 	errs := make([]error, 4)
 	for i := range errs {
 		group.Add(1)
 		go func(index int) {
 			defer group.Done()
-			errs[index] = store.EnrollPassword(ctx, "acct-enroll-ready", securityGenerationOf(t, db, "acct-enroll-ready"), "fictional-new-hash")
+			errs[index] = store.EnrollPassword(ctx, "acct-enroll-ready", seen, "fictional-new-hash")
 		}(i)
 	}
 	group.Wait()
@@ -518,7 +519,7 @@ func TestEnrollPasswordSetsOnlyTheEmptyPasswordOfAVerifiedAccount(t *testing.T) 
 		switch {
 		case err == nil:
 			succeeded++
-		case errors.Is(err, ErrPasswordAlreadySet):
+		case errors.Is(err, ErrPasswordAlreadySet), errors.Is(err, ErrSecurityStateChanged):
 		default:
 			t.Fatalf("concurrent enrollment: %v", err)
 		}
