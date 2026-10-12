@@ -40,9 +40,9 @@ services:
       SESAME_PUBLIC_SITE_ORIGIN: ${SESAME_PUBLIC_SITE_ORIGIN}
       SESAME_REGISTRATION_MODE: ${SESAME_REGISTRATION_MODE}
       # HTTP is allowed here because every origin above is loopback. A
-      # deployment behind TLS sets both of these to true.
-      SESAME_SESSION_SECURE: "false"
-      SESAME_ADMIN_SESSION_SECURE: "false"
+      # deployment behind TLS sets both of these to true in the .env file.
+      SESAME_SESSION_SECURE: ${SESAME_SESSION_SECURE:-false}
+      SESAME_ADMIN_SESSION_SECURE: ${SESAME_ADMIN_SESSION_SECURE:-false}
       SESAME_CAPABILITY_SIGNING_KEY: ${SESAME_CAPABILITY_SIGNING_KEY:?Run npm run setup first.}
       SESAME_ADMIN_ENCRYPTION_KEY: ${SESAME_ADMIN_ENCRYPTION_KEY:?Run npm run setup first.}
       SESAME_ADMIN_IP_PEPPER: ${SESAME_ADMIN_IP_PEPPER:?Run npm run setup first.}

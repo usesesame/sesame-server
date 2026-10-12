@@ -32,6 +32,10 @@ const development = check('deploy/compose/compose.yaml', common)
 const developmentWithOverride = check(['deploy/compose/compose.yaml', 'deploy/compose/compose.dev.yaml'], common)
 const production = check('deploy/compose/compose.prod.yaml', productionValues)
 const candidate = check('deploy/compose/compose.candidate-check.yaml', productionValues)
+const projectValues = { ...productionValues, SESAME_DEPLOYMENT_PROFILE: 'project' }
+const productionProject = check('deploy/compose/compose.prod.yaml', projectValues)
+const candidateProject = check('deploy/compose/compose.candidate-check.yaml', projectValues)
+const developmentTLS = check('deploy/compose/compose.yaml', { ...common, SESAME_SESSION_SECURE: 'true', SESAME_ADMIN_SESSION_SECURE: 'true' })
 
 // `npm run dev` runs the API natively, so the override must publish the database.
 const developmentDatabasePorts = developmentWithOverride.services.db?.ports ?? []
@@ -47,11 +51,28 @@ for (const service of ['api', 'migrate', 'account', 'admin']) {
 if (development.services.api?.environment?.SESAME_DEPLOYMENT_PROFILE) {
   throw new Error('The development stack must default to the operator deployment profile.')
 }
-if (production.services.api?.environment?.SESAME_DEPLOYMENT_PROFILE !== 'project') {
-  throw new Error('The production stack must run the project deployment profile.')
+if (production.services.api?.environment?.SESAME_DEPLOYMENT_PROFILE !== 'operator') {
+  throw new Error('The production stack must default to the operator deployment profile.')
 }
-if (candidate.services['candidate-api']?.environment?.SESAME_DEPLOYMENT_PROFILE !== 'project') {
-  throw new Error('The candidate check must run the project deployment profile.')
+if (candidate.services['candidate-api']?.environment?.SESAME_DEPLOYMENT_PROFILE !== 'operator') {
+  throw new Error('The candidate check must default to the operator deployment profile.')
+}
+if (productionProject.services.api?.environment?.SESAME_DEPLOYMENT_PROFILE !== 'project') {
+  throw new Error('The production stack must run the project deployment profile when SESAME_DEPLOYMENT_PROFILE selects it.')
+}
+if (candidateProject.services['candidate-api']?.environment?.SESAME_DEPLOYMENT_PROFILE !== 'project') {
+  throw new Error('The candidate check must run the same deployment profile as production.')
+}
+for (const name of ['SESAME_SESSION_SECURE', 'SESAME_ADMIN_SESSION_SECURE']) {
+  if (development.services.api?.environment?.[name] !== 'false') {
+    throw new Error(`The development stack must default ${name} to false for loopback HTTP.`)
+  }
+  if (developmentTLS.services.api?.environment?.[name] !== 'true') {
+    throw new Error(`The development stack must let the .env file turn ${name} on.`)
+  }
+  if (production.services.api?.environment?.[name] !== 'true') {
+    throw new Error(`The production stack must keep ${name} true.`)
+  }
 }
 if (production.services.api.image !== production.services.migrate.image) {
   throw new Error('API and migration jobs must use the same immutable image.')
@@ -158,7 +179,7 @@ function check(files, values) {
   const fileArgs = (Array.isArray(files) ? files : [files]).flatMap((file) => ['--file', file])
   const result = spawnSync('docker', ['compose', ...fileArgs, 'config', '--format', 'json'], {
     encoding: 'utf8',
-    env: { ...process.env, ...values },
+    env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('SESAME_'))), ...values },
   })
   if (result.status !== 0) {
     process.stderr.write(result.stderr)

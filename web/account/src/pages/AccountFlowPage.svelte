@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteURL } from 'svelte/reactivity'
+  import PasswordSetupForm from '../lib/PasswordSetupForm.svelte'
   import {
     confirmEmailChange,
     confirmEmailVerification,
@@ -18,6 +19,8 @@
   let showPassword = false
   let submitting = false
   let complete = false
+  let setupRequired = false
+  let passwordSet = false
   let error = ''
 
   let token = ''
@@ -57,7 +60,9 @@
       } else if (mode === 'reset-password') {
         onAuthenticated(await confirmPasswordRecovery(token, newPassword))
       } else if (mode === 'verify-email') {
-        onAuthenticated(await confirmEmailVerification(token))
+        const verification = await confirmEmailVerification(token)
+        setupRequired = verification.credentialSetupRequired
+        onAuthenticated(verification.account)
       } else {
         onAuthenticated(await confirmEmailChange(token))
       }
@@ -84,9 +89,13 @@
         <h2>Check your email</h2>
         <p>If an eligible account exists for that address, we sent a recovery link. This page never confirms whether an address is registered.</p>
         <a class="button button-soft" href="/login">Back to sign in</a>
+      {:else if mode === 'verify-email' && setupRequired && !passwordSet}
+        <h2>Choose a password</h2>
+        <p>Your email address is verified. This account has no password yet, so choose one to sign in again. You can also <a href="/account#security">add a passkey</a> from your account security settings.</p>
+        <PasswordSetupForm onComplete={() => (passwordSet = true)} />
       {:else}
-        <h2>{mode === 'verify-email' ? 'Email verified' : mode === 'confirm-email-change' ? 'Email updated' : 'Password updated'}</h2>
-        <p>{mode === 'reset-password' || mode === 'confirm-email-change' ? 'Other website sessions were revoked.' : 'You can continue to your account.'}</p>
+        <h2>{mode === 'verify-email' ? passwordSet ? 'Password set' : 'Email verified' : mode === 'confirm-email-change' ? 'Email updated' : 'Password updated'}</h2>
+        <p>{mode === 'reset-password' || mode === 'confirm-email-change' ? 'Other website sessions were revoked.' : passwordSet ? 'You can sign in with your email address and this password.' : 'You can continue to your account.'}</p>
         <a class="button" href="/account">Open account</a>
       {/if}
     {:else}

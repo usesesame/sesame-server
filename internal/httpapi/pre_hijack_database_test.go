@@ -257,13 +257,22 @@ func (e *preHijackEnv) seedPasskey(t *testing.T, accountID string) {
 	}
 }
 
+func (e *preHijackEnv) securityGeneration(t *testing.T, accountID string) int64 {
+	t.Helper()
+	var generation int64
+	if err := e.db.QueryRowContext(context.Background(), `SELECT security_generation FROM sesame_accounts WHERE id = $1`, accountID).Scan(&generation); err != nil {
+		t.Fatalf("read security generation: %v", err)
+	}
+	return generation
+}
+
 func (e *preHijackEnv) seedDesktopConnection(t *testing.T, accountID string) string {
 	t.Helper()
 	_, codeHash, err := accounts.NewSessionToken()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.store.CreateOrReplaceDesktopLink(context.Background(), accountID, codeHash, time.Now().UTC().Add(10*time.Minute)); err != nil {
+	if _, err := e.store.CreateOrReplaceDesktopLink(context.Background(), accountID, e.securityGeneration(t, accountID), codeHash, time.Now().UTC().Add(10*time.Minute)); err != nil {
 		t.Fatalf("seed desktop link: %v", err)
 	}
 	token, tokenHash, err := accounts.NewSessionToken()
@@ -282,7 +291,7 @@ func (e *preHijackEnv) seedDesktopLinkCode(t *testing.T, accountID string) strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.store.CreateOrReplaceDesktopLink(context.Background(), accountID, codeHash, time.Now().UTC().Add(10*time.Minute)); err != nil {
+	if _, err := e.store.CreateOrReplaceDesktopLink(context.Background(), accountID, e.securityGeneration(t, accountID), codeHash, time.Now().UTC().Add(10*time.Minute)); err != nil {
 		t.Fatalf("seed desktop link code: %v", err)
 	}
 	return code

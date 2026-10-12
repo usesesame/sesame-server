@@ -60,3 +60,20 @@ export function renderEnvFile({ settings, preservedLines = [] }) {
   body.push('')
   return body.join('\n')
 }
+
+export function developmentApiEnvironment(processEnv, composeEnvironment) {
+  const fromCompose = (name, fallback) => processEnv[name] || composeEnvironment.get(name) || fallback
+  const databasePassword = fromCompose('SESAME_DATABASE_APP_PASSWORD', 'sesame-development-only')
+  return {
+    ...processEnv,
+    DATABASE_URL: processEnv.DATABASE_URL || `postgres://sesame_app:${encodeURIComponent(databasePassword)}@127.0.0.1:5432/sesame?sslmode=disable`,
+    SESAME_API_ADDR: processEnv.SESAME_API_ADDR || '127.0.0.1:8787',
+    SESAME_WEB_ORIGIN: processEnv.SESAME_WEB_ORIGIN || fromCompose('SESAME_ACCOUNT_ORIGIN', 'http://localhost:4175'),
+    SESAME_SESSION_SECURE: fromCompose('SESAME_SESSION_SECURE', 'false'),
+    SESAME_ADMIN_ORIGIN: fromCompose('SESAME_ADMIN_ORIGIN', 'http://localhost:4174'),
+    SESAME_ADMIN_SESSION_SECURE: fromCompose('SESAME_ADMIN_SESSION_SECURE', 'false'),
+    SESAME_CAPABILITY_SIGNING_KEY: fromCompose('SESAME_CAPABILITY_SIGNING_KEY', ''),
+    SESAME_ADMIN_ENCRYPTION_KEY: fromCompose('SESAME_ADMIN_ENCRYPTION_KEY', ''),
+    SESAME_ADMIN_IP_PEPPER: fromCompose('SESAME_ADMIN_IP_PEPPER', ''),
+  }
+}

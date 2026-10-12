@@ -20,6 +20,8 @@ does not upload, identify, or unlock a vault, and it does not enable Sync.
 
 ## Self-hosting
 
+To run your own server for pairing desktops, read [SELF-HOSTING.md](SELF-HOSTING.md). The steps below set up the hosted service stack for development.
+
 From a fresh clone:
 
 ```bash
@@ -59,8 +61,11 @@ then read published metadata anonymously, with no credentials and no unsafe
 method.
 
 Everything above runs over HTTP on loopback. Behind TLS, set
-`SESAME_SESSION_SECURE` and `SESAME_ADMIN_SESSION_SECURE` to `true` and give
-each origin its real HTTPS address.
+`SESAME_SESSION_SECURE` and `SESAME_ADMIN_SESSION_SECURE` to `true` in
+`deploy/compose/.env` and give each origin its real HTTPS address there too.
+When a flag is missing, `npm run setup` sets it to `true` for an HTTPS origin
+already in that file. The API refuses to start when an HTTPS origin has its
+flag off.
 
 ## Local configuration
 
