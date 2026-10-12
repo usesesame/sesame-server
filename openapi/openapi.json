@@ -920,6 +920,42 @@
         "x-sesame-registration-pattern": "/v1/account/password"
       }
     },
+    "/v1/account/password/setup": {
+      "post": {
+        "operationId": "postV1AccountPasswordSetup",
+        "summary": "POST setup password",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "setupPassword",
+        "x-sesame-registration-pattern": "/v1/account/password/setup"
+      }
+    },
     "/v1/account/reauthenticate": {
       "post": {
         "operationId": "postV1AccountReauthenticate",
@@ -5377,5 +5413,5 @@
     "internal/httpapi/sync_routes.go"
   ],
   "x-sesame-deployment-profile": "project",
-  "x-sesame-operation-count": 130
+  "x-sesame-operation-count": 131
 }

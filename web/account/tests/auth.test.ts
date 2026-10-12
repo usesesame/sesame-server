@@ -19,7 +19,7 @@ function bootstrap(overrides: Partial<AccountBootstrap> = {}): AccountBootstrap 
     licences: [],
     capabilities: { desktopLinking: true, passkeys: true, browserHelper: false, notifications: true },
     notificationCounts: { security: 0, support: 0, product: 0 },
-    security: { activeSessions: 1, connectedDesktops: 0, recentAuthenticationAt: '2026-08-31T10:00:00Z' },
+    security: { activeSessions: 1, connectedDesktops: 0, recentAuthenticationAt: '2026-08-31T10:00:00Z', credentialSetupRequired: false },
     ...overrides,
   }
 }
@@ -171,4 +171,23 @@ test('saves notification preferences with a PATCH', async () => {
   expect(url).toBe('https://api.test.invalid/v1/account/notifications')
   expect(init.method).toBe('PATCH')
   expect(JSON.parse(init.body)).toEqual(preferences)
+})
+
+test('reads whether email verification leaves credential setup to do', async () => {
+  fetchMock.mockResolvedValueOnce(jsonResponse({ token: 'csrf-test' }))
+  fetchMock.mockResolvedValueOnce(jsonResponse({ user: account(), credentialSetupRequired: true }))
+  fetchMock.mockResolvedValueOnce(jsonResponse({ user: account() }))
+  const { confirmEmailVerification } = await import('../src/lib/auth')
+  await expect(confirmEmailVerification('t'.repeat(40))).resolves.toEqual({ account: account(), credentialSetupRequired: true })
+  await expect(confirmEmailVerification('t'.repeat(40))).resolves.toEqual({ account: account(), credentialSetupRequired: false })
+})
+
+test('sets the first password and reports a refusal', async () => {
+  fetchMock.mockResolvedValueOnce(jsonResponse({ token: 'csrf-test' }))
+  fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+  fetchMock.mockResolvedValueOnce(jsonResponse({ error: { code: 'password_already_set', message: 'This account already has a password.' } }, 409))
+  const { setupPassword } = await import('../src/lib/auth')
+  await expect(setupPassword('fictional-first-password')).resolves.toBeUndefined()
+  expect(fetchMock).toHaveBeenLastCalledWith('https://api.test.invalid/v1/account/password/setup', expect.objectContaining({ method: 'POST', body: JSON.stringify({ newPassword: 'fictional-first-password' }) }))
+  await expect(setupPassword('fictional-second-password')).rejects.toMatchObject({ code: 'password_already_set', status: 409 })
 })
