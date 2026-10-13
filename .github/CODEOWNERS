@@ -17,10 +17,9 @@
 /internal/admin/         @d0mkaaa
 /internal/httpapi/       @d0mkaaa
 
-# Sync stays built-disabled until its own review passes. Nothing here should
-# change without that review moving first.
 /internal/syncproto/     @d0mkaaa
-/internal/syncstore/     @d0mkaaa
+/internal/syncsvc/       @d0mkaaa
+/internal/syncv3http/    @d0mkaaa
 
 # Migrations are immutable after release, and the generated contract is what
 # every client is written against.

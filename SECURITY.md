@@ -5,8 +5,9 @@ portal, and the administration portal. It is early software and has not had an
 independent security audit.
 
 The rule this service exists to keep: the shipping API stores account and
-release records, not vault data. The development-only Sync preview can store
-opaque ciphertext but has no decryption key.
+release records, not vault data. Sync stores opaque ciphertext and signed
+headers and has no decryption key. It is off until an operator turns it on, and
+it has not had an independent security review.
 
 ## Reporting a vulnerability
 
@@ -54,13 +55,13 @@ In scope:
 - The self-hosted deployment: a key that is predictable, shared between
   installations, or logged; an admin bootstrap that can be replayed.
 - Support intake accepting secret-shaped content it should refuse.
+- Sync: a server that can read, add, hide or reorder a device or a version
+  without a client noticing, a request signature that can be replayed or moved
+  to another token, and any route that changes state without a device
+  signature.
 
 Out of scope:
 
-- Sync remains unavailable in the shipping API. Its routes are registered but
-  fail closed because `cmd/api` does not provide a Sync store. A separate
-  loopback-only development binary can wire the preview store when
-  `SESAME_ENV=development`; report findings against that preview here.
 - Missing hardening with no demonstrated impact: header audits, version
   disclosure, rate limits without a working amplification, scanner output.
 - Denial of service through traffic volume, and social engineering.

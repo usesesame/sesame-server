@@ -236,5 +236,5 @@ test('shows no hosted-only screens', async () => {
   openApp('/')
   await screen.findByRole('heading', { name: 'Devices' })
   const labels = screen.getAllByRole('link').map((link) => link.textContent)
-  expect(labels).toEqual(['Devices', 'Members', 'Pairing', 'Audit log', 'Owners', 'Settings', 'Updates', 'System', 'Add a device'])
+  expect(labels).toEqual(['Devices', 'Members', 'Pairing', 'Audit log', 'Owners', 'Sync', 'Settings', 'Updates', 'System', 'Add a device'])
 })

@@ -15,7 +15,7 @@ import (
 	"usesesame.app/backend/internal/accounts"
 	"usesesame.app/backend/internal/activity"
 	adminstore "usesesame.app/backend/internal/admin"
-	"usesesame.app/backend/internal/syncstore"
+	"usesesame.app/backend/internal/syncsvc"
 )
 
 const (
@@ -39,7 +39,7 @@ type Config struct {
 	Accounts         accounts.Store
 	Admin            *adminstore.Store
 	// Nil disables every /v1/sync route; the cloud_sync_available flag must also be on.
-	Sync                      *syncstore.Store
+	Sync                      *syncsvc.Service
 	ReleaseRegistry           ReleaseRegistry
 	AdminOrigin               string
 	AdminSecure               bool

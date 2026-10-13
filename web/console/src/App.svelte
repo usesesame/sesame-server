@@ -18,11 +18,12 @@
   import Settings from './views/Settings.svelte'
   import Setup from './views/Setup.svelte'
   import SignIn from './views/SignIn.svelte'
+  import Sync from './views/Sync.svelte'
   import System from './views/System.svelte'
   import Updates from './views/Updates.svelte'
 
   type Phase = 'loading' | 'unavailable' | 'setup' | 'pair' | 'signin' | 'app'
-  type ViewId = 'devices' | 'members' | 'pairing' | 'audit' | 'owners' | 'settings' | 'updates' | 'system'
+  type ViewId = 'devices' | 'members' | 'pairing' | 'audit' | 'owners' | 'sync' | 'settings' | 'updates' | 'system'
 
   const nav: { id: ViewId; label: string }[] = [
     { id: 'devices', label: 'Devices' },
@@ -30,6 +31,7 @@
     { id: 'pairing', label: 'Pairing' },
     { id: 'audit', label: 'Audit log' },
     { id: 'owners', label: 'Owners' },
+    { id: 'sync', label: 'Sync' },
     { id: 'settings', label: 'Settings' },
     { id: 'updates', label: 'Updates' },
     { id: 'system', label: 'System' },
@@ -198,6 +200,7 @@
           {:else if view === 'pairing'}<Pairing initialTarget={pairingTarget} />
           {:else if view === 'audit'}<Audit />
           {:else if view === 'owners'}<Owners />
+          {:else if view === 'sync'}<Sync />
           {:else if view === 'settings'}<Settings />
           {:else if view === 'updates'}<Updates />
           {:else}<System />

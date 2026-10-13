@@ -25,6 +25,7 @@ func TestPasskeyVerificationWithDatabaseSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	lockDatabaseTests(t, store.DB())
 	wa, err := webauthn.New(&webauthn.Config{RPID: passkeyTestRP, RPDisplayName: "Fictional account", RPOrigins: []string{passkeyTestOrigin}})
 	if err != nil {
 		t.Fatal(err)
@@ -157,6 +158,7 @@ func TestPasskeyLoginCloneWarningWithDatabaseSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
+	lockDatabaseTests(t, store.DB())
 	wa, err := webauthn.New(&webauthn.Config{RPID: passkeyTestRP, RPDisplayName: "Fictional account", RPOrigins: []string{passkeyTestOrigin}})
 	if err != nil {
 		t.Fatal(err)

@@ -1,5 +1,5 @@
 import { mutate, request, setCSRFToken } from './api'
-import type { AuditPage, Config, Device, IssuedPairing, Member, MemberRemoval, Owner, OwnerInvite, PendingPairing, SessionInfo, Settings, SettingsChange, SetupDetails, SystemInfo, UpdateChange, UpdateInfo } from './types'
+import type { AuditPage, Config, Device, IssuedPairing, Member, MemberRemoval, Owner, OwnerInvite, PendingPairing, SessionInfo, Settings, SettingsChange, SetupDetails, SyncHolder, SyncOverview, SystemInfo, UpdateChange, UpdateInfo } from './types'
 
 export function loadConfig() {
   return request<Config>('/config.json')
@@ -42,6 +42,10 @@ export async function listDevices() {
   return (await request<{ devices: Device[] }>('/v1/owner/devices')).devices
 }
 export const revokeDevice = (id: string) => mutate<void>(`/v1/owner/devices/${encodeURIComponent(id)}`, 'DELETE')
+
+export const loadSync = () => request<SyncOverview>('/v1/owner/sync')
+export const setSyncEnabled = (enabled: boolean) => mutate<unknown>('/v1/owner/flags/sync_enabled', 'PATCH', { enabled })
+export const resetSyncVault = (holder: SyncHolder) => mutate<void>(`/v1/owner/sync/${holder.kind}/${encodeURIComponent(holder.id)}`, 'DELETE')
 
 export function loadAudit(cursor?: number | null) {
   const query = cursor ? `?cursor=${encodeURIComponent(String(cursor))}` : ''
