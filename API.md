@@ -461,60 +461,58 @@ account endpoints. A guest link is a capability for one request only: it is
 bound to the requester address stored at issue time and stops working on close,
 attach, or a newer link.
 
-## Sync (registered, disabled)
+## Sync (off until the operator turns it on)
 
-`/v1/sync/*` exists and refuses. Every route returns
-`403 sync_unavailable` while the `cloud_sync_available` runtime flag is false,
-which it is, and `Config.Sync` is left unset in `cmd/api/main.go`, so enabling
-Sync requires a code change as well as a flag change.
-
-The development-only `cmd/api-sync-preview` binary also runs a maintenance job.
-It removes expired and used enrollment challenges and revoked devices older than
-the retention period, and it never removes a device that a stored envelope still
-names. It runs once at start and then every `SESAME_SYNC_MAINTENANCE_INTERVAL`,
-which defaults to `1h` and must be between `1m` and `24h`.
-`SESAME_SYNC_REVOKED_DEVICE_RETENTION` sets the retention, which defaults to
-`2160h` and must be at least `24h`. The job does nothing while the
-`cloud_sync_available` flag is false.
-
-The routes are listed here so the contract is reviewable, not because they are
-usable:
-
-- `POST /v1/sync/enroll/begin` issues a one-time, vault-bound, expiring
-  enrollment challenge and creates the vault on first use.
-- `POST /v1/sync/enroll/finish` registers a device's Ed25519 signing key and
-  X25519 encryption key with a signed proof. The device is `pending` and can do
-  nothing until approved.
-- `GET /v1/sync/devices` lists the vault's devices and states.
-- `POST /v1/sync/devices/{id}/approve` carries an encrypted key package from
-  an already-approved device. The service cannot produce this package, which is
-  what makes "Sesame cannot add a device to your vault" a property rather than a
-  promise.
-- `POST /v1/sync/devices/{id}/deny` removes a pending device, which never had
-  the vault key and therefore needs no key rotation.
-- `POST /v1/sync/devices/{id}/rekey` removes another approved device while
-  atomically advancing the vault epoch, replacing the encrypted envelope, and
-  supplying new encrypted key packages for every survivor.
-- `DELETE /v1/sync/devices/{id}` lets only the calling device leave the
-  vault. Removing another approved device requires the signed rekey ceremony.
-- `GET /v1/sync/key-package` returns the wrapped vault key addressed to the
-  authenticated device.
-- `POST /v1/sync/activate` proves that an approved device received its key
-  package before making it active.
-- `POST /v1/sync/reset` deletes an abandoned synced vault only when no
-  approved device remains.
-- `GET /v1/sync/envelope` returns the current revision and opaque ciphertext.
-- `POST /v1/sync/envelope` performs a compare-and-swap upload. Returns
-  `409 sync_conflict` with the current revision when another device got there
-  first. A client must resolve that with the user and must never retry by
-  overwriting.
+`/v1/sync/*` exists and refuses. Every route returns `403 sync_unavailable`
+while the `cloud_sync_available` runtime flag is false, which is its default.
+Turning the flag on needs no code change. Sync has not had an independent
+security review.
 
 Authentication is the desktop device token (`Authorization: Sesame <token>`),
-never a website session. Sync moves vault bytes and a browser must not be able
-to. There is no cookie path into any Sync handler.
+never a website session, and every route that changes state also needs a
+`Sesame-Request-Signature` header from the device behind the token. The
+signature covers the method, the request target, the body, the token, a
+timestamp and a nonce. The service accepts a timestamp within five minutes and
+refuses a nonce it has seen in the last ten. There is no cookie path into any
+Sync handler.
 
-The service stores opaque ciphertext and routing metadata. It does not decrypt,
-parse, or log `ciphertext`.
+- `GET /v1/sync/state` returns the vault epoch, the device list head, the
+  current revision and the state of the calling device.
+- `POST /v1/sync/vault` creates the vault from a signed `create` device list
+  entry.
+- `GET /v1/sync/device-list?after=N` returns signed device list entries.
+- `GET /v1/sync/devices` returns device states and open pairings.
+- `POST /v1/sync/pairings`, `GET /v1/sync/pairings/mine`,
+  `POST /v1/sync/pairings/{deviceId}/answer`,
+  `POST /v1/sync/pairings/mine/confirm` and `DELETE /v1/sync/pairings/{deviceId}`
+  relay the messages of the pairing exchange. The service cannot read them.
+- `POST /v1/sync/devices` appends a signed `add` entry and the new device's key
+  package in one step. The service cannot produce the package.
+- `POST /v1/sync/devices/remove` appends a signed `remove` entry with a new key
+  package for every device that stays. A device leaves the same way.
+- `GET /v1/sync/key-package` and `POST /v1/sync/activate` hand a device its
+  package and record that it holds the key.
+- `POST /v1/sync/snapshots` stores a signed header and one padded ciphertext.
+  `409 sync_conflict` means another device got there first, and a client never
+  retries by overwriting.
+- `GET /v1/sync/headers?after=N` and `GET /v1/sync/snapshot` return signed
+  headers with receipts, and the newest ciphertext.
+- `POST /v1/sync/checkpoints` stores the newest signed checkpoint of the calling
+  device, which names the device list head and header head it has seen and the
+  time. `GET /v1/sync/checkpoints` returns one checkpoint per device. The
+  service keeps them so devices can compare what each saw, and a client checks
+  them itself.
+- `POST /v1/sync/reset` deletes the vault when the caller names its epoch.
+
+The service verifies signatures and chains so that it does not store nonsense,
+and a client verifies all of it again, so a lying service cannot make a device
+accept anything. The service stores opaque ciphertext, signed headers, signed
+device list entries and sealed device names. It does not decrypt, parse or log
+`ciphertext`. It keeps the newest ciphertext that fits a 128 MiB budget per
+vault, never the previous head, and at most 10,000 headers.
+
+Receipts are signed with the capability signing key, the same key that signs
+`GET /v1/capabilities`.
 
 ## Administration
 

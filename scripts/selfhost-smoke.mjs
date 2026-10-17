@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash, createHmac, createPublicKey, verify } from 'node:crypto'
+import { createHash, createHmac, createPublicKey, randomBytes, verify } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
@@ -8,6 +8,18 @@ import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  deviceListDigest,
+  deviceListSigningPayload,
+  digestOf,
+  headerDigest,
+  headerSigningPayload,
+  keyPackageDigest,
+  keyPackageSigningPayload,
+  publicKeyFromSeed,
+  requestSigningPayload,
+  signEd25519,
+} from './sync-wire.mjs'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const consoleRoot = join(root, 'web', 'console')
@@ -25,6 +37,7 @@ const servers = []
 const closers = []
 let passed = 0
 let feedFileCounter = 0
+const issuedCounters = []
 
 try {
   await main()
@@ -295,6 +308,7 @@ function base32Decode(value) {
 
 function totp(secret, offsetSeconds = 0) {
   const counter = BigInt(Math.floor((Date.now() / 1000 + offsetSeconds) / 30))
+  issuedCounters.push(Number(counter))
   const message = Buffer.alloc(8)
   message.writeBigUInt64BE(counter)
   const digest = createHmac('sha1', base32Decode(secret)).update(message).digest()
@@ -306,6 +320,55 @@ function totp(secret, offsetSeconds = 0) {
 async function clearOfPeriodEdge() {
   const intoPeriod = (Date.now() / 1000) % 30
   if (intoPeriod > 27) await sleep((30 - intoPeriod + 1) * 1000)
+}
+
+async function freshTotp(secret) {
+  for (;;) {
+    await clearOfPeriodEdge()
+    const current = Math.floor(Date.now() / 30_000)
+    if (issuedCounters.every((counter) => counter < current)) return totp(secret)
+    await sleep((current + 1) * 30_000 - Date.now() + 50)
+  }
+}
+
+function syncDevice(id, token) {
+  const seed = randomBytes(32)
+  return { id, token, seed, signingKey: publicKeyFromSeed(seed) }
+}
+
+function randomBase64url(length) {
+  return randomBytes(length).toString('base64url')
+}
+
+function tokenHeaders(device) {
+  return { headers: { authorization: `Sesame ${device.token}` } }
+}
+
+function signedCall(device, method, path, json) {
+  const body = Buffer.from(JSON.stringify(json), 'utf8')
+  const timestamp = Math.floor(Date.now() / 1000)
+  const nonce = randomBase64url(16)
+  const signature = signEd25519(device.seed, requestSigningPayload({ method, target: path, body, token: device.token, timestamp, nonce }))
+  return { headers: { authorization: `Sesame ${device.token}`, 'sesame-request-signature': `${timestamp}.${nonce}.${signature}` }, json }
+}
+
+function signDeviceListEntry(signer, entry) {
+  return { ...entry, signature: signEd25519(signer.seed, deviceListSigningPayload(entry)) }
+}
+
+function signHeader(signer, header) {
+  return { ...header, signature: signEd25519(signer.seed, headerSigningPayload(header)) }
+}
+
+function signKeyPackage(signer, pkg) {
+  return { ...pkg, signature: signEd25519(signer.seed, keyPackageSigningPayload(pkg)) }
+}
+
+function headerFor({ vaultId, signer, revision, previousDigest, deviceListIndex, deviceListDigest, ciphertext }) {
+  return {
+    version: 3, vaultId, deviceId: signer.id, revision, vaultEpoch: 1, deviceListIndex, deviceListDigest, previousDigest,
+    ciphertextDigest: digestOf(ciphertext), ciphertextLength: ciphertext.length, nonce: randomBase64url(24),
+  }
 }
 
 function browser(server) {
@@ -687,6 +750,157 @@ async function main() {
     const system = expectStatus(await owner.call('GET', '/v1/owner/system'), 200, 'system')
     assert.equal(system.json.auditChainOk, true)
     assert.equal(system.json.activeDevices, 0)
+  })
+
+  const syncOwner = await check('the owner confirms a sign-in with a password and a fresh code', async () => {
+    const response = expectStatus(await owner.call('POST', '/v1/owner/step-up', { json: { password: ownerPassword, code: await freshTotp(ownerSecret) } }), 200, 'step-up')
+    assert.ok(response.json.recentAuthUntil, 'the step-up set no recent sign-in window')
+    return response.json.owner
+  })
+
+  const [tokenA, tokenB] = await check('the owner links two desktops to the owner account', async () => {
+    const tokens = []
+    for (const deviceName of ['Smoke laptop A', 'Smoke laptop B']) {
+      const created = expectStatus(await owner.call('POST', '/v1/owner/pairings', { json: { self: true, deviceName } }), 201, 'owner pairing')
+      assert.equal(created.json.holder.kind, 'owner')
+      const linked = expectStatus(await request(first, 'POST', '/v1/desktop/link', { json: { code: created.json.code, deviceName: `${deviceName} desktop` } }), 201, 'desktop link')
+      tokens.push(linked.json.accessToken)
+    }
+    return tokens
+  })
+
+  const syncA = syncDevice('syncDeskAlpha000001', tokenA)
+  const syncB = syncDevice('syncDeskBravo000002', tokenB)
+  const vaultId = 'vaultSmokeAlpha0001'
+  const ciphertextOne = randomBytes(256)
+  const ciphertextTwo = randomBytes(256)
+  const packageKeyB = randomBase64url(32)
+  const entryA = signDeviceListEntry(syncA, {
+    vaultId, index: 1, previousDigest: '', kind: 'create', signerDeviceId: syncA.id, subjectDeviceId: syncA.id,
+    subjectSigningKey: syncA.signingKey, subjectPackageKey: randomBase64url(32), sealedLabel: randomBase64url(48), epochAfter: 1, snapshotFloor: 0,
+  })
+  const entryB = signDeviceListEntry(syncA, {
+    vaultId, index: 2, previousDigest: deviceListDigest(entryA), kind: 'add', signerDeviceId: syncA.id, subjectDeviceId: syncB.id,
+    subjectSigningKey: syncB.signingKey, subjectPackageKey: packageKeyB, sealedLabel: randomBase64url(48), epochAfter: 1, snapshotFloor: 1,
+  })
+  const headerOne = signHeader(syncA, headerFor({ vaultId, signer: syncA, revision: 1, previousDigest: '', deviceListIndex: 1, deviceListDigest: deviceListDigest(entryA), ciphertext: ciphertextOne }))
+  const revisionOneDigest = headerDigest(headerOne)
+
+  await check('sync routes answer sync_unavailable while the sync_enabled flag is off', async () => {
+    expectError(await request(first, 'GET', '/v1/sync/state', tokenHeaders(syncA)), 403, 'sync_unavailable', 'sync state before the flag')
+    expectError(await request(first, 'GET', '/v1/sync/headers?after=0', tokenHeaders(syncA)), 403, 'sync_unavailable', 'headers before the flag')
+    expectError(await request(first, 'POST', '/v1/sync/vault', signedCall(syncA, 'POST', '/v1/sync/vault', { entry: entryA })), 403, 'sync_unavailable', 'vault before the flag')
+  })
+
+  await check('the owner turns on sync_enabled with a recent sign-in', async () => {
+    const response = expectStatus(await owner.call('PATCH', '/v1/owner/flags/sync_enabled', { json: { enabled: true } }), 200, 'enable sync')
+    assert.equal(response.json.enabled, true)
+    const flags = expectStatus(await owner.call('GET', '/v1/owner/flags'), 200, 'flags')
+    assert.equal(flags.json.flags.find((flag) => flag.key === 'sync_enabled')?.enabled, true)
+  })
+
+  await check('device A creates the vault with a signed create entry', async () => {
+    const response = expectStatus(await request(first, 'POST', '/v1/sync/vault', signedCall(syncA, 'POST', '/v1/sync/vault', { entry: entryA })), 201, 'create vault')
+    assert.deepEqual(response.json, { vaultId, vaultEpoch: 1, headIndex: 1 })
+  })
+
+  await check('device A uploads revision 1 and gets back the digest it computed', async () => {
+    const body = { header: headerOne, ciphertext: ciphertextOne.toString('base64url') }
+    const response = expectStatus(await request(first, 'POST', '/v1/sync/snapshots', signedCall(syncA, 'POST', '/v1/sync/snapshots', body)), 201, 'upload revision 1')
+    assert.equal(response.json.revision, 1)
+    assert.equal(response.json.digest, revisionOneDigest)
+    assert.ok(response.json.receipt, 'the upload returned no receipt')
+  })
+
+  await check('device A reads its state, headers and snapshot back with the same digest', async () => {
+    const state = expectStatus(await request(first, 'GET', '/v1/sync/state', tokenHeaders(syncA)), 200, 'sync state')
+    assert.equal(state.json.vaultId, vaultId)
+    assert.equal(state.json.vaultEpoch, 1)
+    assert.equal(state.json.headIndex, 1)
+    assert.equal(state.json.currentRevision, 1)
+    assert.equal(state.json.deviceId, syncA.id)
+    assert.equal(state.json.deviceState, 'approved')
+    const headers = expectStatus(await request(first, 'GET', '/v1/sync/headers?after=0', tokenHeaders(syncA)), 200, 'headers')
+    assert.equal(headers.json.headers.length, 1)
+    assert.equal(headers.json.headers[0].digest, revisionOneDigest)
+    assert.equal(headerDigest(headers.json.headers[0]), revisionOneDigest, 'the served header does not hash to the digest the server returned')
+    const snapshot = expectStatus(await request(first, 'GET', '/v1/sync/snapshot', tokenHeaders(syncA)), 200, 'snapshot')
+    assert.equal(snapshot.json.digest, revisionOneDigest)
+    assert.equal(headerDigest(snapshot.json.header), revisionOneDigest)
+    assert.equal(snapshot.json.ciphertext, ciphertextOne.toString('base64url'))
+  })
+
+  const offerMessage = randomBase64url(32)
+  const answerMessage = randomBase64url(32)
+  const confirmMessage = randomBase64url(32)
+
+  await check('device B offers a pairing that device A sees and answers', async () => {
+    const offer = { deviceId: syncB.id, signingKey: syncB.signingKey, packageKey: packageKeyB, message: offerMessage }
+    expectStatus(await request(first, 'POST', '/v1/sync/pairings', signedCall(syncB, 'POST', '/v1/sync/pairings', offer)), 201, 'begin pairing')
+    const pending = expectStatus(await request(first, 'GET', '/v1/sync/devices', tokenHeaders(syncA)), 200, 'devices')
+    const found = pending.json.pairings.find((pairing) => pairing.deviceId === syncB.id)
+    assert.equal(found?.state, 'offered')
+    assert.equal(found?.offer, offerMessage)
+    expectStatus(await request(first, 'POST', `/v1/sync/pairings/${syncB.id}/answer`, signedCall(syncA, 'POST', `/v1/sync/pairings/${syncB.id}/answer`, { message: answerMessage })), 204, 'answer pairing')
+    const status = expectStatus(await request(first, 'GET', '/v1/sync/pairings/mine', tokenHeaders(syncB)), 200, 'pairing status')
+    assert.equal(status.json.state, 'answered')
+    assert.equal(status.json.answer, answerMessage)
+  })
+
+  let approvedPackage
+  await check('device B confirms the pairing and device A approves it with an add entry and a key package', async () => {
+    expectStatus(await request(first, 'POST', '/v1/sync/pairings/mine/confirm', signedCall(syncB, 'POST', '/v1/sync/pairings/mine/confirm', { message: confirmMessage })), 204, 'confirm pairing')
+    approvedPackage = signKeyPackage(syncA, { vaultId, senderDeviceId: syncA.id, recipientDeviceId: syncB.id, vaultEpoch: 1, entryDigest: deviceListDigest(entryB), ciphertext: randomBase64url(64) })
+    expectStatus(await request(first, 'POST', '/v1/sync/devices', signedCall(syncA, 'POST', '/v1/sync/devices', { entry: entryB, package: approvedPackage })), 201, 'approve device')
+    const devices = expectStatus(await request(first, 'GET', '/v1/sync/devices', tokenHeaders(syncA)), 200, 'devices')
+    const added = devices.json.devices.find((device) => device.deviceId === syncB.id)
+    assert.equal(added?.state, 'approved')
+    assert.equal(added?.addedIndex, 2)
+  })
+
+  await check('device B fetches the key package and activates it by its digest', async () => {
+    const served = expectStatus(await request(first, 'GET', '/v1/sync/key-package', tokenHeaders(syncB)), 200, 'key package').json.package
+    const digest = keyPackageDigest(served)
+    assert.equal(digest, keyPackageDigest(approvedPackage), 'the served key package is not the one device A approved')
+    expectStatus(await request(first, 'POST', '/v1/sync/activate', signedCall(syncB, 'POST', '/v1/sync/activate', { packageDigest: digest })), 204, 'activate device')
+    const state = expectStatus(await request(first, 'GET', '/v1/sync/state', tokenHeaders(syncB)), 200, 'device B state')
+    assert.equal(state.json.deviceState, 'approved')
+    assert.equal(state.json.activatedEpoch, 1)
+  })
+
+  let uploadTwo
+  await check('device B uploads revision 2 on top of device A revision 1', async () => {
+    const headerTwo = signHeader(syncB, headerFor({ vaultId, signer: syncB, revision: 2, previousDigest: revisionOneDigest, deviceListIndex: 2, deviceListDigest: deviceListDigest(entryB), ciphertext: ciphertextTwo }))
+    uploadTwo = signedCall(syncB, 'POST', '/v1/sync/snapshots', { header: headerTwo, ciphertext: ciphertextTwo.toString('base64url') })
+    const response = expectStatus(await request(first, 'POST', '/v1/sync/snapshots', uploadTwo), 201, 'upload revision 2')
+    assert.equal(response.json.revision, 2)
+    assert.equal(response.json.digest, headerDigest(headerTwo))
+  })
+
+  await check('a replayed signed upload is refused with sync_replayed', async () => {
+    expectError(await request(first, 'POST', '/v1/sync/snapshots', uploadTwo), 409, 'sync_replayed', 'replayed upload')
+  })
+
+  await check('a reset signed with the wrong key is refused with sync_signature_invalid', async () => {
+    const forged = signedCall({ ...syncA, seed: syncB.seed }, 'POST', '/v1/sync/reset', { vaultEpoch: 1 })
+    expectError(await request(first, 'POST', '/v1/sync/reset', forged), 401, 'sync_signature_invalid', 'reset with a wrong signature')
+  })
+
+  await check('the owner overview shows two devices at revision 2', async () => {
+    const overview = expectStatus(await owner.call('GET', '/v1/owner/sync'), 200, 'owner sync overview')
+    assert.equal(overview.json.available, true)
+    assert.equal(overview.json.enabled, true)
+    const holder = overview.json.holders.find((record) => record.kind === 'owner' && record.id === syncOwner.id)
+    assert.ok(holder, 'the owner has no sync record')
+    assert.equal(holder.hasVault, true)
+    assert.equal(holder.devices, 2)
+    assert.equal(holder.currentRevision, 2)
+  })
+
+  await check('the owner resets the synced vault with a fresh sign-in and the state route reports no vault', async () => {
+    expectStatus(await owner.call('POST', '/v1/owner/step-up', { json: { password: ownerPassword, code: await freshTotp(ownerSecret) } }), 200, 'step-up before reset')
+    expectStatus(await owner.call('DELETE', `/v1/owner/sync/owner/${syncOwner.id}`), 204, 'reset synced vault')
+    expectError(await request(first, 'GET', '/v1/sync/state', tokenHeaders(syncA)), 404, 'sync_vault_not_found', 'state after reset')
   })
 
   await check('a health probe from the CLI succeeds while the server runs', async () => {
