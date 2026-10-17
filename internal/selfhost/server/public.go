@@ -20,6 +20,8 @@ type capabilityDocument struct {
 	Features              map[string]bool `json:"features"`
 	ServiceStatus         map[string]bool `json:"serviceStatus"`
 	ExpiresAt             time.Time       `json:"expiresAt"`
+	InstanceID            string          `json:"instanceId"`
+	Origin                string          `json:"origin"`
 }
 
 func (s *server) livez(w http.ResponseWriter, _ *http.Request) {
@@ -62,7 +64,8 @@ func (s *server) instance(w http.ResponseWriter, r *http.Request) {
 		"apiVersion":           1,
 		"minimumClientVersion": s.cfg.MinimumClientVersion,
 		"profile":              selfhost.Profile,
-		"modules":              []string{},
+		"modules":              s.modules(r),
+		"syncProtocol":         syncProtocolVersion,
 		"capabilityKeyId":      s.keyID,
 		"capabilityPublicKey":  s.publicKey,
 		"fingerprint":          s.fingerprint,
@@ -93,12 +96,20 @@ func (s *server) capabilities(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "capabilities_unavailable", "Capability configuration is temporarily unavailable.")
 		return
 	}
+	syncOn := s.syncEnabled(r.Context())
+	instance, err := s.cfg.Store.Instance(r.Context())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "capabilities_unavailable", "Capability configuration is temporarily unavailable.")
+		return
+	}
 	document := capabilityDocument{
+		InstanceID:            instance.ID,
+		Origin:                s.cfg.PublicURL.Origin,
 		SchemaVersion:         1,
 		MinimumDesktopVersion: s.cfg.MinimumClientVersion,
 		LatestDesktopVersion:  s.cfg.LatestDesktopVersion,
-		Features:              map[string]bool{"desktopLinking": linking, "downloads": false, "updater": false, "sync": false},
-		ServiceStatus:         map[string]bool{"accounts": false, "downloads": false, "desktop": linking, "sync": false},
+		Features:              map[string]bool{"desktopLinking": linking, "downloads": false, "updater": false, "sync": syncOn},
+		ServiceStatus:         map[string]bool{"accounts": false, "downloads": false, "desktop": linking, "sync": syncOn},
 		ExpiresAt:             s.now().UTC().Add(s.cfg.CapabilityTTL).Truncate(time.Minute),
 	}
 	payload, err := json.Marshal(document)
@@ -120,4 +131,11 @@ func (s *server) capabilities(w http.ResponseWriter, r *http.Request) {
 		"signature": base64.RawURLEncoding.EncodeToString(signature),
 		"keyId":     s.keyID,
 	})
+}
+
+func (s *server) modules(r *http.Request) []string {
+	if s.syncEnabled(r.Context()) {
+		return []string{"sync"}
+	}
+	return []string{}
 }

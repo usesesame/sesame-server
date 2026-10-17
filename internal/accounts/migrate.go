@@ -127,7 +127,6 @@ func reconcileRuntimeRole(ctx context.Context, conn *sql.Conn) error {
 		`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ` + runtimeRoleName,
 		`REVOKE CREATE ON SCHEMA public FROM ` + runtimeRoleName,
 		`REVOKE UPDATE, DELETE, TRUNCATE ON TABLE sesame_admin_audit_log FROM ` + runtimeRoleName,
-		`REVOKE UPDATE, DELETE, TRUNCATE ON TABLE sesame_sync_audit FROM ` + runtimeRoleName,
 		`DO $$
 		BEGIN
 			IF to_regclass('public.sesame_admin_audit_chain_head') IS NOT NULL THEN

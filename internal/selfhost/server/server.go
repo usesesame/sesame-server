@@ -17,10 +17,13 @@ import (
 	"usesesame.app/backend/internal/selfhost/config"
 	"usesesame.app/backend/internal/selfhost/console"
 	"usesesame.app/backend/internal/selfhost/updates"
+	"usesesame.app/backend/internal/syncsvc"
+	"usesesame.app/backend/internal/syncv3http"
 )
 
 const (
 	FlagDesktopLinking = "desktop_linking_enabled"
+	FlagSync           = "sync_enabled"
 	minimumPepperBytes = 16
 )
 
@@ -38,6 +41,7 @@ func NewHTTPServer(handler http.Handler) *http.Server {
 func FlagDefinitions() []selfhost.FlagDefinition {
 	return []selfhost.FlagDefinition{
 		{Key: FlagDesktopLinking, Description: "Let desktops link to this server with a pairing code.", Default: true},
+		{Key: FlagSync, Description: "Let linked desktops sync their encrypted vaults through this server.", Default: false},
 	}
 }
 
@@ -59,6 +63,7 @@ type Config struct {
 	LatestDesktopVersion string
 	CapabilityTTL        time.Duration
 	Updates              *updates.Service
+	Sync                 *syncsvc.Service
 	Now                  func() time.Time
 }
 
@@ -168,6 +173,9 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("POST /v1/desktop/heartbeat", s.desktopRoute(s.desktopHeartbeat))
 	mux.HandleFunc("GET /v1/desktop/config", s.desktopRoute(s.desktopConfig))
 	mux.HandleFunc("DELETE /v1/desktop/connection", s.desktopRoute(s.desktopDisconnect))
+	if s.cfg.Sync != nil {
+		syncv3http.New(s.cfg.Sync, syncHost{server: s}).Register(mux)
+	}
 
 	mux.HandleFunc("POST /v1/owner/setup/details", s.ownerOpen(s.setupDetails))
 	mux.HandleFunc("POST /v1/owner/setup", s.ownerOpen(s.setupComplete))
@@ -196,7 +204,9 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("GET /v1/owner/settings", s.owner(s.getSettings))
 	mux.HandleFunc("PATCH /v1/owner/settings", s.ownerStepUp(s.patchSettings))
 	mux.HandleFunc("GET /v1/owner/flags", s.owner(s.listFlags))
-	mux.HandleFunc("PATCH /v1/owner/flags/{key}", s.owner(s.patchFlag))
+	mux.HandleFunc("PATCH /v1/owner/flags/{key}", s.ownerStepUp(s.patchFlag))
+	mux.HandleFunc("GET /v1/owner/sync", s.owner(s.syncOverview))
+	mux.HandleFunc("DELETE /v1/owner/sync/{kind}/{id}", s.ownerStepUp(s.syncReset))
 	mux.HandleFunc("GET /v1/owner/updates", s.owner(s.getUpdates))
 	mux.HandleFunc("PATCH /v1/owner/updates", s.ownerStepUp(s.patchUpdates))
 	mux.HandleFunc("POST /v1/owner/updates/check", s.owner(s.checkUpdates))

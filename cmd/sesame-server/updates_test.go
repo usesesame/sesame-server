@@ -77,10 +77,10 @@ func TestBuiltApplicationHasTheUpdateJob(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer application.Close()
-	if len(application.Jobs) != 3 {
-		t.Fatalf("jobs = %d, want the backup, maintenance and update jobs", len(application.Jobs))
+	if len(application.Jobs) != 4 {
+		t.Fatalf("jobs = %d, want the backup, maintenance, sync maintenance and update jobs", len(application.Jobs))
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	application.Jobs[2](ctx)
+	application.Jobs[3](ctx)
 }

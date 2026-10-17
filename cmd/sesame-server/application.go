@@ -17,6 +17,7 @@ import (
 	"usesesame.app/backend/internal/selfhost/server"
 	"usesesame.app/backend/internal/selfhost/sqlitestore"
 	"usesesame.app/backend/internal/selfhost/updates"
+	"usesesame.app/backend/internal/syncsvc"
 )
 
 const maintenanceInterval = time.Hour
@@ -69,7 +70,13 @@ func buildApplication(ctx context.Context, input BuildInput) (*Application, erro
 		store.Close()
 		return nil, fmt.Errorf("update checks cannot be set up: %w", err)
 	}
+	syncService, err := syncsvc.New(store.SyncStorage(), syncsvc.Config{ReceiptKey: input.Secrets.SigningKey})
+	if err != nil {
+		store.Close()
+		return nil, fmt.Errorf("sync cannot be set up: %w", err)
+	}
 	handler := server.New(server.Config{
+		Sync:           syncService,
 		Store:          store,
 		Version:        input.Version,
 		Commit:         input.Commit,
@@ -89,6 +96,9 @@ func buildApplication(ctx context.Context, input BuildInput) (*Application, erro
 		Jobs: []func(context.Context){
 			func(jobCtx context.Context) { _ = backups.Run(jobCtx) },
 			func(jobCtx context.Context) { maintain(jobCtx, store, logger) },
+			func(jobCtx context.Context) {
+				syncsvc.RunMaintenance(jobCtx, syncService, syncsvc.DefaultMaintenanceInterval, nil)
+			},
 			updateService.Run,
 		},
 		Close: store.Close,
