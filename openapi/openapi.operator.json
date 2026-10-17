@@ -42,8 +42,8 @@
       "description": "Separate-origin administrator control plane."
     },
     {
-      "name": "sync-disabled",
-      "description": "Built-disabled ciphertext-only Sync preview."
+      "name": "sync",
+      "description": "Ciphertext-only Sync. Off until the operator turns it on. Changing requests carry a device signature."
     }
   ],
   "paths": {
@@ -4294,9 +4294,9 @@
     "/v1/sync/activate": {
       "post": {
         "operationId": "postV1SyncActivate",
-        "summary": "POST sync activate device",
+        "summary": "POST sync activate",
         "tags": [
-          "sync-disabled"
+          "sync"
         ],
         "security": [
           {
@@ -4319,10 +4319,110 @@
             }
           }
         },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncActivateDevice",
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncActivate",
         "x-sesame-registration-pattern": "/v1/sync/activate"
+      }
+    },
+    "/v1/sync/checkpoints": {
+      "post": {
+        "operationId": "postV1SyncCheckpoints",
+        "summary": "POST sync put checkpoint",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncPutCheckpoint",
+        "x-sesame-registration-pattern": "/v1/sync/checkpoints"
+      },
+      "get": {
+        "operationId": "getV1SyncCheckpoints",
+        "summary": "GET sync checkpoints",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncCheckpoints",
+        "x-sesame-registration-pattern": "/v1/sync/checkpoints"
+      }
+    },
+    "/v1/sync/device-list": {
+      "get": {
+        "operationId": "getV1SyncDeviceList",
+        "summary": "GET sync device list",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncDeviceList",
+        "x-sesame-registration-pattern": "/v1/sync/device-list"
       }
     },
     "/v1/sync/devices": {
@@ -4330,7 +4430,7 @@
         "operationId": "getV1SyncDevices",
         "summary": "GET sync devices",
         "tags": [
-          "sync-disabled"
+          "sync"
         ],
         "security": [
           {
@@ -4353,198 +4453,50 @@
             }
           }
         },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
         "x-sesame-handler": "syncDevices",
+        "x-sesame-registration-pattern": "/v1/sync/devices"
+      },
+      "post": {
+        "operationId": "postV1SyncDevices",
+        "summary": "POST sync approve",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncApprove",
         "x-sesame-registration-pattern": "/v1/sync/devices"
       }
     },
-    "/v1/sync/devices/{deviceID}": {
-      "delete": {
-        "operationId": "deleteV1SyncDevicesDeviceID",
-        "summary": "DELETE sync revoke device route",
-        "tags": [
-          "sync-disabled"
-        ],
-        "security": [
-          {
-            "desktopToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "deviceID",
-            "in": "path",
-            "required": true,
-            "description": "Opaque device id.",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ],
-        "responses": {
-          "2XX": {
-            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
-          },
-          "default": {
-            "description": "Error response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncRevokeDeviceRoute",
-        "x-sesame-registration-pattern": "/v1/sync/devices/{deviceID}"
-      }
-    },
-    "/v1/sync/devices/{deviceID}/approve": {
+    "/v1/sync/devices/remove": {
       "post": {
-        "operationId": "postV1SyncDevicesDeviceIDApprove",
-        "summary": "POST sync approve device route",
+        "operationId": "postV1SyncDevicesRemove",
+        "summary": "POST sync remove",
         "tags": [
-          "sync-disabled"
-        ],
-        "security": [
-          {
-            "desktopToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "deviceID",
-            "in": "path",
-            "required": true,
-            "description": "Opaque device id.",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ],
-        "responses": {
-          "2XX": {
-            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
-          },
-          "default": {
-            "description": "Error response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncApproveDeviceRoute",
-        "x-sesame-registration-pattern": "/v1/sync/devices/{deviceID}/approve"
-      }
-    },
-    "/v1/sync/devices/{deviceID}/deny": {
-      "post": {
-        "operationId": "postV1SyncDevicesDeviceIDDeny",
-        "summary": "POST sync deny device route",
-        "tags": [
-          "sync-disabled"
-        ],
-        "security": [
-          {
-            "desktopToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "deviceID",
-            "in": "path",
-            "required": true,
-            "description": "Opaque device id.",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ],
-        "responses": {
-          "2XX": {
-            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
-          },
-          "default": {
-            "description": "Error response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncDenyDeviceRoute",
-        "x-sesame-registration-pattern": "/v1/sync/devices/{deviceID}/deny"
-      }
-    },
-    "/v1/sync/devices/{deviceID}/rekey": {
-      "post": {
-        "operationId": "postV1SyncDevicesDeviceIDRekey",
-        "summary": "POST sync rekey device route",
-        "tags": [
-          "sync-disabled"
-        ],
-        "security": [
-          {
-            "desktopToken": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "deviceID",
-            "in": "path",
-            "required": true,
-            "description": "Opaque device id.",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ],
-        "responses": {
-          "2XX": {
-            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
-          },
-          "default": {
-            "description": "Error response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncRekeyDeviceRoute",
-        "x-sesame-registration-pattern": "/v1/sync/devices/{deviceID}/rekey"
-      }
-    },
-    "/v1/sync/enroll/begin": {
-      "post": {
-        "operationId": "postV1SyncEnrollBegin",
-        "summary": "POST sync enroll begin",
-        "tags": [
-          "sync-disabled"
+          "sync"
         ],
         "security": [
           {
@@ -4567,52 +4519,18 @@
             }
           }
         },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncEnrollBegin",
-        "x-sesame-registration-pattern": "/v1/sync/enroll/begin"
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncRemove",
+        "x-sesame-registration-pattern": "/v1/sync/devices/remove"
       }
     },
-    "/v1/sync/enroll/finish": {
-      "post": {
-        "operationId": "postV1SyncEnrollFinish",
-        "summary": "POST sync enroll finish",
-        "tags": [
-          "sync-disabled"
-        ],
-        "security": [
-          {
-            "desktopToken": []
-          }
-        ],
-        "parameters": [],
-        "responses": {
-          "2XX": {
-            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
-          },
-          "default": {
-            "description": "Error response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncEnrollFinish",
-        "x-sesame-registration-pattern": "/v1/sync/enroll/finish"
-      }
-    },
-    "/v1/sync/envelope": {
+    "/v1/sync/headers": {
       "get": {
-        "operationId": "getV1SyncEnvelope",
-        "summary": "GET sync download envelope handler",
+        "operationId": "getV1SyncHeaders",
+        "summary": "GET sync headers",
         "tags": [
-          "sync-disabled"
+          "sync"
         ],
         "security": [
           {
@@ -4635,42 +4553,10 @@
             }
           }
         },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncDownloadEnvelopeHandler",
-        "x-sesame-registration-pattern": "/v1/sync/envelope"
-      },
-      "post": {
-        "operationId": "postV1SyncEnvelope",
-        "summary": "POST sync upload envelope handler",
-        "tags": [
-          "sync-disabled"
-        ],
-        "security": [
-          {
-            "desktopToken": []
-          }
-        ],
-        "parameters": [],
-        "responses": {
-          "2XX": {
-            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
-          },
-          "default": {
-            "description": "Error response.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
-                }
-              }
-            }
-          }
-        },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncUploadEnvelopeHandler",
-        "x-sesame-registration-pattern": "/v1/sync/envelope"
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncHeaders",
+        "x-sesame-registration-pattern": "/v1/sync/headers"
       }
     },
     "/v1/sync/key-package": {
@@ -4678,7 +4564,7 @@
         "operationId": "getV1SyncKeyPackage",
         "summary": "GET sync key package",
         "tags": [
-          "sync-disabled"
+          "sync"
         ],
         "security": [
           {
@@ -4701,18 +4587,210 @@
             }
           }
         },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
         "x-sesame-handler": "syncKeyPackage",
         "x-sesame-registration-pattern": "/v1/sync/key-package"
+      }
+    },
+    "/v1/sync/pairings": {
+      "post": {
+        "operationId": "postV1SyncPairings",
+        "summary": "POST sync begin pairing",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncBeginPairing",
+        "x-sesame-registration-pattern": "/v1/sync/pairings"
+      }
+    },
+    "/v1/sync/pairings/{deviceId}": {
+      "delete": {
+        "operationId": "deleteV1SyncPairingsDeviceId",
+        "summary": "DELETE sync cancel pairing",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncCancelPairing",
+        "x-sesame-registration-pattern": "/v1/sync/pairings/{deviceId}"
+      }
+    },
+    "/v1/sync/pairings/{deviceId}/answer": {
+      "post": {
+        "operationId": "postV1SyncPairingsDeviceIdAnswer",
+        "summary": "POST sync answer pairing",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Opaque device id.",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncAnswerPairing",
+        "x-sesame-registration-pattern": "/v1/sync/pairings/{deviceId}/answer"
+      }
+    },
+    "/v1/sync/pairings/mine": {
+      "get": {
+        "operationId": "getV1SyncPairingsMine",
+        "summary": "GET sync pairing status",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncPairingStatus",
+        "x-sesame-registration-pattern": "/v1/sync/pairings/mine"
+      }
+    },
+    "/v1/sync/pairings/mine/confirm": {
+      "post": {
+        "operationId": "postV1SyncPairingsMineConfirm",
+        "summary": "POST sync confirm pairing",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncConfirmPairing",
+        "x-sesame-registration-pattern": "/v1/sync/pairings/mine/confirm"
       }
     },
     "/v1/sync/reset": {
       "post": {
         "operationId": "postV1SyncReset",
-        "summary": "POST sync reset vault",
+        "summary": "POST sync reset",
         "tags": [
-          "sync-disabled"
+          "sync"
         ],
         "security": [
           {
@@ -4735,10 +4813,146 @@
             }
           }
         },
-        "x-sesame-auth": "desktop-token-built-disabled",
-        "x-sesame-availability": "built-disabled",
-        "x-sesame-handler": "syncResetVault",
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncReset",
         "x-sesame-registration-pattern": "/v1/sync/reset"
+      }
+    },
+    "/v1/sync/snapshot": {
+      "get": {
+        "operationId": "getV1SyncSnapshot",
+        "summary": "GET sync download",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncDownload",
+        "x-sesame-registration-pattern": "/v1/sync/snapshot"
+      }
+    },
+    "/v1/sync/snapshots": {
+      "post": {
+        "operationId": "postV1SyncSnapshots",
+        "summary": "POST sync upload",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncUpload",
+        "x-sesame-registration-pattern": "/v1/sync/snapshots"
+      }
+    },
+    "/v1/sync/state": {
+      "get": {
+        "operationId": "getV1SyncState",
+        "summary": "GET sync state",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncState",
+        "x-sesame-registration-pattern": "/v1/sync/state"
+      }
+    },
+    "/v1/sync/vault": {
+      "post": {
+        "operationId": "postV1SyncVault",
+        "summary": "POST sync create vault",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncCreateVault",
+        "x-sesame-registration-pattern": "/v1/sync/vault"
       }
     }
   },
@@ -4827,5 +5041,5 @@
     "internal/httpapi/sync_routes.go"
   ],
   "x-sesame-deployment-profile": "operator",
-  "x-sesame-operation-count": 117
+  "x-sesame-operation-count": 124
 }

@@ -132,7 +132,7 @@ func (s *server) desktopLink(w http.ResponseWriter, r *http.Request) {
 		"accessToken":   issued.Token,
 		"device":        desktopDeviceOf(issued.Device),
 		"expiresAt":     stamp(issued.Device.ExpiresAt).Format(time.RFC3339),
-		"syncAvailable": false,
+		"syncAvailable": s.syncEnabled(r.Context()),
 	})
 }
 
@@ -147,7 +147,7 @@ func (s *server) desktopStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"connected":              true,
 		"device":                 desktopDeviceOf(device),
-		"syncAvailable":          false,
+		"syncAvailable":          s.syncEnabled(r.Context()),
 		"browserHelperAvailable": device.Meta.BrowserHelperCapable,
 	})
 }
@@ -198,7 +198,7 @@ func (s *server) desktopConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"minimumProtocolVersion": 1,
-		"syncAvailable":          false,
+		"syncAvailable":          s.syncEnabled(r.Context()),
 		"browserHelper":          map[string]any{"capable": device.Meta.BrowserHelperCapable, "lastObservedAt": stampPointer(device.BrowserHelperLastObservedAt)},
 	})
 }

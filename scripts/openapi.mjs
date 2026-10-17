@@ -111,7 +111,7 @@ function handlerMethods(handler) {
 function tagFor(path) {
   if (!path.startsWith('/v1/')) return 'health'
   if (path.startsWith('/v1/admin/')) return 'admin'
-  if (path.startsWith('/v1/sync/')) return 'sync-disabled'
+  if (path.startsWith('/v1/sync/')) return 'sync'
   if (path.startsWith('/v1/account/') || path.startsWith('/v1/auth/') || path.startsWith('/v1/downloads/')) return 'account'
   if (path.startsWith('/v1/desktop/')) return 'desktop'
   if (path === '/v1/release-candidates') return 'release-pipeline'
@@ -136,7 +136,7 @@ function authFor(path, method) {
       ? ['admin-session-csrf', [{ ...origin, adminSession: [], adminCsrfCookie: [], adminCsrfHeader: [] }]]
       : ['admin-session', [{ ...origin, adminSession: [] }]]
   }
-  if (path.startsWith('/v1/sync/')) return ['desktop-token-built-disabled', [{ desktopToken: [] }]]
+  if (path.startsWith('/v1/sync/')) return ['desktop-token-signed-requests', [{ desktopToken: [] }]]
   if (path === '/v1/release-candidates') return ['release-pipeline-token', [{ releasePipelineToken: [] }]]
   if (path.startsWith('/v1/desktop/')) {
     if (path === '/v1/desktop/link') return ['single-use-link-code', []]
@@ -171,7 +171,7 @@ function operationId(method, path) {
 }
 
 function availability(path) {
-  if (path.startsWith('/v1/sync/')) return 'built-disabled'
+  if (path.startsWith('/v1/sync/')) return 'operator-enabled'
   if (path.startsWith('/v1/admin/')) return 'configured-admin-only'
   if (path.includes('/passkey/')) return 'configured-webauthn-only'
   return 'shipped'
@@ -257,7 +257,7 @@ function build(profile) {
       ['desktop', 'Linked desktop account connection.'],
       ['release-pipeline', 'Protected release pipeline ingestion.'],
       ['admin', 'Separate-origin administrator control plane.'],
-      ['sync-disabled', 'Built-disabled ciphertext-only Sync preview.'],
+      ['sync', 'Ciphertext-only Sync. Off until the operator turns it on. Changing requests carry a device signature.'],
     ].map(([name, description]) => ({ name, description })),
     paths: Object.fromEntries(Object.entries(paths).sort(([left], [right]) => left.localeCompare(right))),
     components: {

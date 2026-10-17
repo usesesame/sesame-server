@@ -335,12 +335,12 @@ func (s *server) createPairing(w http.ResponseWriter, r *http.Request, session s
 		}
 		hint = normalized
 	}
+	if !session.RecentAuth(s.now()) {
+		writeError(w, http.StatusForbidden, "step_up_required", "Confirm your password and a current code to continue.")
+		return
+	}
 	holder := selfhost.Holder{Kind: selfhost.HolderOwner, ID: session.Owner.ID, Name: session.Owner.Name}
 	if input.MemberID != "" {
-		if !session.RecentAuth(s.now()) {
-			writeError(w, http.StatusForbidden, "step_up_required", "Confirm your password and a current code to continue.")
-			return
-		}
 		members, err := s.cfg.Store.ListMembers(r.Context())
 		if err != nil {
 			s.storeError(w, r, err)

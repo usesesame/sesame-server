@@ -85,6 +85,7 @@ func TestExpiredCancelledAndUnknownPairingCodesAreRejected(t *testing.T) {
 	e.clock.Advance(10*time.Minute + time.Second)
 	expectError(t, e.link(expiring, "Late laptop"), http.StatusUnauthorized, "invalid_desktop_link")
 
+	o.stepUp()
 	cancelled := o.pairing(true, "")
 	expectStatus(t, o.do(req{method: http.MethodDelete, path: "/v1/owner/pairings/" + cancelled["pairingId"].(string)}), http.StatusNoContent)
 	expectError(t, e.link(cancelled["code"].(string), "Cancelled laptop"), http.StatusUnauthorized, "invalid_desktop_link")

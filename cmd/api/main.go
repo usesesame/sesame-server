@@ -30,6 +30,8 @@ import (
 	"usesesame.app/backend/internal/buildinfo"
 	"usesesame.app/backend/internal/httpapi"
 	"usesesame.app/backend/internal/notifications"
+	"usesesame.app/backend/internal/syncsvc"
+	"usesesame.app/backend/internal/syncsvc/pgstore"
 )
 
 const shutdownTimeout = 8 * time.Second
@@ -208,6 +210,23 @@ func main() {
 		OperationalOutbox:         operationalOutbox,
 		Maintenance:               maintenance,
 	}
+	syncService, err := syncsvc.New(pgstore.New(store.DB()), syncsvc.Config{ReceiptKey: capabilityKey})
+	if err != nil {
+		slog.Error("Sesame API could not prepare Sync", "error", err)
+		os.Exit(1)
+	}
+	config.Sync = syncService
+	backgroundJobs.Add(1)
+	go func() {
+		defer backgroundJobs.Done()
+		syncsvc.RunMaintenance(ctx, syncService, syncsvc.DefaultMaintenanceInterval, func(flagContext context.Context) bool {
+			if adminService == nil {
+				return false
+			}
+			value, flagErr := adminService.FeatureFlag(flagContext, "cloud_sync_available")
+			return flagErr == nil && value == "true"
+		})
+	}()
 	if deploymentProfile == httpapi.DeploymentProfileProject {
 		tracker := activity.NewTracker("https://api.github.com", "usesesame", []string{"sesame-desktop", "sesame-server", "sesame-website", "sesame-browser-extension"}, nil)
 		config.ProjectActivity = tracker

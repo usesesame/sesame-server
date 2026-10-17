@@ -480,10 +480,9 @@ rows. A failed purge logs a warning instead:
 `Sesame API could not purge expired security records`,
 `Sesame API could not purge delivered email outbox records`, or
 `Sesame API could not purge failed email outbox records`. The counters are
-normal; the warnings are not. The Sync purge lines,
-`purged Sesame Sync enrollment challenges` and
-`purged revoked Sesame Sync devices`, appear only in the development preview,
-which is not deployed here.
+normal; the warnings are not. The warning
+`Sesame Sync could not purge expired records` means the hourly Sync job failed.
+The job runs only while the `cloud_sync_available` flag is on.
 
 `GET /livez` answers 200 while the process runs. `GET /readyz`, and its
 deprecated alias `GET /healthz`, answer 200 only while the database answers,
@@ -521,9 +520,10 @@ Those are normal.
 - **Registration** defaults to `invite`. With the administration portal
   running, the `registration_mode` feature flag in the database wins over
   the environment variable.
-- **Sync stays disabled.** The `cloud_sync_available` flag exists, but the
-  protocol has not passed its security review. A green deployment is not
-  that review.
+- **Sync starts off.** The `cloud_sync_available` flag is false until you
+  turn it on in the administration portal. The protocol has not had an
+  independent security review, and a green deployment is not that review.
+  Say so wherever you offer it.
 - **Public downloads stay off** until the Windows release gate is met: a
   versioned artifact built from recorded source, a valid Tauri updater
   signature, a recorded SHA-256, clean-profile verification, and
