@@ -23,9 +23,9 @@ LABEL org.opencontainers.image.title="Sesame account portal" \
       org.opencontainers.image.revision="${SESAME_COMMIT}" \
       org.opencontainers.image.source="${SESAME_SOURCE_URL}"
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --only-upgrade --no-install-recommends -y \
-      libssl3t64=3.5.7-1~deb13u2 \
-      openssl=3.5.7-1~deb13u2 \
-      openssl-provider-legacy=3.5.7-1~deb13u2 && \
+      libssl3t64=3.5.7-1~deb13u3 \
+      openssl=3.5.7-1~deb13u3 \
+      openssl-provider-legacy=3.5.7-1~deb13u3 && \
     rm -rf /var/lib/apt/lists/*
 RUN printf '%s\n' \
   'server {' \
