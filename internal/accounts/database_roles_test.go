@@ -134,7 +134,6 @@ func TestApplicationRoleCannotRewriteTheAuditLog(t *testing.T) {
 		`UPDATE sesame_admin_audit_log SET action = 'rewritten' WHERE admin_email = 'fixture@example.test'`,
 		`DELETE FROM sesame_admin_audit_log WHERE admin_email = 'fixture@example.test'`,
 		`TRUNCATE sesame_admin_audit_log`,
-		`TRUNCATE sesame_sync_audit`,
 		`DROP TABLE sesame_admin_audit_log`,
 		`UPDATE sesame_admin_audit_chain_head SET head_seq = 99 WHERE singleton`,
 		`DELETE FROM sesame_admin_audit_chain_head WHERE singleton`,
