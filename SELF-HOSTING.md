@@ -122,9 +122,10 @@ Set `SESAME_PUBLIC_URL` to the address that `tailscale serve status` prints, for
 
 ### Binary under systemd
 
-If you do not want Docker, run the static program directly. Copy it out of the release image, which is the same file the image runs. `SESAME_IMAGE_TAG` is the version from the quick start, or the release you want:
+If you do not want Docker, run the static program directly. Copy it out of the release image, which is the same file the image runs. Run this in the directory that holds your `.env` file, or set `SESAME_IMAGE_TAG` to the release you want:
 
 ```sh
+SESAME_IMAGE_TAG=$(sed -n 's/^SESAME_IMAGE_TAG=//p' .env)
 docker create --name sesame-extract "ghcr.io/usesesame/sesame-server-selfhost:${SESAME_IMAGE_TAG}"
 docker cp sesame-extract:/sesame-server ./sesame-server
 docker rm sesame-extract
@@ -331,9 +332,10 @@ Back the secrets up together with the database. The scheduled backups already in
 
 ## Verify and build the image
 
-Release images are published to `ghcr.io/usesesame/sesame-server-selfhost` for `linux/amd64` and `linux/arm64`, with a build provenance attestation on the image index and an SBOM attestation on each platform image. Each platform image also has its own tag, ending in `-linux-amd64` or `-linux-arm64`. Verify an image with the GitHub CLI before you run it:
+Release images are published to `ghcr.io/usesesame/sesame-server-selfhost` for `linux/amd64` and `linux/arm64`, with a build provenance attestation on the image index and an SBOM attestation on each platform image. Each platform image also has its own tag, ending in `-linux-amd64` or `-linux-arm64`. Verify an image with the GitHub CLI before you run it, in the directory that holds your `.env` file:
 
 ```sh
+SESAME_IMAGE_TAG=$(sed -n 's/^SESAME_IMAGE_TAG=//p' .env)
 gh attestation verify "oci://ghcr.io/usesesame/sesame-server-selfhost:${SESAME_IMAGE_TAG}" \
   --repo usesesame/sesame-server \
   --signer-workflow usesesame/sesame-server/.github/workflows/release.yml \
