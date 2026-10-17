@@ -12,7 +12,7 @@ The server is one static program with a SQLite database in a single data directo
 
 It can also tell you when a newer release exists, but only if you allow it. Read [Update notices](#update-notices) for exactly what that sends.
 
-Pairing needs a desktop build that has the setting for connecting to your own server. Check the desktop release notes for the first version that includes it.
+Pairing needs a Sesame desktop newer than 0.3.0, because 0.3.0 has no setting for connecting to your own server. A build that has it shows Your own server in Settings.
 
 It does not offer accounts for the people you add. Read [What you give up without accounts](#what-you-give-up-without-accounts) before you decide who gets a device.
 
@@ -20,20 +20,27 @@ It does not offer accounts for the people you add. Read [What you give up withou
 
 You need a machine with Docker and the Compose plugin, and about five minutes. This starts the server on the same machine, reachable only from that machine, which is enough to try it. The section on [network and HTTPS](#network-and-https) covers reaching it from other computers.
 
-1. Pick the release you want from the repository's releases page and set its version. The examples use 0.1.0.
+1. Download the compose file for the latest release. The version goes into a `.env` file, so the later commands need nothing more.
 
    ```sh
    mkdir sesame && cd sesame
-   export SESAME_IMAGE_TAG=0.1.0
-   curl -fsSLO "https://raw.githubusercontent.com/usesesame/sesame-server/v${SESAME_IMAGE_TAG}/deploy/selfhost/compose.yaml"
+   SESAME_IMAGE_TAG=$(curl -fsSL https://api.github.com/repos/usesesame/sesame-server/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+   echo "SESAME_IMAGE_TAG=${SESAME_IMAGE_TAG}" > .env
+   curl -fsSLo compose.yaml "https://raw.githubusercontent.com/usesesame/sesame-server/v${SESAME_IMAGE_TAG}/deploy/selfhost/compose.yaml"
+   cat .env
    ```
 
-2. Start the server and read the setup link from its log.
+   `cat .env` should print a version such as `SESAME_IMAGE_TAG=0.3.1`. To run another release, put its version on that line instead.
+
+2. Start the server, check that it is healthy and read the setup link from its log.
 
    ```sh
    docker compose up -d
+   curl -fsS http://localhost:8787/livez
    docker compose logs sesame | grep 'setup#token'
    ```
+
+   The `curl` line prints `{"status":"ok", ...}` with the version. If it fails, run `docker compose logs sesame` and read [When something goes wrong](#when-something-goes-wrong).
 
 3. Open the link in a browser on the same machine. It looks like `http://localhost:8787/setup#token=...`. Use `localhost` and not `127.0.0.1`, because the server answers sign-in requests only at the address in `SESAME_PUBLIC_URL`.
 
@@ -41,7 +48,7 @@ You need a machine with Docker and the Compose plugin, and about five minutes. T
 
 4. Choose an owner name and a password of at least 12 characters, add the shown key to an authenticator app, and enter the current six digit code. You are signed in.
 
-The compose file publishes the port on `127.0.0.1` only and keeps the data in a Docker volume named `sesame-selfhost_sesame-data`. To keep the setting between restarts, put `SESAME_IMAGE_TAG` in a `.env` file next to the compose file. [deploy/selfhost/.env.example](deploy/selfhost/.env.example) lists the others.
+The compose file publishes the port on `127.0.0.1` only and keeps the data in a Docker volume named `sesame-selfhost_sesame-data`. The version stays in `.env` next to the compose file between restarts. [deploy/selfhost/.env.example](deploy/selfhost/.env.example) lists the other settings.
 
 ## First run and pairing
 
@@ -115,10 +122,10 @@ Set `SESAME_PUBLIC_URL` to the address that `tailscale serve status` prints, for
 
 ### Binary under systemd
 
-If you do not want Docker, run the static program directly. Copy it out of the release image, which is the same file the image runs:
+If you do not want Docker, run the static program directly. Copy it out of the release image, which is the same file the image runs. `SESAME_IMAGE_TAG` is the version from the quick start, or the release you want:
 
 ```sh
-docker create --name sesame-extract ghcr.io/usesesame/sesame-server-selfhost:0.1.0
+docker create --name sesame-extract "ghcr.io/usesesame/sesame-server-selfhost:${SESAME_IMAGE_TAG}"
 docker cp sesame-extract:/sesame-server ./sesame-server
 docker rm sesame-extract
 sudo install -m 0755 sesame-server /usr/local/bin/sesame-server
@@ -327,10 +334,10 @@ Back the secrets up together with the database. The scheduled backups already in
 Release images are published to `ghcr.io/usesesame/sesame-server-selfhost` for `linux/amd64` and `linux/arm64`, with a build provenance attestation on the image index and an SBOM attestation on each platform image. Each platform image also has its own tag, ending in `-linux-amd64` or `-linux-arm64`. Verify an image with the GitHub CLI before you run it:
 
 ```sh
-gh attestation verify oci://ghcr.io/usesesame/sesame-server-selfhost:0.1.0 \
+gh attestation verify "oci://ghcr.io/usesesame/sesame-server-selfhost:${SESAME_IMAGE_TAG}" \
   --repo usesesame/sesame-server \
   --signer-workflow usesesame/sesame-server/.github/workflows/release.yml \
-  --source-ref refs/tags/v0.1.0
+  --source-ref "refs/tags/v${SESAME_IMAGE_TAG}"
 ```
 
 To build it yourself from a checkout of the release tag:
@@ -349,6 +356,9 @@ The build compiles the console and then a static program with `CGO_ENABLED=0`, a
 | 403 `origin_not_allowed` | The browser sent an `Origin` other than the public address. Open the console at the address in `SESAME_PUBLIC_URL`. |
 | 429 `too_many_attempts` | Sign-in allows 5 tries per minute for a name. Wait for the number of seconds in `Retry-After`. |
 | The server exits at start with a message about `SESAME_PUBLIC_URL` | The address must start with `https://` unless the host is `localhost`, `127.0.0.1` or `::1`. |
+| `manifest unknown` or `not found` when the image is pulled | `SESAME_IMAGE_TAG` names a version that has no published image. Check `cat .env` against the repository's releases page. |
+| No `setup#token` line in the log | An owner already exists, so the server no longer prints first-run links. If you have not created one, the link may have expired, so run `docker compose restart sesame` and read the log again. |
+| `port is already allocated` | Another program uses port 8787 on the host. Change the left side of the `ports` line in the compose file, and set `SESAME_PUBLIC_URL` to the same port. |
 | The log says another server is using the data directory | A second process or a running restore holds the lock. Stop it first. |
 | The Updates page shows `feed_rollback` | The feed host served a feed older than one this server already accepted. The server keeps the last good result. If the host's own sequence numbers went backwards by mistake, it must publish a feed with a higher number. |
 | The log says the database was written by a newer server | Run the newer release again, or restore a backup made by the older one. |

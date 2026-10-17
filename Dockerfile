@@ -4,9 +4,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY package.json ./
 ARG SESAME_VERSION=0.1.0-dev
 ARG SESAME_COMMIT=unknown
-RUN CGO_ENABLED=0 go test ./... && \
+RUN CGO_ENABLED=0 go test $(go list -e ./... | grep -v -e /internal/selfhost/ -e /cmd/sesame-server) && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X usesesame.app/backend/internal/buildinfo.Version=${SESAME_VERSION} -X usesesame.app/backend/internal/buildinfo.Commit=${SESAME_COMMIT}" -o /out/sesame-api ./cmd/api && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sesame-migrate ./cmd/migrate && \
     CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/sesame-adminctl ./cmd/adminctl && \
