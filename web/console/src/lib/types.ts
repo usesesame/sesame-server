@@ -42,6 +42,8 @@ export type SystemInfo = {
 export type Settings = { instanceId: string; name: string; publicUrl: string; publicUrlSet: boolean; createdAt: string; fingerprint: string }
 export type SettingsChange = { name?: string; publicUrl?: string }
 export type MemberRemoval = { revokedDevices: number }
+export type SyncHolder = { kind: 'owner' | 'member'; id: string; name: string; hasVault: boolean; devices: number; currentRevision: number; storedBytes: number; updatedAt?: string | null }
+export type SyncOverview = { available: boolean; enabled: boolean; holders: SyncHolder[] }
 export type UpdateCommand = { label: string; text: string }
 export type UpdateRelease = {
   version: string

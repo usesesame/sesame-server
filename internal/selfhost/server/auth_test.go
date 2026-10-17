@@ -106,14 +106,15 @@ func TestSensitiveRoutesNeedARecentSignIn(t *testing.T) {
 		{http.MethodPatch, "/v1/owner/settings", map[string]string{"name": "Renamed"}},
 		{http.MethodPost, "/v1/owner/export", nil},
 		{http.MethodPost, "/v1/owner/pairings", map[string]any{"memberId": memberID}},
+		{http.MethodPost, "/v1/owner/pairings", map[string]any{"self": true}},
 	}
 	for _, route := range stale {
 		expectError(t, o.do(req{method: route.method, path: route.path, body: route.body}), http.StatusForbidden, "step_up_required")
 	}
-	expectStatus(t, o.do(req{method: http.MethodPost, path: "/v1/owner/pairings", body: map[string]any{"self": true}}), http.StatusCreated)
 	expectStatus(t, o.do(req{method: http.MethodGet, path: "/v1/owner/devices"}), http.StatusOK)
 
 	o.stepUp()
+	expectStatus(t, o.do(req{method: http.MethodPost, path: "/v1/owner/pairings", body: map[string]any{"self": true}}), http.StatusCreated)
 	expectStatus(t, o.do(req{method: http.MethodPatch, path: "/v1/owner/settings", body: map[string]string{"name": "Renamed"}}), http.StatusOK)
 	expectStatus(t, o.do(req{method: http.MethodPost, path: "/v1/owner/pairings", body: map[string]any{"memberId": memberID}}), http.StatusCreated)
 	expectStatus(t, o.do(req{method: http.MethodDelete, path: "/v1/owner/devices/" + deviceID}), http.StatusNoContent)

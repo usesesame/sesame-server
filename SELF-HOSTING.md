@@ -6,7 +6,7 @@ This page covers the self-hosted Sesame server, `sesame-server`. It is a separat
 
 A self-hosted Sesame pairs your Sesame desktop apps to a server you run. You sign in to a console in your browser, add the people who use the server, and create one-time pairing links. A desktop app that redeems a link receives a device token, and from then on the console lists that desktop, shows when it last connected and lets you revoke it.
 
-Sync is not available. The server stores no vault data, no vault keys and no passwords for vaults, and it tells every desktop that sync is unavailable. Pairing a desktop to your server gives you a list of connected devices and nothing else.
+Sync is off until you turn it on. When you do, each person's desktops can sync an encrypted vault through this server, and their devices check signed history before accepting changes. Read [Sync](#sync) before you turn it on.
 
 The server is one static program with a SQLite database in a single data directory. It needs no database server, no mail server and no other service.
 
@@ -228,6 +228,22 @@ docker compose exec sesame /sesame-server owner reset "owner name"
 ```
 
 It prints a setup link for that owner, ends every session of that owner, revokes every device paired to that owner and cancels their unused pairing codes. The owner cannot sign in with the old credentials until the link is used, and must pair those devices again afterwards. Devices that belong to members stay linked. The link works once and expires after 24 hours. Running it needs access to the data directory and the original secrets, so it is a host operation and no one can request it over the network.
+
+## Sync
+
+Sync has not had an independent security review. Keep backups while you try it.
+
+To turn it on, sign in to the console, open the settings, confirm your password and code when asked, and switch on the Sync flag. A desktop then offers Sync in its settings. Each person decides for themselves whether to use it. With the flag off, every Sync request is refused.
+
+What the server learns: how many devices a person has, when they sync, and how large their encrypted vault is. It never sees a vault key, a password, a recovery kit or a device name. Device names are encrypted with the vault key.
+
+What the server can do: refuse or delay service, and serve an older copy. A desktop notices an older copy because it remembers the newest version it applied. It also notices two different histories, because every version names the one before it and every device list change is signed by a device already on the list.
+
+How a new device joins: a device that already syncs shows a one-time code, and the new device types it. The two run a password-based key exchange through the server, and the approving device adds the new one to the signed device list only after the new device proves it holds the code. The server never learns the code, and an owner who mints pairing links for a member cannot add a device to that member's vault.
+
+What the console shows: for each person, whether a synced vault exists, how many devices it has, its latest version number and how much space it uses. The console can reset a person's synced vault, which deletes the stored ciphertext and history. Resetting needs your password and code and is written to the audit log. The console cannot approve a device, read a name or open a vault.
+
+Backups contain the Sync data, which is ciphertext. If you restore an old backup, every synced desktop sees the server offer an older version than it already applied and stops with a warning. Reset that person's vault and start Sync again from the desktop that has the newest copy.
 
 ## Update notices
 

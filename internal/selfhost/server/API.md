@@ -44,9 +44,9 @@ Limits are counted per peppered client address, and login and step-up are also c
 
 `GET /config.json` returns `{version, setupRequired, apiBase:""}`. The console reads it first. When `setupRequired` is true the console shows the setup page, which reads the token from the URL fragment.
 
-`GET /v1/instance` returns `{instanceId, name, version, commit, apiVersion:1, minimumClientVersion, maximumClientVersion, profile:"selfhost", modules:[], capabilityKeyId, capabilityPublicKey, fingerprint, setupRequired}`. `maximumClientVersion` is left out when none is set. `capabilityPublicKey` is the raw 32 byte Ed25519 key in unpadded base64url. `fingerprint` is the lowercase hex SHA-256 of those raw bytes.
+`GET /v1/instance` returns `{instanceId, name, version, commit, apiVersion:1, minimumClientVersion, maximumClientVersion, profile:"selfhost", modules, syncProtocol, capabilityKeyId, capabilityPublicKey, fingerprint, setupRequired}`. `maximumClientVersion` is left out when none is set. `capabilityPublicKey` is the raw 32 byte Ed25519 key in unpadded base64url. `fingerprint` is the lowercase hex SHA-256 of those raw bytes.
 
-`GET /v1/capabilities` returns `{payload, signature, keyId}` in the same format as the hosted service. `payload` is unpadded base64url JSON with `schemaVersion`, `minimumDesktopVersion`, `latestDesktopVersion`, `features` and `serviceStatus`. `signature` is the Ed25519 signature over the payload bytes. `features.desktopLinking` follows the `desktop_linking_enabled` flag. `downloads`, `updater` and `sync` are always false. The route supports `If-None-Match` and answers 304.
+`GET /v1/capabilities` returns `{payload, signature, keyId}` in the same format as the hosted service. `payload` is unpadded base64url JSON with `schemaVersion`, `minimumDesktopVersion`, `latestDesktopVersion`, `features` and `serviceStatus`. `signature` is the Ed25519 signature over the payload bytes. `features.desktopLinking` follows the `desktop_linking_enabled` flag. `downloads` and `updater` are always false. `features.sync` follows the `sync_enabled` flag. `instanceId` and `origin` bind the document to this server. The route supports `If-None-Match` and answers 304.
 
 `GET /metrics` exists only when metrics are switched on. It returns Prometheus text and is limited to direct requests from loopback or private addresses without forwarding headers. Others get 403 `metrics_forbidden`.
 
@@ -156,13 +156,13 @@ These routes keep the wire shapes of the hosted service so the existing desktop 
 
 A device token goes in `Authorization: Sesame <token>`. `Authorization: Bearer <token>` is accepted as well. A missing, malformed, unknown, expired or revoked token returns 401 `not_authenticated`.
 
-`POST /v1/desktop/link` with `{code, deviceName}` returns 201 `{accessToken, device, expiresAt, syncAvailable:false}`. The code is 32 to 128 characters. The device name is printable ASCII up to 64 characters. A bad shape returns 400 `invalid_desktop_link`. An unknown, used, cancelled or expired code returns 401 `invalid_desktop_link`. Switching off the `desktop_linking_enabled` flag returns 503 `desktop_linking_disabled`. The token lasts 90 days.
+`POST /v1/desktop/link` with `{code, deviceName}` returns 201 `{accessToken, device, expiresAt, syncAvailable}`. The code is 32 to 128 characters. The device name is printable ASCII up to 64 characters. A bad shape returns 400 `invalid_desktop_link`. An unknown, used, cancelled or expired code returns 401 `invalid_desktop_link`. Switching off the `desktop_linking_enabled` flag returns 503 `desktop_linking_disabled`. The token lasts 90 days.
 
-`GET /v1/desktop/status` returns `{connected:true, device, syncAvailable:false, browserHelperAvailable}`.
+`GET /v1/desktop/status` returns `{connected:true, device, syncAvailable, browserHelperAvailable}`.
 
 `POST /v1/desktop/heartbeat` takes `{appVersion, platform, architecture, updateChannel, protocolVersion, browserHelperCapable, browserHelperObserved}` and returns `{device}`. `protocolVersion` is 1 to 100 and the text fields are at most 64 characters with no line breaks or tabs. A bad body returns 400 `invalid_desktop_heartbeat`.
 
-`GET /v1/desktop/config` returns `{minimumProtocolVersion:1, syncAvailable:false, browserHelper:{capable, lastObservedAt}}`.
+`GET /v1/desktop/config` returns `{minimumProtocolVersion:1, syncAvailable, browserHelper:{capable, lastObservedAt}}`.
 
 `DELETE /v1/desktop/connection` revokes the calling device and returns 204. It also returns 204 when the token was already revoked, so a desktop can always finish unlinking.
 
@@ -175,3 +175,13 @@ Common: `not_found`, `method_not_allowed`, `json_required`, `request_too_large`,
 Owner: `invalid_request`, `invalid_name`, `invalid_credentials`, `setup_token_invalid`, `invalid_setup`, `name_taken`, `conflict`, `last_owner`, `invalid_pairing`, `invalid_cursor`, `invalid_limit`, `invalid_public_url`, `public_url_mismatch`, `invalid_updates`, `updates_off`.
 
 Desktop: `invalid_desktop_link`, `invalid_desktop_heartbeat`, `desktop_linking_disabled`, `desktop_link_unavailable`, `desktop_heartbeat_unavailable`, `capabilities_unavailable`.
+
+## Sync
+
+These routes exist when the binary is built with the Sync service, and they answer 403 `sync_unavailable` while the `sync_enabled` flag is off. They use the same bearer token as the other desktop routes. Routes that change state also need the header `Sesame-Request-Signature: <timestamp>.<nonce>.<signature>`, signed by the device behind the token and bound to the method, the request target, the body and the token. The routes, bodies and error codes are listed in the Sync protocol specification.
+
+`GET /v1/owner/sync` returns `{available, enabled, holders:[{kind, id, name, hasVault, devices, currentRevision, storedBytes, updatedAt}]}` and nothing else about a vault.
+
+`DELETE /v1/owner/sync/{kind}/{id}` deletes one person's synced vault and history. It needs a recent sign-in, answers 204 and writes `sync.reset` to the audit log.
+
+`PATCH /v1/owner/flags/{key}` needs a recent sign-in for every flag.
