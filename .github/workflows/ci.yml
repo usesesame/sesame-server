@@ -162,3 +162,23 @@ jobs:
 
       - run: node scripts/selfhost-image-check.mjs --image sesame-selfhost:ci-amd64 --arch amd64 --run
       - run: node scripts/selfhost-image-check.mjs --image sesame-selfhost:ci-arm64 --arch arm64
+
+  release-images:
+    runs-on: ubuntu-latest
+    env:
+      SESAME_RELEASE_VERSION: 0.0.0-ci
+      SESAME_RELEASE_COMMIT: ${{ github.sha }}
+      SESAME_RELEASE_API_ORIGIN: https://api.test.invalid
+      SESAME_RELEASE_SITE_ORIGIN: https://website.test.invalid
+      SESAME_RELEASE_CAPABILITY_PUBLIC_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+      SESAME_API_IMAGE: sesame-api:ci
+      SESAME_ACCOUNT_IMAGE: sesame-account:ci
+      SESAME_ADMIN_IMAGE: sesame-admin:ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - run: npm run release:images:build
