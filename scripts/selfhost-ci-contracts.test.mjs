@@ -42,7 +42,10 @@ test('the sections the quick start check runs still hold the commands it expects
   assert.ok(backup.length >= 2)
   assert.match(backup[0], /backup \/data\/backups\/before-trip\.tar/)
   assert.match(backup[1], /check \/data\/backups\/before-trip\.tar/)
-  assert.match(sectionBlocks(document, '### Restore')[0], /restore \/data\/backups\/before-trip\.tar/)
+  const restore = sectionBlocks(document, '### Restore')
+  assert.equal(restore.length, 2)
+  assert.match(restore[0], /restore \/data\/backups\/before-trip\.tar/)
+  assert.match(restore[1], /-v "\$PWD\/before-trip\.tar:\/restore\.tar:ro"/)
   assert.match(sectionBlocks(document, '## Verify and build the image')[0], /gh attestation verify/)
 })
 

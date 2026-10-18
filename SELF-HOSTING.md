@@ -208,7 +208,17 @@ docker compose run --rm --no-deps sesame restore /data/backups/before-trip.tar
 docker compose up -d
 ```
 
-For a backup file that lives outside the volume, mount it read-only into the one-off container with `-v "$PWD/before-trip.tar:/restore.tar:ro"` and restore `/restore.tar`. A restore interrupted by a crash finishes itself the next time the server or a restore starts.
+For a backup file that lives outside the volume, such as one copied from another machine, mount it read-only into the one-off container. The container runs as user 65532 and a backup can be read only by the user who made it, so make the file readable for the restore and private again afterwards. Do this only on a machine you trust, because the backup holds the keys that unlock owner sign-in.
+
+```sh
+docker compose stop sesame
+chmod 0644 before-trip.tar
+docker compose run --rm --no-deps -v "$PWD/before-trip.tar:/restore.tar:ro" sesame restore /restore.tar
+chmod 0600 before-trip.tar
+docker compose up -d
+```
+
+A restore interrupted by a crash finishes itself the next time the server or a restore starts.
 
 Devices revoked after the backup was taken become active again when you restore it. Revoke them again after a restore if that matters.
 

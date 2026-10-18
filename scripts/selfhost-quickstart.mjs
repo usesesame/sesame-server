@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
@@ -208,12 +208,14 @@ async function main() {
     const copy = join(fresh, archive)
     compose(['cp', `sesame:/data/backups/${archive}`, copy])
     assert.ok(existsSync(copy))
+    chmodSync(copy, 0o600)
     compose(['down'])
     writeFileSync(join(fresh, 'compose.yaml'), readFileSync(join(projectDir, 'compose.yaml')))
     writeFileSync(join(fresh, '.env'), readFileSync(join(projectDir, '.env')))
-    const freshArgs = { project: 'sesame-fresh', cwd: fresh }
-    compose(['run', '--rm', '--no-deps', '-v', `${copy}:/restore.tar:ro`, 'sesame', 'restore', '/restore.tar'], freshArgs)
-    compose(['up', '-d', '--wait'], freshArgs)
+    const restoreBlocks = sectionBlocks(document, '### Restore')
+    assert.equal(restoreBlocks.length, 2, 'the Restore section must show the restore block and the block for a file outside the volume')
+    assert.ok(restoreBlocks[1].includes(`${archive}:/restore.tar:ro`), 'the second Restore block does not mount the backup the Back up block writes')
+    runBlock(restoreBlocks[1], { cwd: fresh, env: { ...process.env, COMPOSE_PROJECT_NAME: 'sesame-fresh' } })
     await waitUntil('the server on the fresh volume', livez)
     const volumes = docker(['volume', 'ls', '--format', '{{.Name}}']).stdout.split('\n')
     assert.ok(volumes.includes('sesame-fresh_sesame-data'), 'the restore did not use a new volume')

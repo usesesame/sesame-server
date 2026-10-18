@@ -227,6 +227,9 @@ jobs:
 
       - run: docker load --input selfhost-image.tar
 
+      - name: Restart the new image over its own data
+        run: node scripts/selfhost-upgrade-check.mjs --from sesame-selfhost:ci-amd64 --to sesame-selfhost:ci-amd64
+
       - name: Upgrade the latest published image over its own data and roll back
         run: node scripts/selfhost-upgrade-check.mjs --from-published --to sesame-selfhost:ci-amd64
 
