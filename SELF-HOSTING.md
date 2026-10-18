@@ -30,17 +30,17 @@ You need a machine with Docker and the Compose plugin, and about five minutes. T
    cat .env
    ```
 
-   `cat .env` should print a version such as `SESAME_IMAGE_TAG=0.3.1`. To run another release, put its version on that line instead.
+   `cat .env` should print a version such as `SESAME_IMAGE_TAG=0.3.2`. To run another release, put its version on that line instead.
 
 2. Start the server, check that it is healthy and read the setup link from its log.
 
    ```sh
    docker compose up -d
-   curl -fsS http://localhost:8787/livez
+   curl -fsS --retry 30 --retry-delay 1 --retry-all-errors http://localhost:8787/livez
    docker compose logs sesame | grep 'setup#token'
    ```
 
-   The `curl` line prints `{"status":"ok", ...}` with the version. If it fails, run `docker compose logs sesame` and read [When something goes wrong](#when-something-goes-wrong).
+   The `curl` line waits up to 30 seconds for the server to start and prints `{"status":"ok", ...}` with the version. If it fails, run `docker compose logs sesame` and read [When something goes wrong](#when-something-goes-wrong).
 
 3. Open the link in a browser on the same machine. It looks like `http://localhost:8787/setup#token=...`. Use `localhost` and not `127.0.0.1`, because the server answers sign-in requests only at the address in `SESAME_PUBLIC_URL`.
 

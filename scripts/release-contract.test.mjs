@@ -111,8 +111,13 @@ test('publishes the self-host image for two platforms only after verification an
   const job = workflow.slice(start)
   assert.match(job, /needs: verify\n/)
   assert.match(job, /environment: server-release/)
-  assert.match(job, /build linux\/amd64 /)
-  assert.match(job, /build linux\/arm64 /)
+  assert.match(job, /run: node scripts\/build-selfhost-images\.mjs\n/)
+  const builder = readFileSync(new URL('./build-selfhost-images.mjs', import.meta.url), 'utf8')
+  assert.match(builder, /'linux\/amd64'/)
+  assert.match(builder, /'linux\/arm64'/)
+  assert.match(job, /--arch amd64 .* --run\n/)
+  assert.match(job, /--arch arm64 .* --run\n/)
+  assert.match(job, /docker\/setup-qemu-action@[0-9a-f]{40}/)
   const gates = ['npm run release:check', 'npm run selfhost:smoke']
   for (const gate of gates) {
     const position = workflow.indexOf(gate)

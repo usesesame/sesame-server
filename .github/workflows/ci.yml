@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "17 5 * * 1"
 
 permissions:
   contents: read
@@ -148,20 +150,110 @@ jobs:
 
   selfhost-image:
     runs-on: ubuntu-latest
+    env:
+      SESAME_RELEASE_VERSION: 0.0.0-ci
+      SESAME_RELEASE_COMMIT: ${{ github.sha }}
+      SELFHOST_AMD64_IMAGE: sesame-selfhost:ci-amd64
+      SELFHOST_ARM64_IMAGE: sesame-selfhost:ci-arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
 
-      - name: Build both platforms
-        run: |
-          docker build --file Dockerfile.selfhost --platform linux/amd64 --tag sesame-selfhost:ci-amd64 .
-          docker build --file Dockerfile.selfhost --platform linux/arm64 --tag sesame-selfhost:ci-arm64 .
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
 
-      - run: node scripts/selfhost-image-check.mjs --image sesame-selfhost:ci-amd64 --arch amd64 --run
-      - run: node scripts/selfhost-image-check.mjs --image sesame-selfhost:ci-arm64 --arch arm64
+      - name: Build both platforms
+        run: node scripts/build-selfhost-images.mjs
+
+      - name: Run the amd64 image
+        run: node scripts/selfhost-image-check.mjs --image "$SELFHOST_AMD64_IMAGE" --arch amd64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT" --run
+
+      - name: Run the arm64 image under emulation
+        run: node scripts/selfhost-image-check.mjs --image "$SELFHOST_ARM64_IMAGE" --arch arm64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT" --run
+
+      - run: docker save --output selfhost-image.tar "$SELFHOST_AMD64_IMAGE"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: selfhost-image-ci
+          path: selfhost-image.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  selfhost-quickstart:
+    needs: selfhost-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: selfhost-image-ci
+
+      - run: docker load --input selfhost-image.tar
+
+      - name: Follow the quick start, backup and restore sections of SELF-HOSTING.md
+        run: node scripts/selfhost-quickstart.mjs --mode local --image sesame-selfhost:ci-amd64
+
+  selfhost-upgrade:
+    needs: selfhost-image
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: selfhost-image-ci
+
+      - run: docker load --input selfhost-image.tar
+
+      - name: Upgrade the latest published image over its own data and roll back
+        run: node scripts/selfhost-upgrade-check.mjs --from-published --to sesame-selfhost:ci-amd64
+
+  selfhost-proxy:
+    needs: selfhost-image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        proxy: [caddy, nginx, traefik]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: selfhost-image-ci
+
+      - run: docker load --input selfhost-image.tar
+
+      - name: Put the ${{ matrix.proxy }} recipe in front of the container
+        run: node scripts/selfhost-proxy-check.mjs --image sesame-selfhost:ci-amd64 --proxy ${{ matrix.proxy }}
 
   release-images:
     runs-on: ubuntu-latest

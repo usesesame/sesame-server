@@ -1,0 +1,79 @@
+name: Self-host published image
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The release version to check, such as 0.3.3. Empty checks the latest release.
+        type: string
+        required: false
+        default: ""
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The release version to check, such as 0.3.3. Empty checks the latest release.
+        type: string
+        required: false
+        default: ""
+  schedule:
+    - cron: "41 5 * * 3"
+  pull_request:
+    paths:
+      - .github/workflows/selfhost-published.yml
+      - scripts/selfhost-*.mjs
+      - SELF-HOSTING.md
+      - deploy/selfhost/**
+
+permissions:
+  contents: read
+
+jobs:
+  published:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REQUESTED_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
+
+      - name: Choose the release
+        id: release
+        run: |
+          set -euo pipefail
+          if [[ -n "$REQUESTED_VERSION" ]]; then
+            version="$REQUESTED_VERSION"
+          else
+            version=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+            version="${version#v}"
+          fi
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "the release version is malformed: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Pull without credentials
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io || true
+          test ! -s "$HOME/.docker/config.json" || ! grep -q ghcr.io "$HOME/.docker/config.json"
+          docker pull "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}"
+
+      - name: Follow the quick start against the published release and verify its attestations
+        run: node scripts/selfhost-quickstart.mjs --mode published --expect-version "${{ steps.release.outputs.version }}" --verify-attestations
+
+      - name: Run the published arm64 image under emulation
+        run: node scripts/selfhost-image-check.mjs --image "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}-linux-arm64" --arch arm64 --version "${{ steps.release.outputs.version }}" --run
+
+      - name: Upgrade the previous published image to this one and roll back
+        run: node scripts/selfhost-upgrade-check.mjs --from-published --none-ok --before "${{ steps.release.outputs.version }}" --to "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}" --expect-version "${{ steps.release.outputs.version }}"
