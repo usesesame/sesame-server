@@ -173,7 +173,7 @@ func (a *api) runtimeRegistrationMode(ctx context.Context) string {
 }
 
 func (a *api) syncEnabled(ctx context.Context) bool {
-	return a.runtimeFlagBool(ctx, "cloud_sync_available", false) && a.config.Sync != nil
+	return a.runtimeFlagBool(ctx, "cloud_sync_available", false) && a.config.Sync != nil && syncOwnerPepperUsable(a.config.SyncOwnerPepper)
 }
 
 func (a *api) runtimeFlagBool(ctx context.Context, key string, fallback bool) bool {

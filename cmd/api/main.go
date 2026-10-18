@@ -197,6 +197,7 @@ func main() {
 		AdminSessionDomain:        strings.TrimSpace(os.Getenv("SESAME_ADMIN_SESSION_DOMAIN")),
 		AdminSessionTTL:           8 * time.Hour,
 		AdminIPPepper:             adminIPPepper,
+		SyncOwnerPepper:           strings.TrimSpace(os.Getenv("SESAME_SYNC_OWNER_PEPPER")),
 		CapabilitySigningKey:      capabilityKey,
 		CapabilityKeyID:           env("SESAME_CAPABILITY_KEY_ID", "capability-v1"),
 		MinimumDesktopVersion:     env("SESAME_MINIMUM_DESKTOP_VERSION", "0.1.0"),
