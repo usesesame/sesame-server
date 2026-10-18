@@ -174,7 +174,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: images
+    needs: [images, selfhost]
     runs-on: ubuntu-latest
     environment: server-release
     permissions:

@@ -86,6 +86,7 @@ test('pull requests build and run the release image, the quick start, the upgrad
 
 test('a release is not finished until the published image passes the quick start without credentials', () => {
   const release = read('.github', 'workflows', 'release.yml')
+  assert.match(jobBlock(release, 'publish'), /needs: \[images, selfhost\]\n/, 'the release that the quick start reads must not exist before the self-host image does')
   const published = jobBlock(release, 'published')
   assert.match(published, /needs: \[verify, publish, selfhost\]\n/)
   assert.match(published, /uses: \.\/\.github\/workflows\/selfhost-published\.yml\n/)
