@@ -40,6 +40,7 @@ type Config struct {
 	Admin            *adminstore.Store
 	// Nil disables every /v1/sync route; the cloud_sync_available flag must also be on.
 	Sync                      *syncsvc.Service
+	SyncOwnerPepper           string
 	ReleaseRegistry           ReleaseRegistry
 	AdminOrigin               string
 	AdminSecure               bool

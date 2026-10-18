@@ -80,12 +80,13 @@ func newSyncHostEnv(t *testing.T) *syncHostEnv {
 		t.Fatal(err)
 	}
 	config := Config{
-		Accounts:      accountStore,
-		Admin:         adminStore,
-		Sync:          service,
-		AllowedOrigin: syncHostTestOrigin,
-		AdminOrigin:   "https://admin.example.invalid",
-		WebBaseURL:    syncHostTestOrigin,
+		Accounts:        accountStore,
+		Admin:           adminStore,
+		Sync:            service,
+		SyncOwnerPepper: syncOwnerTestPepper,
+		AllowedOrigin:   syncHostTestOrigin,
+		AdminOrigin:     "https://admin.example.invalid",
+		WebBaseURL:      syncHostTestOrigin,
 	}
 	seed := time.Now().UnixNano()
 	env := &syncHostEnv{
@@ -97,7 +98,7 @@ func newSyncHostEnv(t *testing.T) *syncHostEnv {
 	env.handler = New(config)
 	env.api = &api{
 		config: Config{
-			Accounts: accountStore, Admin: adminStore, Sync: service, AllowedOrigin: syncHostTestOrigin,
+			Accounts: accountStore, Admin: adminStore, Sync: service, SyncOwnerPepper: syncOwnerTestPepper, AllowedOrigin: syncHostTestOrigin,
 			AdminOrigin: "https://admin.example.invalid", WebBaseURL: syncHostTestOrigin,
 			DeploymentProfile: DeploymentProfileOperator,
 		},
@@ -211,7 +212,7 @@ func TestHostedSyncHostMapsTheAccountAndTheDesktopConnectionToACaller(t *testing
 	if !ok {
 		t.Fatalf("a linked desktop was refused: %d %s", recorder.Code, recorder.Body.String())
 	}
-	want := syncsvc.Caller{OwnerKey: alpha.id, TokenDeviceID: alpha.deviceID, Token: alpha.token}
+	want := syncsvc.Caller{OwnerKey: syncOwnerKey(syncOwnerTestPepper, alpha.id), TokenDeviceID: alpha.deviceID, Token: alpha.token}
 	if caller != want {
 		t.Fatalf("caller = %+v, want %+v", caller, want)
 	}
@@ -264,7 +265,7 @@ func TestHostedSyncHostAppliesTheRateLimitsPerOperationAndPerDevice(t *testing.T
 	if recorder, _, ok := env.authenticate("state", alpha.token, env.nextIP()); !ok {
 		t.Fatalf("exhausting reset also stopped state: %d", recorder.Code)
 	}
-	if recorder, caller, ok := env.authenticate("reset", bravo.token, env.nextIP()); !ok || caller.OwnerKey != bravo.id {
+	if recorder, caller, ok := env.authenticate("reset", bravo.token, env.nextIP()); !ok || caller.OwnerKey != syncOwnerKey(syncOwnerTestPepper, bravo.id) {
 		t.Fatalf("another account was stopped by this device's limit: %d", recorder.Code)
 	}
 
@@ -310,7 +311,7 @@ func TestHostedSyncHostChecksTheSubscriptionOnlyWhereAnOperationNeedsIt(t *testi
 		if limit.needsEntitlement {
 			continue
 		}
-		if recorder, caller, ok := env.authenticate(operation, lapsed.token, env.nextIP()); !ok || caller.OwnerKey != lapsed.id {
+		if recorder, caller, ok := env.authenticate(operation, lapsed.token, env.nextIP()); !ok || caller.OwnerKey != syncOwnerKey(syncOwnerTestPepper, lapsed.id) {
 			t.Fatalf("%s blocked a lapsed account from reading, removing or leaving: %d %s", operation, recorder.Code, recorder.Body.String())
 		}
 	}

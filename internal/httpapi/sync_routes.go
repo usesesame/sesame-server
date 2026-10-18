@@ -37,7 +37,7 @@ func (a *api) registerSyncRoutes(mux *http.ServeMux) {
 }
 
 func (a *api) syncHandler() *syncv3http.Handler {
-	if a.config.Sync == nil {
+	if a.config.Sync == nil || !syncOwnerPepperUsable(a.config.SyncOwnerPepper) {
 		return nil
 	}
 	return syncv3http.New(a.config.Sync, hostedSyncHost{api: a})
@@ -186,7 +186,7 @@ func (host hostedSyncHost) Authenticate(response http.ResponseWriter, request *h
 		return syncsvc.Caller{}, false
 	}
 	token := strings.TrimPrefix(request.Header.Get("Authorization"), "Sesame ")
-	return syncsvc.Caller{OwnerKey: connection.AccountID, TokenDeviceID: connection.DeviceID, Token: token}, true
+	return syncsvc.Caller{OwnerKey: syncOwnerKey(a.config.SyncOwnerPepper, connection.AccountID), TokenDeviceID: connection.DeviceID, Token: token}, true
 }
 
 type syncEntitlementStore interface {
