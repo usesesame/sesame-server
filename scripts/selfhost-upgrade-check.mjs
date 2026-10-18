@@ -62,7 +62,7 @@ async function check(name, runCheck) {
 }
 
 function versionParts(version) {
-  return version.split('.').map(Number)
+  return version.split('-')[0].split('.').map(Number)
 }
 
 function compareVersions(left, right) {

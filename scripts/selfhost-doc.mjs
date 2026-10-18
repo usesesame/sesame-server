@@ -25,13 +25,17 @@ export function sectionBlocks(markdown, heading) {
   const blocks = []
   let current = null
   for (const line of lines.slice(start + 1, end)) {
-    const fence = line.match(/^\s*```(\w*)\s*$/)
-    if (fence && current === null) current = { language: fence[1], lines: [] }
-    else if (fence && current) {
+    const fence = line.match(/^\s*(`{3,}|~{3,})(\w*)\s*$/)
+    if (current === null) {
+      if (fence) current = { marker: fence[1], language: fence[2], lines: [] }
+    } else if (fence && fence[2] === '' && fence[1][0] === current.marker[0] && fence[1].length >= current.marker.length) {
       if (current.language === 'sh') blocks.push(dedent(current.lines))
       current = null
-    } else if (current) current.lines.push(line)
+    } else {
+      current.lines.push(line)
+    }
   }
+  assert.equal(current, null, `a code block under ${heading} is never closed`)
   return blocks
 }
 

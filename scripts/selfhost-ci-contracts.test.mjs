@@ -24,6 +24,12 @@ test('sectionBlocks returns the shell blocks of a section and stops at the next 
   assert.throws(() => sectionBlocks(sample, '## Missing'))
 })
 
+test('sectionBlocks closes a block only with a matching fence and rejects one that never closes', () => {
+  const nested = ['## One', '````sh', 'echo a', '```text', 'echo inner', '```', 'echo b', '````', '~~~sh', 'echo c', '~~~'].join('\n')
+  assert.deepEqual(sectionBlocks(nested, '## One'), ['echo a\n```text\necho inner\n```\necho b', 'echo c'])
+  assert.throws(() => sectionBlocks(['## One', '```sh', 'echo a'].join('\n'), '## One'), /never closed/)
+})
+
 test('replaceOnce refuses a block that no longer holds the text it rewrites', () => {
   assert.equal(replaceOnce('a b c', 'b', 'x', 'letter'), 'a x c')
   assert.throws(() => replaceOnce('a b c', 'z', 'x', 'letter'), /exactly once/)

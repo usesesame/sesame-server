@@ -28,11 +28,15 @@ export function request(instance, method, path, { headers = {}, json, host = ins
     const req = transport.request(options, (response) => {
       const chunks = []
       response.on('data', (chunk) => chunks.push(chunk))
+      response.on('error', reject)
       response.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8')
-        let parsed = null
-        if (text && /json/.test(response.headers['content-type'] ?? '')) parsed = JSON.parse(text)
-        resolveRequest({ status: response.statusCode, headers: response.headers, text, json: parsed })
+        try {
+          const text = Buffer.concat(chunks).toString('utf8')
+          const parsed = text && /json/.test(response.headers['content-type'] ?? '') ? JSON.parse(text) : null
+          resolveRequest({ status: response.statusCode, headers: response.headers, text, json: parsed })
+        } catch (error) {
+          reject(error)
+        }
       })
     })
     req.setTimeout(timeout, () => req.destroy(new Error(`${method} ${path} timed out`)))
