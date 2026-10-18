@@ -73,7 +73,9 @@ jobs:
         run: node scripts/selfhost-quickstart.mjs --mode published --expect-version "${{ steps.release.outputs.version }}" --verify-attestations
 
       - name: Run the published arm64 image under emulation
-        run: node scripts/selfhost-image-check.mjs --image "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}-linux-arm64" --arch arm64 --version "${{ steps.release.outputs.version }}" --run
+        run: |
+          docker pull --platform linux/arm64 "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}-linux-arm64"
+          node scripts/selfhost-image-check.mjs --image "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}-linux-arm64" --arch arm64 --version "${{ steps.release.outputs.version }}" --run
 
       - name: Upgrade the previous published image to this one and roll back
         run: node scripts/selfhost-upgrade-check.mjs --from-published --none-ok --before "${{ steps.release.outputs.version }}" --to "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}" --expect-version "${{ steps.release.outputs.version }}"
