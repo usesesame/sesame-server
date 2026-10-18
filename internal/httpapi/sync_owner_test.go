@@ -39,7 +39,7 @@ func TestSyncStaysClosedWithoutAUsableOwnerPepper(t *testing.T) {
 	}
 	for name, pepper := range map[string]string{
 		"missing":   "",
-		"too short": strings.Repeat("a", syncOwnerPepperMinimumLength-1),
+		"too short": strings.Repeat("a", SyncOwnerPepperMinimumLength-1),
 	} {
 		if (&api{config: Config{Sync: service, SyncOwnerPepper: pepper}}).syncHandler() != nil {
 			t.Fatalf("Sync opened with a %s pepper", name)

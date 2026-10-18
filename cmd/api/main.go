@@ -217,6 +217,9 @@ func main() {
 		os.Exit(1)
 	}
 	config.Sync = syncService
+	if config.SyncOwnerPepper != "" && len(config.SyncOwnerPepper) < httpapi.SyncOwnerPepperMinimumLength {
+		slog.Warn("Sesame Sync stays closed because SESAME_SYNC_OWNER_PEPPER is too short", "minimumLength", httpapi.SyncOwnerPepperMinimumLength)
+	}
 	backgroundJobs.Add(1)
 	go func() {
 		defer backgroundJobs.Done()

@@ -6,10 +6,10 @@ import (
 	"encoding/base64"
 )
 
-const syncOwnerPepperMinimumLength = 32
+const SyncOwnerPepperMinimumLength = 32
 
 func syncOwnerPepperUsable(pepper string) bool {
-	return len(pepper) >= syncOwnerPepperMinimumLength
+	return len(pepper) >= SyncOwnerPepperMinimumLength
 }
 
 func syncOwnerKey(pepper, accountID string) string {
