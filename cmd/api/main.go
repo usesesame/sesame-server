@@ -54,7 +54,11 @@ func main() {
 		slog.Error("Sesame API configuration is invalid", "error", deploymentProfileErr)
 		os.Exit(1)
 	}
-	capabilityKey, capabilityKeyErr := capabilitySigningKey(os.Getenv("SESAME_CAPABILITY_SIGNING_KEY"))
+	capabilityKeyValue, capabilityKeyErr := capabilitySigningKeyValue(os.Getenv, os.ReadFile)
+	var capabilityKey ed25519.PrivateKey
+	if capabilityKeyErr == nil {
+		capabilityKey, capabilityKeyErr = capabilitySigningKey(capabilityKeyValue)
+	}
 	if capabilityKeyErr != nil {
 		slog.Error("Sesame API configuration is invalid", "error", capabilityKeyErr)
 		os.Exit(1)
@@ -334,6 +338,25 @@ func releaseCandidateTokenHash(value string) ([]byte, error) {
 	}
 	digest := sha256.Sum256(decoded)
 	return digest[:], nil
+}
+
+func capabilitySigningKeyValue(getenv func(string) string, readFile func(string) ([]byte, error)) (string, error) {
+	inline := getenv("SESAME_CAPABILITY_SIGNING_KEY")
+	path := strings.TrimSpace(getenv("SESAME_CAPABILITY_SIGNING_KEY_FILE"))
+	if path == "" {
+		return inline, nil
+	}
+	if strings.TrimSpace(inline) != "" {
+		return "", errors.New("set SESAME_CAPABILITY_SIGNING_KEY or SESAME_CAPABILITY_SIGNING_KEY_FILE, not both")
+	}
+	content, err := readFile(path)
+	if err != nil {
+		return "", errors.New("SESAME_CAPABILITY_SIGNING_KEY_FILE could not be read")
+	}
+	if len(content) > 1024 {
+		return "", errors.New("SESAME_CAPABILITY_SIGNING_KEY_FILE is larger than a signing key")
+	}
+	return string(content), nil
 }
 
 func capabilitySigningKey(value string) (ed25519.PrivateKey, error) {

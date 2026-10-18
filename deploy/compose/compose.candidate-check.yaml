@@ -24,11 +24,15 @@ services:
       SESAME_RELEASE_CANDIDATE_PUBLIC_KEY: ${SESAME_RELEASE_CANDIDATE_PUBLIC_KEY:-}
       SESAME_RELEASE_CANDIDATE_KEY_ID: ${SESAME_RELEASE_CANDIDATE_KEY_ID:-}
       SESAME_RELEASE_CANDIDATE_TOKEN: ${SESAME_RELEASE_CANDIDATE_TOKEN:-}
-      SESAME_CAPABILITY_SIGNING_KEY: ${SESAME_CAPABILITY_SIGNING_KEY:?}
+      # The key reaches the API as a mounted file, so it is not in the
+      # container environment or in docker inspect.
+      SESAME_CAPABILITY_SIGNING_KEY_FILE: /run/secrets/capability_signing_key
       SESAME_ADMIN_ENCRYPTION_KEY: ${SESAME_ADMIN_ENCRYPTION_KEY:?}
       SESAME_ADMIN_IP_PEPPER: ${SESAME_ADMIN_IP_PEPPER:?}
       SESAME_SYNC_OWNER_PEPPER: ${SESAME_SYNC_OWNER_PEPPER:-}
       DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD:?}@db:5432/sesame?sslmode=disable
+    secrets:
+      - capability_signing_key
     ports:
       - "127.0.0.1:8788:8787"
     healthcheck:
@@ -36,6 +40,10 @@ services:
       interval: 2s
       timeout: 4s
       retries: 30
+
+secrets:
+  capability_signing_key:
+    file: ${SESAME_CAPABILITY_SIGNING_KEY_PATH:?set to a file that holds the capability signing key}
 
 networks:
   default:

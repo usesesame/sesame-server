@@ -76,7 +76,9 @@ services:
       # origin: the updater follows it to a one-time update ticket that then
       # redirects to the signed artifact gateway.
       SESAME_DESKTOP_UPDATE_BASE_URL: ${SESAME_DESKTOP_UPDATE_BASE_URL:-}
-      SESAME_CAPABILITY_SIGNING_KEY: ${SESAME_CAPABILITY_SIGNING_KEY:?}
+      # The key reaches the API as a mounted file, so it is not in the
+      # container environment or in docker inspect.
+      SESAME_CAPABILITY_SIGNING_KEY_FILE: /run/secrets/capability_signing_key
       SESAME_ADMIN_ENCRYPTION_KEY: ${SESAME_ADMIN_ENCRYPTION_KEY:?}
       SESAME_ADMIN_IP_PEPPER: ${SESAME_ADMIN_IP_PEPPER:?}
       # Hashes the account id into the Sync vault owner key. Sync stays closed
@@ -84,6 +86,8 @@ services:
       # every vault, so set it once before the first vault exists.
       SESAME_SYNC_OWNER_PEPPER: ${SESAME_SYNC_OWNER_PEPPER:-}
       DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD:?set in the env file}@db:5432/sesame?sslmode=disable
+    secrets:
+      - capability_signing_key
     extra_hosts:
       - "${SESAME_SMTP_HOST_GATEWAY:-sesame-smtp-gateway.invalid}:host-gateway"
     ports:
@@ -213,6 +217,10 @@ services:
       - no-new-privileges:true
     pids_limit: 128
     mem_limit: 128m
+
+secrets:
+  capability_signing_key:
+    file: ${SESAME_CAPABILITY_SIGNING_KEY_PATH:?set to a file that holds the capability signing key}
 
 volumes:
   database:
