@@ -117,6 +117,8 @@ These settings are optional or have a default:
   owns which vault. Sync stays closed until it holds at least 32 characters.
   Generate it with `openssl rand -hex 32`, and set it before the first vault
   exists, because a different value later no longer finds the existing vaults.
+  A deployment that already holds Sync vaults cannot adopt it, because no
+  rekey path exists.
 - `SESAME_SMTP_FROM`, `SESAME_SMTP_USERNAME`, and `SESAME_SMTP_PASSWORD`
   belong to the relay named by `SESAME_SMTP_ADDR`.
   `SESAME_SUPPORT_NOTIFY_EMAIL` receives a short notice for each new support
