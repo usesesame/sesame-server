@@ -30,17 +30,17 @@ You need a machine with Docker and the Compose plugin, and about five minutes. T
    cat .env
    ```
 
-   `cat .env` should print a version such as `SESAME_IMAGE_TAG=0.3.1`. To run another release, put its version on that line instead.
+   `cat .env` should print a version such as `SESAME_IMAGE_TAG=0.3.2`. To run another release, put its version on that line instead.
 
 2. Start the server, check that it is healthy and read the setup link from its log.
 
    ```sh
    docker compose up -d
-   curl -fsS http://localhost:8787/livez
+   curl -fsS --max-time 5 --retry 30 --retry-delay 1 --retry-all-errors --retry-max-time 60 http://localhost:8787/livez
    docker compose logs sesame | grep 'setup#token'
    ```
 
-   The `curl` line prints `{"status":"ok", ...}` with the version. If it fails, run `docker compose logs sesame` and read [When something goes wrong](#when-something-goes-wrong).
+   The `curl` line keeps trying for up to a minute while the server starts and prints `{"status":"ok", ...}` with the version. If it fails, run `docker compose logs sesame` and read [When something goes wrong](#when-something-goes-wrong).
 
 3. Open the link in a browser on the same machine. It looks like `http://localhost:8787/setup#token=...`. Use `localhost` and not `127.0.0.1`, because the server answers sign-in requests only at the address in `SESAME_PUBLIC_URL`.
 
@@ -208,7 +208,15 @@ docker compose run --rm --no-deps sesame restore /data/backups/before-trip.tar
 docker compose up -d
 ```
 
-For a backup file that lives outside the volume, mount it read-only into the one-off container with `-v "$PWD/before-trip.tar:/restore.tar:ro"` and restore `/restore.tar`. A restore interrupted by a crash finishes itself the next time the server or a restore starts.
+For a backup file that lives outside the volume, such as one copied from another machine, mount it read-only into the one-off container. The container runs as user 65532 and a backup can be read only by the user who made it, so make the file readable for the restore and private again afterwards. The command makes the file private again when it ends, but while it runs every account on the machine can read it, and it holds the keys that unlock owner sign-in. Do this only on a machine that only you use.
+
+```sh
+docker compose stop sesame
+(trap 'chmod 0600 before-trip.tar' EXIT; chmod 0644 before-trip.tar; docker compose run --rm --no-deps -v "$PWD/before-trip.tar:/restore.tar:ro" sesame restore /restore.tar)
+docker compose up -d
+```
+
+A restore interrupted by a crash finishes itself the next time the server or a restore starts.
 
 Devices revoked after the backup was taken become active again when you restore it. Revoke them again after a restore if that matters.
 

@@ -63,7 +63,7 @@ async function runContainer() {
   const port = await freePort()
   try {
     docker([
-      'run', '--detach', '--name', container,
+      'run', '--detach', '--name', container, '--platform', `linux/${options.arch}`,
       '--health-interval', '2s', '--health-start-period', '1s',
       '--publish', `127.0.0.1:${port}:8787`,
       '--env', `SESAME_PUBLIC_URL=http://localhost:${port}`,
@@ -92,14 +92,14 @@ async function runContainer() {
 }
 
 async function waitForHealthy() {
-  const deadline = Date.now() + 90000
+  const deadline = Date.now() + 180000
   while (Date.now() < deadline) {
     const status = docker(['inspect', '--format', '{{.State.Health.Status}}', container]).stdout.trim()
     if (status === 'healthy') return
     assert.notEqual(status, 'unhealthy', 'the container reported unhealthy')
     await new Promise((resolveWait) => setTimeout(resolveWait, 1000))
   }
-  throw new Error('the container did not become healthy within 90 seconds')
+  throw new Error('the container did not become healthy within 180 seconds')
 }
 
 async function fetchOk(url) {

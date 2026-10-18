@@ -174,7 +174,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: images
+    needs: [images, selfhost]
     runs-on: ubuntu-latest
     environment: server-release
     permissions:
@@ -340,24 +340,18 @@ jobs:
         with:
           node-version-file: .node-version
 
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1
+        with:
+          platforms: arm64
+
       - name: Build both platforms
-        run: |
-          set -euo pipefail
-          build() {
-            docker build --file Dockerfile.selfhost --platform "$1" --tag "$2" \
-              --build-arg "SESAME_VERSION=$SESAME_RELEASE_VERSION" \
-              --build-arg "SESAME_COMMIT=$SESAME_RELEASE_COMMIT" \
-              --build-arg "SESAME_SOURCE_URL=$SESAME_RELEASE_SOURCE_URL" \
-              --build-arg "SESAME_UPDATE_PUBLIC_KEYS=$SESAME_UPDATE_PUBLIC_KEYS" .
-          }
-          build linux/amd64 "$SELFHOST_AMD64_IMAGE"
-          build linux/arm64 "$SELFHOST_ARM64_IMAGE"
+        run: node scripts/build-selfhost-images.mjs
 
       - name: Check the images before they are published
         run: |
           set -euo pipefail
           node scripts/selfhost-image-check.mjs --image "$SELFHOST_AMD64_IMAGE" --arch amd64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT" --run
-          node scripts/selfhost-image-check.mjs --image "$SELFHOST_ARM64_IMAGE" --arch arm64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT"
+          node scripts/selfhost-image-check.mjs --image "$SELFHOST_ARM64_IMAGE" --arch arm64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT" --run
 
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
         with:
@@ -427,3 +421,11 @@ jobs:
             selfhost-amd64.spdx.json
             selfhost-arm64.spdx.json
           if-no-files-found: error
+
+  published:
+    needs: [verify, publish, selfhost]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/selfhost-published.yml
+    with:
+      version: ${{ needs.verify.outputs.version }}
