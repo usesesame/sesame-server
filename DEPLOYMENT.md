@@ -112,6 +112,14 @@ These settings are optional or have a default:
   and `SESAME_RELEASE_CANDIDATE_TOKEN` open `POST /v1/release-candidates` for
   the desktop repository's CI. The route exists only under the `project`
   profile. Leave them empty to keep it closed.
+- `SESAME_CAPABILITY_SIGNING_KEY_FILE` names a file that holds the capability
+  signing key, used instead of `SESAME_CAPABILITY_SIGNING_KEY`. The production
+  stack mounts the file named by `SESAME_CAPABILITY_SIGNING_KEY_PATH` at that
+  place, read-only, so the key is not in the API container's environment or in
+  `docker inspect`. Keep the file outside the repository in a directory only
+  root can enter, with the container user as its owner and mode 0400, and back
+  it up with the env file. The API refuses to start when it is given both the
+  file and the value.
 - `SESAME_SYNC_OWNER_PEPPER` is mixed into the hash that links an account to
   its Sync vault, so a copy of the database alone does not show which account
   owns which vault. Sync stays closed until it holds at least 32 characters.
