@@ -34,17 +34,23 @@
   let supportUnread = 0
   let sessionExpired = false
   const siteHost = new URL(siteOrigin).host
+  $: serviceNotice = authState.state === 'offline' ? 'You appear to be offline. Reconnect and try again.' : authState.state === 'error' ? authState.error.message : ''
 
   onMount(() => {
     if (!needsSessionCheck) return
     void loadAuthState().then((state) => {
+      const hasAccount = state.state === 'authenticated' || (state.state === 'offline' && Boolean(state.account))
+      if (page === 'account' && !hasAccount) {
+        window.location.replace(state.state === 'anonymous' && state.expired ? '/login?expired=1' : '/login')
+        return
+      }
       authState = state
       account = state.state === 'authenticated'
         ? state.account
         : state.state === 'offline'
           ? state.account || null
           : null
-      sessionExpired = state.state === 'anonymous' && state.expired === true
+      sessionExpired = (state.state === 'anonymous' && state.expired === true) || (page === 'login' && new URLSearchParams(window.location.search).get('expired') === '1')
       if (state.state === 'authenticated' || (state.state === 'offline' && state.account)) {
         void getAccountBootstrap()
           .then((bootstrap) => { supportUnread = bootstrap.notificationCounts.support })
@@ -72,8 +78,8 @@
         <span class="header-account-email" role="status">{account?.email}</span>
       {:else if page !== 'account' && (authState.state === 'error' || authState.state === 'offline')}
         <span class="header-account-status" role="status">Account service unavailable</span>
-      {:else if authState.state === 'anonymous' && page !== 'login'}
-        <a class="button button-sm" href="/login">Sign in</a>
+      {:else if authState.state === 'anonymous' && page !== 'login' && page !== 'account'}
+        <a class="button button-sm button-soft" href="/login">Sign in</a>
       {:else if authState.state === 'loading'}
         <span class="header-session-loader" role="status" aria-label="Checking account session"><span class="session-spinner" aria-hidden="true"></span></span>
       {/if}
@@ -83,7 +89,12 @@
 
 <main id="top">
   {#if page === 'login' || page === 'register'}
-    <AuthPage mode={page} sessionExpired={page === 'login' && sessionExpired} onAuthenticated={(nextAccount) => { account = nextAccount; sessionExpired = false }} />
+    <AuthPage
+      mode={page}
+      sessionExpired={page === 'login' && sessionExpired}
+      unavailable={page === 'login' ? serviceNotice : ''}
+      onAuthenticated={(nextAccount) => { account = nextAccount; sessionExpired = false }}
+    />
   {:else if isFlow(page)}
     <AccountFlowPage
       mode={page}
@@ -143,7 +154,7 @@
   </div>
   <div class="footer-bottom">
     <span>&copy; 2026 Sesame</span>
-    <span>AGPL-3.0-or-later &middot; no trackers &middot; no ads</span>
+    <span>Licensed under AGPL-3.0-or-later, with no trackers and no ads.</span>
     <span>{siteHost}</span>
   </div>
 </footer>

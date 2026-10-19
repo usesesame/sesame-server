@@ -442,9 +442,7 @@
 
 <section class="account-shell">
   <div class="account-copy account-head">
-    <p class="eyebrow">Sesame account</p>
     <h1>Your account</h1>
-    <p class="intro">Beta access, verified private-beta downloads, licences, website sessions, and connected desktops.</p>
   </div>
 
   {#if account}
@@ -503,16 +501,16 @@
           <p class="panel-hint">Security notices such as sign-ins and account changes are always sent. Choose optional updates below.</p>
           {#if notificationPreferencesError}<p class="auth-error" role="alert">{notificationPreferencesError}</p>{/if}
           <div class="notification-options" role="group" aria-label="Optional email notifications">
-            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.betaReleases} /><span>New beta releases</span></label>
+            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.betaReleases} disabled={!notificationPreferencesLoaded} /><span>New beta releases</span></label>
             <div class="notification-reply">
-              <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.supportReplies} /><span>Support replies</span></label>
+              <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.supportReplies} disabled={!notificationPreferencesLoaded} /><span>Support replies</span></label>
               {#if supportReplyNoticeVisible}
                 <p class="notification-notice" role="status"><span>Reply email is now on for this account.</span><button class="button button-soft button-sm" type="button" on:click={dismissSupportReplyNotice}>Got it</button></p>
               {/if}
             </div>
-            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.productAnnouncements} /><span>Product announcements</span></label>
+            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.productAnnouncements} disabled={!notificationPreferencesLoaded} /><span>Product announcements</span></label>
           </div>
-          <div class="notification-actions"><button class="button button-soft button-sm" type="button" on:click={saveNotificationPreferences} disabled={notificationPreferencesSaving}>{notificationPreferencesSaving ? 'Saving…' : 'Save preferences'}</button></div>
+          <div class="notification-actions"><button class="button button-soft button-sm" type="button" on:click={saveNotificationPreferences} disabled={notificationPreferencesSaving || !notificationPreferencesLoaded}>{notificationPreferencesSaving ? 'Saving…' : 'Save preferences'}</button></div>
         </div>
         {#if passwordError}<p class="auth-error" role="alert">{passwordError}</p>{/if}
         <div class="panel-section">
@@ -581,7 +579,7 @@
         </div>
         <div class="panel-section">
           <div class="device-section-head"><div><p class="account-label">Connected desktops</p><p class="panel-hint">Removing a link does not remove or delete the local vault.</p></div><button class="button button-soft button-sm" type="button" on:click={loadDevices} disabled={devicesLoading}>{devicesLoading ? 'Checking…' : 'Refresh'}</button></div>
-          {#if devices.length > 0}<div class="device-list">{#each devices as device (device.deviceId)}<div class="device-row"><div class="device-mark" aria-hidden="true"></div><div class="device-details">{#if renameDraftId === device.deviceId}<label class="device-rename-label" for="device-rename-{device.deviceId}">Desktop name</label><input id="device-rename-{device.deviceId}" class="device-rename-input" type="text" bind:value={renameDraftValue} maxlength="64" disabled={renamingDeviceId === device.deviceId} />{:else}<strong>{device.deviceName || 'Sesame desktop'}</strong>{/if}<span>Connected {formatDate(device.connectedAt)}</span><small>Authorization expires {formatDate(device.expiresAt)}</small></div>{#if renameDraftId === device.deviceId}<button class="device-remove" on:click={() => renameDevice(device)} disabled={renamingDeviceId === device.deviceId}>{renamingDeviceId === device.deviceId ? 'Saving…' : 'Save name'}</button><button class="device-remove" on:click={cancelRename} disabled={renamingDeviceId === device.deviceId}>Cancel</button>{:else}<button class="device-remove" on:click={() => startRename(device)} disabled={revokingDeviceId === device.deviceId}>Rename</button><button class="device-remove" on:click={() => removeDevice(device)} disabled={revokingDeviceId === device.deviceId}>{revokingDeviceId === device.deviceId ? 'Removing…' : 'Remove'}</button>{/if}</div>{/each}</div>{:else if devicesLoaded}<p class="device-empty">No desktops connected.</p>{/if}
+          {#if devices.length > 0}<div class="device-list">{#each devices as device (device.deviceId)}<div class="device-row"><div class="device-details">{#if renameDraftId === device.deviceId}<label class="device-rename-label" for="device-rename-{device.deviceId}">Desktop name</label><input id="device-rename-{device.deviceId}" class="device-rename-input" type="text" bind:value={renameDraftValue} maxlength="64" disabled={renamingDeviceId === device.deviceId} />{:else}<strong>{device.deviceName || 'Sesame desktop'}</strong>{/if}<span>Connected {formatDate(device.connectedAt)}</span><small>Authorization expires {formatDate(device.expiresAt)}</small></div>{#if renameDraftId === device.deviceId}<button class="device-action" on:click={() => renameDevice(device)} disabled={renamingDeviceId === device.deviceId}>{renamingDeviceId === device.deviceId ? 'Saving…' : 'Save name'}</button><button class="device-action" on:click={cancelRename} disabled={renamingDeviceId === device.deviceId}>Cancel</button>{:else}<button class="device-action" on:click={() => startRename(device)} disabled={revokingDeviceId === device.deviceId}>Rename</button><button class="device-remove" on:click={() => removeDevice(device)} disabled={revokingDeviceId === device.deviceId}>{revokingDeviceId === device.deviceId ? 'Removing…' : 'Remove'}</button>{/if}</div>{/each}</div>{:else if devicesLoaded}<p class="device-empty">No desktops connected.</p>{/if}
         </div>
 
       {:else if tab === 'activity'}
@@ -594,8 +592,8 @@
       {:else if tab === 'downloads'}
         <div class="panel-section">
           <p class="account-label">Eligible downloads</p>
-          <p class="panel-hint">Only account-gated builds with verified Tauri updater signatures and Sigstore publisher evidence appear here. Early-access installers are not Windows publisher-signed, so Windows may show an unknown-publisher warning.</p>
-		  {#if downloads.length > 0}<div class="download-list">{#each downloads as release (release.id)}<article><div><strong>Sesame {release.version}</strong><span>{release.platform} · {release.updaterVerified ? 'Tauri updater signature verified' : 'Updater signature unavailable'} · {release.sigstoreVerified ? 'Sigstore release workflow verified' : 'Release workflow evidence unavailable'} · {release.authenticodeVerified ? 'Windows publisher verified' : 'Unsigned Windows early-access build'}</span><code>SHA-256: {release.sha256}</code></div>{#if release.updaterVerified && release.sigstoreVerified}<button class="button button-sm" type="button" on:click={() => startDownload(release)} disabled={downloadStarting === release.id}>{downloadStarting === release.id ? 'Preparing download…' : 'Download'}</button>{:else}<span class="release-unavailable">Withheld</span>{/if}</article>{/each}</div>{:else}<div class="empty-account-state"><strong>No build assigned</strong><p>When your beta access includes a build, its installer and verification evidence will appear here.</p></div>{/if}
+          <p class="panel-hint">Only builds with a verified Tauri updater signature and Sigstore evidence appear here. Beta installers carry no Authenticode signature, so Windows shows an unknown-publisher warning.</p>
+		  {#if downloads.length > 0}<div class="download-list">{#each downloads as release (release.id)}<article><div><strong>Sesame {release.version}</strong><span>{release.platform} · {release.updaterVerified ? 'Tauri updater signature verified' : 'Updater signature unavailable'} · {release.sigstoreVerified ? 'Sigstore release workflow verified' : 'Release workflow evidence unavailable'} · {release.authenticodeVerified ? 'Windows publisher verified' : 'Windows installer without an Authenticode signature'}</span><code>SHA-256: {release.sha256}</code></div>{#if release.updaterVerified && release.sigstoreVerified}<button class="button button-sm" type="button" on:click={() => startDownload(release)} disabled={downloadStarting === release.id}>{downloadStarting === release.id ? 'Preparing download…' : 'Download'}</button>{:else}<span class="release-unavailable">Withheld</span>{/if}</article>{/each}</div>{:else}<div class="empty-account-state"><strong>No build assigned</strong><p>When your beta access includes a build, its installer and verification evidence will appear here.</p></div>{/if}
           <a class="account-roadmap" href={`${siteOrigin}/releases`}>Public release notes and platform support</a>
         </div>
       {/if}

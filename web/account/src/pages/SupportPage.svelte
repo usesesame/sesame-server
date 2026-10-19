@@ -188,7 +188,6 @@ import { siteOrigin } from '../lib/runtime-config'
 </script>
 
 <section class="page-hero compact-page-hero">
-  <p class="eyebrow">Support</p>
   <h1>How can we help?</h1>
   <p class="intro">Ask a question or report a bug. Never include passwords or vault files.</p>
 </section>
@@ -266,7 +265,7 @@ import { siteOrigin } from '../lib/runtime-config'
     {#if receipt}
       <div class="support-receipt" role="status"><h2>Request {receipt}</h2><p>Added to the queue. {account ? 'The request is now in your support history. You can follow replies above.' : 'Keep this reference for any follow-up. Guest request contents are not exposed through the public website.'}</p><div class="support-receipt-actions">{#if account}<button class="button" type="button" on:click={() => selectTicket(receipt)}>View request</button>{/if}<button class="button button-soft" type="button" on:click={() => (receipt = '')}>Send another report</button></div></div>
     {:else}
-      <div class="support-form-head"><div><p class="eyebrow">Contact</p><h2>Send a request</h2></div><span>No attachments</span></div>
+      <div class="support-form-head"><h2>Send a request</h2><span>No attachments</span></div>
       <p class="support-response-expectation">We aim to reply within 3 business days.</p>
       <form class="support-form" on:submit|preventDefault={submit}>
         <label>Email<input type="email" bind:value={email} autocomplete="email" required maxlength="254" readonly={!!account} /></label>
@@ -276,7 +275,7 @@ import { siteOrigin } from '../lib/runtime-config'
         <details class="support-advanced">
           <summary>Add technical details <span>optional</span></summary>
           <div class="support-advanced-fields">
-            <label>App version<input type="text" bind:value={appVersion} maxlength="40" placeholder="0.1.0-beta.3" /></label>
+            <label>App version<input type="text" bind:value={appVersion} maxlength="40" placeholder="0.4.1" /></label>
             <label>Diagnostic code<input type="text" bind:value={diagnosticCode} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="UI-7F2A" /></label>
             <label>Browser integration<input type="text" bind:value={browserIntegration} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="ready" /></label>
             <label>Request ID<input type="text" bind:value={requestId} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="req-1234" /></label>
@@ -293,7 +292,6 @@ import { siteOrigin } from '../lib/runtime-config'
 
 <section class="section support-faq">
   <div class="faq-block">
-    <p class="eyebrow">Quick answers</p>
     <h2>Common questions</h2>
     <details><summary>Can I download Sesame now?</summary><p>Yes. Sesame is a free download for Windows and Linux.</p></details>
     <details><summary>Can support unlock my vault?</summary><p>No. Use your recovery kit, PIN, or Windows Hello. Without an unlock method, the vault cannot be recovered.</p></details>

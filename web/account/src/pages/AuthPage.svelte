@@ -7,6 +7,7 @@
 
   export let mode: 'login' | 'register'
   export let sessionExpired = false
+  export let unavailable = ''
   export let onAuthenticated: (account: Account) => void
 
   let email = ''
@@ -83,12 +84,6 @@
 <section class="auth-page">
   <div class="auth-copy">
     <h1>{isRegistering ? 'Join the private beta' : 'Sign in'}</h1>
-    <p class="intro">One account for the Sesame website. It never stores or unlocks your vault.</p>
-    <ul class="account-job-list" aria-label="What the account is for">
-      <li>See builds you are eligible to download</li>
-      <li>Manage licences and connected desktops</li>
-      <li>Review and revoke website sessions</li>
-    </ul>
   </div>
 
   {#if isRegistering && !registrationLoading && !registrationAllowed}
@@ -106,8 +101,9 @@
   {:else}
     <form class="auth-form card" on:submit|preventDefault={submit} aria-busy={registrationLoading || submitting}>
       <h2>{isRegistering ? 'Activate your invitation' : 'Website account'}</h2>
-      <p>{isRegistering ? 'Create an account only if you have been invited to test a private-beta build.' : 'Use the password or passkey for this website account, not your vault password.'}</p>
+      <p>{isRegistering ? 'You need an invitation to create an account.' : 'This is not your vault password.'}</p>
       {#if sessionExpired}<p class="auth-notice" role="status">Your session expired. Sign in again to continue.</p>{/if}
+      {#if unavailable}<p class="auth-notice auth-notice-warn" role="alert">{unavailable} <button type="button" class="inline-action" on:click={() => window.location.reload()}>Try again</button></p>{/if}
       {#if registrationLoading}
         <p class="auth-loading"><span class="auth-spinner" aria-hidden="true"></span>Checking invitation access…</p>
       {:else}
@@ -134,7 +130,7 @@
           {submitting ? isRegistering ? 'Creating account…' : 'Signing in…' : isRegistering ? 'Create beta account' : 'Sign in'}
         </button>
         {#if !isRegistering && canUsePasskey}
-          <button class="button auth-passkey" type="button" on:click={signInWithAPasskey} disabled={submitting}>Sign in with a passkey</button>
+          <button class="button button-soft auth-passkey" type="button" on:click={signInWithAPasskey} disabled={submitting}>Sign in with a passkey</button>
         {/if}
         <div class="auth-switch">
           {#if isRegistering}
