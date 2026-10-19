@@ -4544,6 +4544,36 @@
         "x-sesame-registration-pattern": "/v1/downloads/{ticket}"
       }
     },
+    "/v1/extensions": {
+      "get": {
+        "operationId": "getV1Extensions",
+        "summary": "GET extension listings",
+        "tags": [
+          "public"
+        ],
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "public",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "extensionListings",
+        "x-sesame-registration-pattern": "/v1/extensions"
+      }
+    },
     "/v1/plans": {
       "get": {
         "operationId": "getV1Plans",
@@ -5627,5 +5657,5 @@
     "internal/httpapi/sync_routes.go"
   ],
   "x-sesame-deployment-profile": "project",
-  "x-sesame-operation-count": 138
+  "x-sesame-operation-count": 139
 }

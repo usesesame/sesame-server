@@ -225,8 +225,9 @@ func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
 }
 
 var operatorHiddenFeatureFlags = map[string]struct{}{
-	"public_download": {},
-	"updater_enabled": {},
+	"public_download":           {},
+	"updater_enabled":           {},
+	browserExtensionVisibleFlag: {},
 }
 
 func (a *api) visibleFeatureFlags(ctx context.Context) ([]adminstore.FeatureFlag, error) {
@@ -251,7 +252,7 @@ func (a *api) validFeatureFlag(key, value string) bool {
 	switch key {
 	case "registration_mode":
 		return value == "closed" || value == "invite" || value == "public"
-	case "cloud_sync_available", "public_download", "desktop_linking_enabled", "downloads_enabled", "updater_enabled":
+	case "cloud_sync_available", "public_download", "desktop_linking_enabled", "downloads_enabled", "updater_enabled", browserExtensionVisibleFlag:
 		if _, hidden := operatorHiddenFeatureFlags[key]; hidden && !a.projectProfile() {
 			return false
 		}

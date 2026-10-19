@@ -202,6 +202,7 @@ func main() {
 		AdminSessionTTL:           8 * time.Hour,
 		AdminIPPepper:             adminIPPepper,
 		SyncOwnerPepper:           strings.TrimSpace(os.Getenv("SESAME_SYNC_OWNER_PEPPER")),
+		ChromeExtensionID:         strings.TrimSpace(os.Getenv("SESAME_CHROME_EXTENSION_ID")),
 		CapabilitySigningKey:      capabilityKey,
 		CapabilityKeyID:           env("SESAME_CAPABILITY_KEY_ID", "capability-v1"),
 		MinimumDesktopVersion:     env("SESAME_MINIMUM_DESKTOP_VERSION", "0.1.0"),
