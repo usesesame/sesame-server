@@ -126,6 +126,14 @@ These settings are optional or have a default:
   exists, because a different value later no longer finds the existing vaults.
   A deployment that already holds Sync vaults cannot adopt it, because no
   rekey path exists.
+- `SESAME_CHROME_EXTENSION_ID` is the Chrome Web Store id of the published
+  extension, 32 letters from a to p. `GET /v1/extensions` builds the store
+  address from it, so the website cannot link a listing the server was not
+  given. It is empty by default, and the address then stays out of the answer.
+  A store record also needs the `published` state in the admin Extension
+  stores list and the `browser_extension_visible` flag turned on before the
+  public status says `published`. Until then it says `approved`. Project
+  profile only.
 - `SESAME_SMTP_FROM`, `SESAME_SMTP_USERNAME`, and `SESAME_SMTP_PASSWORD`
   belong to the relay named by `SESAME_SMTP_ADDR`.
   `SESAME_SUPPORT_NOTIFY_EMAIL` receives a short notice for each new support

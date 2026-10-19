@@ -318,3 +318,26 @@ func containsPathSeparator(value string) bool {
 	}
 	return false
 }
+
+// PublicExtensionListings returns, for each store, the newest record that has
+// reached approval, publication or withdrawal. Earlier states say nothing the
+// public needs, and a newer record still in review must not hide a live one.
+func (s *Store) PublicExtensionListings(ctx context.Context) ([]ExtensionListing, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT ON (store) store, version, status, created_at
+		FROM sesame_extension_publications
+		WHERE status IN ('approved', 'published', 'withdrawn')
+		ORDER BY store, created_at DESC, id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	listings := []ExtensionListing{}
+	for rows.Next() {
+		var listing ExtensionListing
+		if err := rows.Scan(&listing.Store, &listing.Version, &listing.Status, &listing.CreatedAt); err != nil {
+			return nil, err
+		}
+		listings = append(listings, listing)
+	}
+	return listings, rows.Err()
+}

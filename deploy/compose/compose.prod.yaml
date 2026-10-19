@@ -83,6 +83,9 @@ services:
       # until this holds at least 32 characters, and changing it later orphans
       # every vault, so set it once before the first vault exists.
       SESAME_SYNC_OWNER_PEPPER: ${SESAME_SYNC_OWNER_PEPPER:-}
+      # The Chrome Web Store id of the published extension. Empty keeps the
+      # store address out of GET /v1/extensions.
+      SESAME_CHROME_EXTENSION_ID: ${SESAME_CHROME_EXTENSION_ID:-}
       DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD:?set in the env file}@db:5432/sesame?sslmode=disable
     extra_hosts:
       - "${SESAME_SMTP_HOST_GATEWAY:-sesame-smtp-gateway.invalid}:host-gateway"
