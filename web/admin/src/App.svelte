@@ -398,7 +398,8 @@
 
   async function setFlag(flag: Flag, select: HTMLSelectElement) {
     const value = select.value
-    try { await mutate(`/v1/admin/flags/${flag.key}`, 'PATCH', { value }); await openPage('flags'); showNotice('Feature flag updated live.') } catch (reason) { select.value = flag.value; showError(reason) }
+    select.disabled = true
+    try { await mutate(`/v1/admin/flags/${flag.key}`, 'PATCH', { value }); await openPage('flags'); showNotice('Feature flag updated live.') } catch (reason) { select.value = flag.value; showError(reason) } finally { select.disabled = !canEditFlags }
   }
 
   async function savePlan(plan: Plan) {
