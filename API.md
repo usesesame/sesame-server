@@ -47,7 +47,7 @@ Under `operator`:
 
 - The release, extension-publication, and plan administration routes, the
   owner-ring user action, `POST /v1/release-candidates`, and
-  `GET /v1/project/activity` are not registered.
+  `GET /v1/project/activity` and `GET /v1/extensions` are not registered.
   Every role, including `super`, receives `404 not_found`.
 - `GET /v1/plans` returns `{plans:[]}`.
 - `GET /v1/product/status` returns
@@ -108,6 +108,15 @@ body.
   only reads that copy. A failed refresh keeps the last good copy. Before the
   first count it returns `503 project_activity_unavailable`. Project profile
   only.
+- `GET /v1/extensions` returns `{extensions:[{store,version,status,listingUrl?}]}`,
+  one entry for each store whose newest approved, published or withdrawn
+  record is approved or published. A withdrawn record leaves the store out.
+  `status` is `published` only when the admin registry says `published`, the
+  `browser_extension_visible` flag is on, and the server holds
+  `SESAME_CHROME_EXTENSION_ID` for a Chrome record. Only then does the entry
+  carry `listingUrl`, which the server builds from that id. Every other case
+  reports `approved` with no address. It never returns admin evidence.
+  Project profile only.
 - `GET /v1/releases/latest?platform=windows|linux` returns release availability for
   the platform. Stays unavailable until the full release set clears the gate:
   exact-workflow Sigstore evidence for every package, and a verified Tauri

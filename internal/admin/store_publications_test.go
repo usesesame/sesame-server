@@ -214,3 +214,53 @@ func TestExtensionPublicationConflictOnDivergentEvidence(t *testing.T) {
 		t.Fatalf("divergent replay error = %v, want ErrExtensionPublicationConflict", err)
 	}
 }
+
+func walkExtensionPublication(t *testing.T, store *Store, actor Account, version string, last string) ExtensionPublication {
+	t.Helper()
+	publication, err := store.AcceptExtensionPublication(context.Background(), actor, publicationCandidate("chrome", version), "test-ip")
+	if err != nil {
+		t.Fatalf("accept %s: %v", version, err)
+	}
+	for _, to := range []string{"uploaded", "submitted", "approved", "published", "withdrawn"} {
+		if publication.Status == last {
+			break
+		}
+		publication, err = store.TransitionExtensionPublication(context.Background(), actor, publication.ID, transitionInput(publication.StateRevision, to, map[string]any{"reference": "test"}), "test-ip")
+		if err != nil {
+			t.Fatalf("%s to %s: %v", version, to, err)
+		}
+	}
+	return publication
+}
+
+func TestPublicExtensionListingsKeepsTheNewestApprovedRecordAndIgnoresReview(t *testing.T) {
+	store, _ := publicationTestStore(t)
+	actor := Account{Email: "release-pipeline"}
+
+	listings, err := store.PublicExtensionListings(context.Background())
+	if err != nil || len(listings) != 0 {
+		t.Fatalf("empty registry listings = %v, %v, want none", listings, err)
+	}
+
+	walkExtensionPublication(t, store, actor, "0.1.0", "published")
+	walkExtensionPublication(t, store, actor, "0.2.0", "submitted")
+	listings, err = store.PublicExtensionListings(context.Background())
+	if err != nil || len(listings) != 1 || listings[0].Version != "0.1.0" || listings[0].Status != "published" {
+		t.Fatalf("a newer record in review must not hide the live one: %v, %v", listings, err)
+	}
+
+	walkExtensionPublication(t, store, actor, "0.3.0", "approved")
+	listings, err = store.PublicExtensionListings(context.Background())
+	if err != nil || len(listings) != 1 || listings[0].Version != "0.3.0" || listings[0].Status != "approved" {
+		t.Fatalf("the newest approved record should win: %v, %v", listings, err)
+	}
+}
+
+func TestPublicExtensionListingsReportsWithdrawal(t *testing.T) {
+	store, _ := publicationTestStore(t)
+	walkExtensionPublication(t, store, Account{Email: "release-pipeline"}, "0.1.0", "withdrawn")
+	listings, err := store.PublicExtensionListings(context.Background())
+	if err != nil || len(listings) != 1 || listings[0].Status != "withdrawn" {
+		t.Fatalf("a withdrawn record must be the newest answer: %v, %v", listings, err)
+	}
+}

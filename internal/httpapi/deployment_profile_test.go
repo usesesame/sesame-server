@@ -37,6 +37,7 @@ var projectOnlyRoutes = []struct {
 	{http.MethodDelete, "/v1/admin/users/account-test/owner-release"},
 	{http.MethodPost, "/v1/release-candidates"},
 	{http.MethodGet, "/v1/project/activity"},
+	{http.MethodGet, "/v1/extensions"},
 }
 
 func TestOperatorProfileDoesNotRegisterProjectOnlyRoutes(t *testing.T) {

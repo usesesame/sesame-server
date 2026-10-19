@@ -39,8 +39,10 @@ type Config struct {
 	Accounts         accounts.Store
 	Admin            *adminstore.Store
 	// Nil disables every /v1/sync route; the cloud_sync_available flag must also be on.
-	Sync                      *syncsvc.Service
-	SyncOwnerPepper           string
+	Sync            *syncsvc.Service
+	SyncOwnerPepper string
+	// The Chrome Web Store id of the published extension. Empty keeps the listing address out of the public status.
+	ChromeExtensionID         string
 	ReleaseRegistry           ReleaseRegistry
 	AdminOrigin               string
 	AdminSecure               bool
@@ -234,6 +236,7 @@ func New(config Config) http.Handler {
 	service.route(mux, metadata, "GET /v1/product/status", service.productStatus)
 	service.route(mux, metadata, "GET /v1/releases/latest", service.latestRelease)
 	service.projectRoute(mux, metadata, "GET /v1/project/activity", service.projectActivity)
+	service.projectRoute(mux, metadata, "GET /v1/extensions", service.extensionListings)
 	service.route(mux, metadata, "GET /v1/security/boundaries", service.boundaries)
 	service.route(mux, metadata, "GET /v1/capabilities", service.capabilities)
 	service.route(mux, metadata, "GET /v1/support", service.support)

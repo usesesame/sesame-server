@@ -240,6 +240,14 @@ type ExtensionPublication struct {
 	Audit         []AuditEntry   `json:"audit"`
 }
 
+// The newest store record that reached approval, publication or withdrawal.
+type ExtensionListing struct {
+	Store     string
+	Version   string
+	Status    string
+	CreatedAt time.Time
+}
+
 type ExtensionPublicationCandidate struct {
 	Store         string         `json:"store"`
 	Version       string         `json:"version"`
