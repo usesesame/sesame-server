@@ -396,8 +396,10 @@
     await userAction('suspend', 'POST', { reason })
   }
 
-  async function setFlag(flag: Flag, value: string) {
-    try { await mutate(`/v1/admin/flags/${flag.key}`, 'PATCH', { value }); await openPage('flags'); showNotice('Feature flag updated live.') } catch (reason) { showError(reason) }
+  async function setFlag(flag: Flag, select: HTMLSelectElement) {
+    const value = select.value
+    select.disabled = true
+    try { await mutate(`/v1/admin/flags/${flag.key}`, 'PATCH', { value }); await openPage('flags'); showNotice('Feature flag updated live.') } catch (reason) { select.value = flag.value; showError(reason) } finally { select.disabled = !canEditFlags }
   }
 
   async function savePlan(plan: Plan) {
@@ -502,7 +504,7 @@
         <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" /></label>
         <button class="primary" onclick={completeSetup} disabled={busy || password.length < 12 || code.length !== 6}>Finish setup</button>
       {:else}
-        <h1>Admin sign in</h1><p>This is separate from a Sesame website account. Password and MFA are both required.</p>
+        <h1>Admin sign in</h1><p>This is separate from a Sesame website account.</p>
         <label>Email<input type="email" bind:value={email} autocomplete="username" /></label>
         <label>Password<input type="password" bind:value={password} autocomplete="current-password" /></label>
         <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" /></label>
@@ -539,15 +541,14 @@
             <article><span>{metric[0]}</span><strong>{metric[1] ?? 'Not available'}</strong></article>
           {/each}
         </div>
-        <section class="panel"><h2>Operating boundary</h2><p>Administration manages account metadata, releases, plans, flags, and sessions. It cannot receive vault records, vault passwords, 2FA seeds, backup codes, or vault keys.</p></section>
       {:else if page === 'support'}
         <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Support status">{supportAnnouncement}</p>
         <div class="toolbar">
           <input class="search" aria-label="Search tickets" placeholder="Search email or subject" bind:value={ticketQuery} oninput={onTicketSearch} />
-          <select bind:value={ticketStatusFilter} onchange={loadTickets}><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option></select>
-          <select bind:value={ticketPriorityFilter} onchange={loadTickets}><option value="">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select>
-          <select bind:value={ticketCategoryFilter} onchange={loadTickets}><option value="">All categories</option>{#each Object.entries(TICKET_CATEGORY_LABELS) as [value, label] (value)}<option {value}>{label}</option>{/each}</select>
-          <select bind:value={ticketAssignedFilter} onchange={loadTickets}><option value="">All assignments</option><option value="unassigned">Unassigned</option><option value={me?.id}>Assigned to me</option></select>
+          <select aria-label="Filter by status" bind:value={ticketStatusFilter} onchange={loadTickets}><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option></select>
+          <select aria-label="Filter by priority" bind:value={ticketPriorityFilter} onchange={loadTickets}><option value="">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select>
+          <select aria-label="Filter by category" bind:value={ticketCategoryFilter} onchange={loadTickets}><option value="">All categories</option>{#each Object.entries(TICKET_CATEGORY_LABELS) as [value, label] (value)}<option {value}>{label}</option>{/each}</select>
+          <select aria-label="Filter by assignment" bind:value={ticketAssignedFilter} onchange={loadTickets}><option value="">All assignments</option><option value="unassigned">Unassigned</option><option value={me?.id}>Assigned to me</option></select>
           <span>{ticketTotal} tickets{#if ticketsPages() > 1} · page {ticketsPage} of {ticketsPages()}{/if}</span>
           {#if ticketsPages() > 1}<button class="page-button" onclick={prevTicketsPage} disabled={ticketsPage <= 1}>Prev</button><button class="page-button" onclick={nextTicketsPage} disabled={ticketsPage >= ticketsPages()}>Next</button>{/if}
         </div>
@@ -616,10 +617,10 @@
               </dl>
               {#if canSupport}
                 <div class="action-grid">
-                  <select value={selectedTicket.status} onchange={(event) => setTicketStatus(event.currentTarget.value as TicketStatus)}>
+                  <select aria-label="Ticket status" value={selectedTicket.status} onchange={(event) => setTicketStatus(event.currentTarget.value as TicketStatus)}>
                     <option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option>
                   </select>
-                  <select value={selectedTicket.priority} onchange={(event) => setTicketPriority(event.currentTarget.value as TicketPriority)}>
+                  <select aria-label="Ticket priority" value={selectedTicket.priority} onchange={(event) => setTicketPriority(event.currentTarget.value as TicketPriority)}>
                     <option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option>
                   </select>
                   <select class="assign-select" value={selectedTicket.assignedAdminId || ''} onchange={(event) => setTicketAssignment(event.currentTarget.value)} disabled={assignWorking} aria-label="Assigned administrator">
@@ -631,7 +632,8 @@
                 </div>
               {/if}
               <h3>Conversation</h3>
-              <div class="thread">
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <div class="thread" role="region" aria-label="Conversation messages" tabindex="0">
                 {#each selectedTicket.messages as message (message.id)}
                   <article class="message" data-role={message.authorRole}>
                     <div class="message-meta"><strong>{message.authorRole === 'staff' ? message.adminEmail : selectedTicket.email}</strong><small>{date(message.createdAt)}{#if message.authorRole === 'staff' && message.emailDeliveryReason} · {deliveryReasonLabel(message.emailDeliveryReason)}{#if message.emailAttempts && (message.emailDeliveryReason === 'pending' || message.emailDeliveryReason === 'failed')} · {message.emailAttempts} attempt{message.emailAttempts === 1 ? '' : 's'}{/if}{#if message.emailNextAttemptAt && message.emailDeliveryReason === 'pending'} · retry {date(message.emailNextAttemptAt)}{/if}{/if}</small></div>
@@ -655,7 +657,8 @@
                 </div>
               {/if}
               <h3>Internal notes</h3>
-              <div class="thread">
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+              <div class="thread" role="region" aria-label="Internal notes list" tabindex="0">
                 {#each selectedTicket.notes as note (note.id)}
                   <article class="message note">
                     <div class="message-meta"><strong>{note.adminEmail}</strong><small>{date(note.createdAt)}</small></div>
@@ -685,15 +688,15 @@
           </aside>{/if}
         </div>
       {:else if page === 'flags'}
-        <section class="panel"><h2>Runtime feature flags</h2><p>Changes take effect without a deployment and are written to the audit log.</p>{#each flags as flag (flag.key)}<div class="setting-row"><div><strong>{flag.key.replaceAll('_', ' ')}</strong><small>Updated {date(flag.updatedAt)}</small></div>{#if flag.key === 'registration_mode'}<select value={flag.value} onchange={(event) => setFlag(flag, event.currentTarget.value)} disabled={!canEditFlags}><option value="closed">Closed</option><option value="invite">Invitation only</option><option value="public">Public</option></select>{:else}<select value={flag.value} onchange={(event) => setFlag(flag, event.currentTarget.value)} disabled={!canEditFlags}><option value="false">Off</option><option value="true">On</option></select>{/if}</div>{/each}</section>
+        <section class="panel"><h2>Runtime feature flags</h2><p>Changes take effect without a deployment and are written to the audit log.</p>{#each flags as flag (flag.key)}<div class="setting-row"><div><strong>{flag.key.replaceAll('_', ' ')}</strong><small>Updated {date(flag.updatedAt)}</small></div>{#if flag.key === 'registration_mode'}<select aria-label={`${flag.key.replaceAll('_', ' ')} setting`} value={flag.value} onchange={(event) => setFlag(flag, event.currentTarget)} disabled={!canEditFlags}><option value="closed">Closed</option><option value="invite">Invitation only</option><option value="public">Public</option></select>{:else}<select aria-label={`${flag.key.replaceAll('_', ' ')} setting`} value={flag.value} onchange={(event) => setFlag(flag, event.currentTarget)} disabled={!canEditFlags}><option value="false">Off</option><option value="true">On</option></select>{/if}</div>{/each}</section>
       {:else if page === 'plans'}
         <div class="form-grid">{#each plans as plan (plan.id)}<section class="panel form-card"><h2>{plan.name}</h2><label>Name<input bind:value={plan.name} disabled={!canEditPlans} /></label><div class="two"><label>Price<input bind:value={plan.price} disabled={!canEditPlans} /></label><label>Annual price<input bind:value={plan.annualPrice} placeholder="Optional" disabled={!canEditPlans} /></label></div><label>Billing<select bind:value={plan.billing} disabled={!canEditPlans}><option value="none">None</option><option value="one_time">One time</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label><label>Description<textarea bind:value={plan.description} disabled={!canEditPlans}></textarea></label><label class="check"><input type="checkbox" bind:checked={plan.available} disabled={!canEditPlans} /> Available</label>{#if canEditPlans}<button class="primary" onclick={() => savePlan(plan)}>Save plan</button>{/if}</section>{/each}</div>
       {:else if page === 'releases'}
         <ReleaseWorkspace {releases} canManage={canManageReleases} onCommand={releaseCommand} />
         <ExtensionStoresWorkspace {publications} canManage={canManageReleases} onTransition={extensionTransition} onAccept={extensionAccept} />
       {:else if page === 'admins'}
-        {#if canEditAdmins}<section class="panel"><h2>Invite an administrator</h2><div class="toolbar"><input type="email" placeholder="name@example.com" bind:value={inviteEmail} /><select bind:value={inviteRole}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select><button class="primary" onclick={inviteAdmin} disabled={!inviteEmail}>Create setup link</button></div>{#if inviteURL}<label>One-time setup link<input value={inviteURL} readonly onfocus={(event) => event.currentTarget.select()} /></label>{/if}</section>{/if}
-        <section class="panel"><h2>Administrators</h2>{#each admins as admin (admin.id)}<div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select value={admin.role} onchange={(event) => updateAdmin(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => deleteAdmin(admin)} disabled={admin.id === me.id}>Delete</button>{/if}</div>{/each}</section>
+        {#if canEditAdmins}<section class="panel"><h2>Invite an administrator</h2><div class="toolbar"><input type="email" placeholder="name@example.com" bind:value={inviteEmail} /><select aria-label="Role for the new administrator" bind:value={inviteRole}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select><button class="primary" onclick={inviteAdmin} disabled={!inviteEmail}>Create setup link</button></div>{#if inviteURL}<label>One-time setup link<input value={inviteURL} readonly onfocus={(event) => event.currentTarget.select()} /></label>{/if}</section>{/if}
+        <section class="panel"><h2>Administrators</h2>{#each admins as admin (admin.id)}<div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select aria-label={`Role for ${admin.email}`} value={admin.role} onchange={(event) => updateAdmin(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => deleteAdmin(admin)} disabled={admin.id === me.id}>Delete</button>{/if}</div>{/each}</section>
       {:else if page === 'audit'}
         <section class="panel audit-filters"><div><label>Action<input placeholder="user.suspend" bind:value={auditAction} /></label>{#if canAuditAll}<label>Admin ID<input placeholder="Optional" bind:value={auditAdmin} /></label>{/if}<label>From<input type="datetime-local" bind:value={auditFrom} /></label><label>To<input type="datetime-local" bind:value={auditTo} /></label></div><div class="toolbar"><button onclick={loadAudit}>Apply filters</button>{#if canAuditAll}<button onclick={exportAudit}>Export CSV</button>{/if}<span>{audit.length} results on this page</span></div></section><section class="table-panel"><table><thead><tr><th>Time</th><th>Administrator</th><th>Action</th><th>Target</th></tr></thead><tbody>{#each audit as entry (entry.id)}<tr><td>{date(entry.createdAt)}</td><td>{entry.adminEmail || 'Deleted admin'}</td><td><code>{entry.action}</code></td><td>{entry.targetType} {entry.targetId || ''}</td></tr>{/each}</tbody></table></section>
       {:else if page === 'system'}

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from '@testing-library/svelte'
+import { cleanup, waitFor, render, screen, within } from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
 
 const auth = vi.hoisted(() => ({
@@ -66,4 +66,38 @@ test('does not show the expired session message for an ordinary anonymous visit'
   render(App, { initialPath: '/login' })
   expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeTruthy()
   expect(screen.queryByText('Your session expired. Sign in again to continue.')).toBeNull()
+})
+
+test('sends a signed-out visitor from the account address to the sign-in page', async () => {
+  const replace = vi.fn()
+  vi.stubGlobal('location', { replace, assign: vi.fn(), search: '', pathname: '/account', hash: '', origin: 'http://localhost', href: 'http://localhost/account' })
+  auth.loadAuthState.mockResolvedValue({ state: 'anonymous', expired: false })
+  render(App, { initialPath: '/account' })
+  await waitFor(() => expect(replace).toHaveBeenCalledWith('/login'))
+  expect(screen.queryByText('You are signed out')).toBeNull()
+  vi.unstubAllGlobals()
+})
+
+test('keeps the expired session notice when it sends the visitor to sign in', async () => {
+  const replace = vi.fn()
+  vi.stubGlobal('location', { replace, assign: vi.fn(), search: '', pathname: '/account', hash: '', origin: 'http://localhost', href: 'http://localhost/account' })
+  auth.loadAuthState.mockResolvedValue({ state: 'anonymous', expired: true })
+  render(App, { initialPath: '/account' })
+  await waitFor(() => expect(replace).toHaveBeenCalledWith('/login?expired=1'))
+  vi.unstubAllGlobals()
+})
+
+test('sends a visitor to sign in when the account service is unavailable and shows the notice there', async () => {
+  const replace = vi.fn()
+  vi.stubGlobal('location', { replace, assign: vi.fn(), search: '', pathname: '/account', hash: '', origin: 'http://localhost', href: 'http://localhost/account' })
+  auth.loadAuthState.mockResolvedValue({ state: 'offline' })
+  render(App, { initialPath: '/account' })
+  await waitFor(() => expect(replace).toHaveBeenCalledWith('/login'))
+  cleanup()
+  vi.unstubAllGlobals()
+
+  auth.loadAuthState.mockResolvedValue({ state: 'offline' })
+  render(App, { initialPath: '/login' })
+  expect((await screen.findByRole('alert')).textContent).toContain('Reconnect and try again.')
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
 })

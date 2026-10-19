@@ -80,7 +80,6 @@
 <section class="auth-page account-flow-page">
   <div class="auth-copy">
     <h1>{title}</h1>
-    <p class="intro">This changes your Sesame website account only.</p>
   </div>
 
   <div class="auth-form card">

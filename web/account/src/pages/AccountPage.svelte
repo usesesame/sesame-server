@@ -10,8 +10,6 @@
     getAccountActivity,
     getNotificationPreferences,
     updateNotificationPreferences,
-    getAccountDownloads,
-	createDownloadTicket,
     getDesktopLink,
     listDesktopDevices,
     listSessions,
@@ -28,7 +26,6 @@
     type NotificationPreferences,
     type AuthState,
     type AccountAccess,
-    type AccountDownload,
     type AccountSession,
     type DesktopDevice,
     type DesktopLink,
@@ -42,20 +39,15 @@
   export let authState: AuthState = { state: 'loading' }
   export let onSignedOut: () => void
 
-  type Tab = 'overview' | 'security' | 'sessions' | 'devices' | 'activity' | 'downloads'
+  type Tab = 'overview' | 'security' | 'sessions' | 'devices' | 'activity'
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'security', label: 'Security' },
     { id: 'sessions', label: 'Sessions' },
     { id: 'devices', label: 'Desktops' },
     { id: 'activity', label: 'Activity' },
-    { id: 'downloads', label: 'Downloads' },
   ]
-  let deploymentProfile: 'operator' | 'project' = 'operator'
   let tab: Tab = 'overview'
-  $: downloadsVisible = deploymentProfile === 'project'
-  $: visibleTabs = downloadsVisible ? tabs : tabs.filter((item) => item.id !== 'downloads')
-  $: if (!downloadsVisible && tab === 'downloads') tab = 'overview'
   const siteHost = new URL(siteOrigin).host
   let now = Date.now()
   let clock: number | undefined
@@ -65,12 +57,10 @@
   let error = ''
   let notice = ''
   let access: AccountAccess | null = null
-  let downloads: AccountDownload[] = []
   let supportUnread = 0
   let capabilityConfig: CapabilityConfig | null = null
   let accessLoaded = false
   let credentialSetupRequired = false
-	let downloadStarting = ''
 
   let currentPassword = ''
   let newPassword = ''
@@ -155,12 +145,10 @@
   async function loadAccess() {
     try {
       const [bootstrap, configuration] = await Promise.all([getAccountBootstrap(), capabilities()])
-      deploymentProfile = bootstrap.deploymentProfile === 'project' ? 'project' : 'operator'
       access = bootstrap.access
       capabilityConfig = configuration
       supportUnread = bootstrap.notificationCounts.support
       credentialSetupRequired = bootstrap.security?.credentialSetupRequired === true
-      downloads = await getAccountDownloads().catch(() => [])
     } catch { /* Account can still manage security if entitlement data is unavailable. */ }
     accessLoaded = true
   }
@@ -182,19 +170,6 @@
     }
   }
 
-  async function startDownload(release: AccountDownload) {
-	if (!capabilityConfig || !capabilityEnabled(capabilityConfig, 'downloads')) { error = 'Verified private-beta downloads are temporarily unavailable.'; return }
-    downloadStarting = release.id
-    error = ''
-    try {
-      window.location.assign(await createDownloadTicket(release))
-    } catch (reason) {
-      error = reason instanceof Error ? reason.message : 'That download could not be started.'
-    } finally {
-      downloadStarting = ''
-    }
-  }
-
   function formatDate(value?: string) {
     if (!value) return 'Unknown'
     const date = new Date(value)
@@ -210,7 +185,6 @@
   }
 
   function selectTab(next: Tab) {
-    if (next === 'downloads' && !downloadsVisible) return
     tab = next
     error = ''; notice = ''
     if (next === 'security' && canUsePasskey && !passkeysLoaded) void loadPasskeys()
@@ -218,15 +192,15 @@
     if (next === 'sessions' && !sessionsLoaded) void loadSessions()
     if (next === 'devices' && !devicesLoaded) void loadDevicesAndLink()
     if (next === 'activity' && !activityLoaded) void loadActivity()
-    if ((next === 'overview' || next === 'downloads') && !accessLoaded) void loadAccess()
+    if (next === 'overview' && !accessLoaded) void loadAccess()
   }
 
   function tabKeydown(event: KeyboardEvent, index: number) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? visibleTabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + visibleTabs.length) % visibleTabs.length
-    selectTab(visibleTabs[next].id)
-    document.getElementById(`account-tab-${visibleTabs[next].id}`)?.focus()
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+    selectTab(tabs[next].id)
+    document.getElementById(`account-tab-${tabs[next].id}`)?.focus()
   }
 
   async function confirmSensitive(password: string) {
@@ -442,14 +416,12 @@
 
 <section class="account-shell">
   <div class="account-copy account-head">
-    <p class="eyebrow">Sesame account</p>
     <h1>Your account</h1>
-    <p class="intro">Beta access, verified private-beta downloads, licences, website sessions, and connected desktops.</p>
   </div>
 
   {#if account}
     <div class="account-tabs" role="tablist" aria-label="Account sections" use:slidingSelection>
-      {#each visibleTabs as item, index (item.id)}
+      {#each tabs as item, index (item.id)}
         <button id={`account-tab-${item.id}`} role="tab" type="button" class:active={tab === item.id} aria-selected={tab === item.id} aria-controls="account-panel" tabindex={tab === item.id ? 0 : -1} on:keydown={(event) => tabKeydown(event, index)} on:click={() => selectTab(item.id)}>{item.label}</button>
       {/each}
     </div>
@@ -472,11 +444,9 @@
           {#if !account.emailVerified}<button class="button button-soft button-sm" type="button" on:click={resendVerification} disabled={working}>Send verification email</button>{/if}
         </div>
         <div class="account-purpose-grid">
-          <article><span>Beta access</span><strong>{betaGranted ? account.emailVerified ? 'Eligible' : 'Granted, verify email' : 'Not granted'}</strong><p>{betaGranted && !account.emailVerified ? 'Verify your email to activate beta services and desktop linking.' : 'Controls invited builds and feedback access.'}</p></article>
-          {#if downloadsVisible}<article><span>Private-beta downloads</span><strong>{access?.downloadsAllowed ? 'Available' : 'No eligible build'}</strong><p>Builds your beta access covers.</p></article>{/if}
-          <article><span>Licences</span><strong>{access?.licences.length || 0}</strong><p>Purchases will live here when sales open.</p></article>
-          <article><span>Support</span><strong>{supportUnread > 0 ? `${supportUnread} unread` : 'Up to date'}</strong><p><a href="/support">View your support requests and replies.</a></p></article>
-          <article><span>Local vault</span><strong>Not stored here</strong></article>
+          <article><span>Beta access</span><strong>{betaGranted ? 'Granted' : 'Not granted'}</strong>{#if betaGranted && !account.emailVerified}<p>Verify your email to link a desktop.</p>{/if}</article>
+          <article><span>Licences</span><strong>{access?.licences.length || 0}</strong><p>Purchases will show here when sales open.</p></article>
+          <article><span>Support</span><strong>{supportUnread > 0 ? `${supportUnread} unread` : 'Up to date'}</strong><p><a href="/support">Your requests and replies</a></p></article>
         </div>
         <div class="panel-section">
           <button class="button button-soft" type="button" on:click={leave} disabled={working}>{working ? 'Signing out…' : 'Sign out'}</button>
@@ -503,16 +473,16 @@
           <p class="panel-hint">Security notices such as sign-ins and account changes are always sent. Choose optional updates below.</p>
           {#if notificationPreferencesError}<p class="auth-error" role="alert">{notificationPreferencesError}</p>{/if}
           <div class="notification-options" role="group" aria-label="Optional email notifications">
-            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.betaReleases} /><span>New beta releases</span></label>
+            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.betaReleases} disabled={!notificationPreferencesLoaded} /><span>New beta releases</span></label>
             <div class="notification-reply">
-              <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.supportReplies} /><span>Support replies</span></label>
+              <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.supportReplies} disabled={!notificationPreferencesLoaded} /><span>Support replies</span></label>
               {#if supportReplyNoticeVisible}
                 <p class="notification-notice" role="status"><span>Reply email is now on for this account.</span><button class="button button-soft button-sm" type="button" on:click={dismissSupportReplyNotice}>Got it</button></p>
               {/if}
             </div>
-            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.productAnnouncements} /><span>Product announcements</span></label>
+            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.productAnnouncements} disabled={!notificationPreferencesLoaded} /><span>Product announcements</span></label>
           </div>
-          <div class="notification-actions"><button class="button button-soft button-sm" type="button" on:click={saveNotificationPreferences} disabled={notificationPreferencesSaving}>{notificationPreferencesSaving ? 'Saving…' : 'Save preferences'}</button></div>
+          <div class="notification-actions"><button class="button button-soft button-sm" type="button" on:click={saveNotificationPreferences} disabled={notificationPreferencesSaving || !notificationPreferencesLoaded}>{notificationPreferencesSaving ? 'Saving…' : 'Save preferences'}</button></div>
         </div>
         {#if passwordError}<p class="auth-error" role="alert">{passwordError}</p>{/if}
         <div class="panel-section">
@@ -581,7 +551,7 @@
         </div>
         <div class="panel-section">
           <div class="device-section-head"><div><p class="account-label">Connected desktops</p><p class="panel-hint">Removing a link does not remove or delete the local vault.</p></div><button class="button button-soft button-sm" type="button" on:click={loadDevices} disabled={devicesLoading}>{devicesLoading ? 'Checking…' : 'Refresh'}</button></div>
-          {#if devices.length > 0}<div class="device-list">{#each devices as device (device.deviceId)}<div class="device-row"><div class="device-mark" aria-hidden="true"></div><div class="device-details">{#if renameDraftId === device.deviceId}<label class="device-rename-label" for="device-rename-{device.deviceId}">Desktop name</label><input id="device-rename-{device.deviceId}" class="device-rename-input" type="text" bind:value={renameDraftValue} maxlength="64" disabled={renamingDeviceId === device.deviceId} />{:else}<strong>{device.deviceName || 'Sesame desktop'}</strong>{/if}<span>Connected {formatDate(device.connectedAt)}</span><small>Authorization expires {formatDate(device.expiresAt)}</small></div>{#if renameDraftId === device.deviceId}<button class="device-remove" on:click={() => renameDevice(device)} disabled={renamingDeviceId === device.deviceId}>{renamingDeviceId === device.deviceId ? 'Saving…' : 'Save name'}</button><button class="device-remove" on:click={cancelRename} disabled={renamingDeviceId === device.deviceId}>Cancel</button>{:else}<button class="device-remove" on:click={() => startRename(device)} disabled={revokingDeviceId === device.deviceId}>Rename</button><button class="device-remove" on:click={() => removeDevice(device)} disabled={revokingDeviceId === device.deviceId}>{revokingDeviceId === device.deviceId ? 'Removing…' : 'Remove'}</button>{/if}</div>{/each}</div>{:else if devicesLoaded}<p class="device-empty">No desktops connected.</p>{/if}
+          {#if devices.length > 0}<div class="device-list">{#each devices as device (device.deviceId)}<div class="device-row"><div class="device-details">{#if renameDraftId === device.deviceId}<label class="device-rename-label" for="device-rename-{device.deviceId}">Desktop name</label><input id="device-rename-{device.deviceId}" class="device-rename-input" type="text" bind:value={renameDraftValue} maxlength="64" disabled={renamingDeviceId === device.deviceId} />{:else}<strong>{device.deviceName || 'Sesame desktop'}</strong>{/if}<span>Connected {formatDate(device.connectedAt)}</span><small>Authorization expires {formatDate(device.expiresAt)}</small></div>{#if renameDraftId === device.deviceId}<button class="device-action" on:click={() => renameDevice(device)} disabled={renamingDeviceId === device.deviceId}>{renamingDeviceId === device.deviceId ? 'Saving…' : 'Save name'}</button><button class="device-action" on:click={cancelRename} disabled={renamingDeviceId === device.deviceId}>Cancel</button>{:else}<button class="device-action" on:click={() => startRename(device)} disabled={revokingDeviceId === device.deviceId}>Rename</button><button class="device-remove" on:click={() => removeDevice(device)} disabled={revokingDeviceId === device.deviceId}>{revokingDeviceId === device.deviceId ? 'Removing…' : 'Remove'}</button>{/if}</div>{/each}</div>{:else if devicesLoaded}<p class="device-empty">No desktops connected.</p>{/if}
         </div>
 
       {:else if tab === 'activity'}
@@ -591,13 +561,6 @@
           {#if activity.length > 0}<div class="device-list">{#each activity as event (event.id)}<div class="device-row"><div class="device-details"><strong>{event.type.replaceAll('_', ' ')}</strong><span>{event.label || 'Sesame account'}</span><small>{formatDate(event.createdAt)}</small></div></div>{/each}</div>{:else if activityLoaded}<p class="device-empty">No retained security activity.</p>{/if}
         </div>
 
-      {:else if tab === 'downloads'}
-        <div class="panel-section">
-          <p class="account-label">Eligible downloads</p>
-          <p class="panel-hint">Only account-gated builds with verified Tauri updater signatures and Sigstore publisher evidence appear here. Early-access installers are not Windows publisher-signed, so Windows may show an unknown-publisher warning.</p>
-		  {#if downloads.length > 0}<div class="download-list">{#each downloads as release (release.id)}<article><div><strong>Sesame {release.version}</strong><span>{release.platform} · {release.updaterVerified ? 'Tauri updater signature verified' : 'Updater signature unavailable'} · {release.sigstoreVerified ? 'Sigstore release workflow verified' : 'Release workflow evidence unavailable'} · {release.authenticodeVerified ? 'Windows publisher verified' : 'Unsigned Windows early-access build'}</span><code>SHA-256: {release.sha256}</code></div>{#if release.updaterVerified && release.sigstoreVerified}<button class="button button-sm" type="button" on:click={() => startDownload(release)} disabled={downloadStarting === release.id}>{downloadStarting === release.id ? 'Preparing download…' : 'Download'}</button>{:else}<span class="release-unavailable">Withheld</span>{/if}</article>{/each}</div>{:else}<div class="empty-account-state"><strong>No build assigned</strong><p>When your beta access includes a build, its installer and verification evidence will appear here.</p></div>{/if}
-          <a class="account-roadmap" href={`${siteOrigin}/releases`}>Public release notes and platform support</a>
-        </div>
       {/if}
     </div>
   {:else if authState.state === 'loading'}

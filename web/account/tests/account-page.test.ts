@@ -11,8 +11,6 @@ const auth = vi.hoisted(() => ({
   getAccountActivity: vi.fn(),
   getNotificationPreferences: vi.fn(),
   updateNotificationPreferences: vi.fn(),
-  getAccountDownloads: vi.fn(),
-  createDownloadTicket: vi.fn(),
   getDesktopLink: vi.fn(),
   listDesktopDevices: vi.fn(),
   listSessions: vi.fn(),
@@ -72,7 +70,6 @@ function mockAccess(data = bootstrap()) {
     serviceStatus: {},
     expiresAt: '2099-01-01T00:00:00Z',
   })
-  auth.getAccountDownloads.mockResolvedValue([])
 }
 
 beforeEach(() => {
@@ -124,6 +121,13 @@ test('opens the security tab from the support preference link', async () => {
   expect(await screen.findByRole('checkbox', { name: 'Support replies' })).toBeTruthy()
 })
 
+test('has no downloads tab because every release is public', async () => {
+  mockAccess()
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  await screen.findByText('Beta access')
+  expect(screen.queryByRole('tab', { name: 'Downloads' })).toBeNull()
+})
+
 test('summarises access and signs out from the overview', async () => {
   const assign = vi.fn()
   vi.stubGlobal('location', { assign, search: '', pathname: '/', hash: '', origin: 'http://localhost', href: 'http://localhost/' })
@@ -135,8 +139,7 @@ test('summarises access and signs out from the overview', async () => {
   const onSignedOut = vi.fn()
   render(AccountPage, { account, authState: authenticated, onSignedOut })
   expect(await screen.findByText('3 unread')).toBeTruthy()
-  expect(screen.getByText('Eligible')).toBeTruthy()
-  expect(screen.getByText('Available')).toBeTruthy()
+  expect(screen.getByText('Granted')).toBeTruthy()
   await fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
   expect(auth.signOut).toHaveBeenCalledOnce()
   expect(onSignedOut).toHaveBeenCalledOnce()

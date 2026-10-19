@@ -85,3 +85,18 @@ test('readonly staff cannot change flags', async () => {
   expect((await screen.findByDisplayValue('Invitation only') as HTMLSelectElement).disabled).toBe(true)
   expect((screen.getByDisplayValue('Off') as HTMLSelectElement).disabled).toBe(true)
 })
+
+test('locks a flag while its update is pending and restores it after a failure', async () => {
+  mockApp((path) => path === '/v1/admin/flags' ? { flags: flags() } : {})
+  let reject: (reason: Error) => void = () => {}
+  api.mutate.mockReturnValue(new Promise((_, fail) => { reject = fail }))
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Feature flags' }))
+  const select = await screen.findByDisplayValue('Off') as HTMLSelectElement
+  await fireEvent.change(select, { target: { value: 'true' } })
+  expect(select.disabled).toBe(true)
+  reject(new Error('The change was refused.'))
+  expect(await screen.findByText('The change was refused.')).toBeTruthy()
+  expect(select.disabled).toBe(false)
+  expect(select.value).toBe('false')
+})

@@ -66,7 +66,7 @@
   {/if}
   <div class="section">
     <h2>Export</h2>
-    <p>Members, devices and the audit log, as JSON.</p>
+    <p>The export holds the members, the devices and the audit log as JSON.</p>
     {#if notice}<p class="message success" role="status">{notice}</p>{/if}
     <button type="button" onclick={download} disabled={exporting}>Export data</button>
   </div>
