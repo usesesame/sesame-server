@@ -67,20 +67,49 @@ afterEach(() => {
   fetchMock.mockReset()
 })
 
-test('requests a fresh credential and retries the action after re-authentication', async () => {
+test('asks for the six-digit code first and retries the action after it', async () => {
   const log = mockApi({ flagFailures: 1, stepUpFailures: 0 })
   const dialog = await triggerFlagChange()
-  expect(within(dialog).getByText('Re-authenticate to continue')).toBeTruthy()
+  expect(within(dialog).getByText('Confirm it is you')).toBeTruthy()
+  expect(within(dialog).queryByLabelText('Admin password')).toBeNull()
   expect(log.flagUpdates).toBe(1)
 
-  await fireEvent.input(within(dialog).getByLabelText('Admin password'), { target: { value: 'fictional-admin-password-123' } })
-  await fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+  const confirm = within(dialog).getByRole('button', { name: 'Confirm' }) as HTMLButtonElement
+  expect(confirm.disabled).toBe(true)
+  await fireEvent.input(within(dialog).getByLabelText('Six-digit code'), { target: { value: '123456' } })
+  expect(confirm.disabled).toBe(false)
+  await fireEvent.click(confirm)
 
   expect(await screen.findByText('Feature flag updated live.')).toBeTruthy()
   expect(log.flagUpdates).toBe(2)
-  expect(log.stepUps).toBe(1)
-  expect(log.stepUpBodies[0]).toBe(JSON.stringify({ password: 'fictional-admin-password-123' }))
+  expect(log.stepUpBodies).toEqual([JSON.stringify({ code: '123456' })])
   expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+test('sends only the password after switching to it, and Enter submits', async () => {
+  const log = mockApi({ flagFailures: 1, stepUpFailures: 0 })
+  const dialog = await triggerFlagChange()
+  await fireEvent.input(within(dialog).getByLabelText('Six-digit code'), { target: { value: '654321' } })
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Use your password instead' }))
+  expect(within(dialog).queryByLabelText('Six-digit code')).toBeNull()
+
+  await fireEvent.input(within(dialog).getByLabelText('Admin password'), { target: { value: 'fictional-admin-password-123' } })
+  await fireEvent.submit(dialog.querySelector('form')!)
+
+  expect(await screen.findByText('Feature flag updated live.')).toBeTruthy()
+  expect(log.stepUpBodies).toEqual([JSON.stringify({ password: 'fictional-admin-password-123' })])
+})
+
+test('keeps Confirm off until the code has six digits', async () => {
+  const log = mockApi({ flagFailures: 1, stepUpFailures: 0 })
+  const dialog = await triggerFlagChange()
+  const confirm = within(dialog).getByRole('button', { name: 'Confirm' }) as HTMLButtonElement
+  for (const value of ['12345', '12345a', 'abcdef']) {
+    await fireEvent.input(within(dialog).getByLabelText('Six-digit code'), { target: { value } })
+    expect(confirm.disabled).toBe(true)
+  }
+  await fireEvent.submit(dialog.querySelector('form')!)
+  expect(log.stepUps).toBe(0)
 })
 
 test('leaves the action unperformed when the dialog is cancelled', async () => {
@@ -94,23 +123,21 @@ test('leaves the action unperformed when the dialog is cancelled', async () => {
   expect(log.stepUps).toBe(0)
 })
 
-test('keeps the dialog open with an error after a failed re-authentication', async () => {
+test('keeps the dialog open with an error after a wrong code, then accepts the right one', async () => {
   const log = mockApi({ flagFailures: 1, stepUpFailures: 1 })
   const dialog = await triggerFlagChange()
-  await fireEvent.input(within(dialog).getByLabelText('Admin password'), { target: { value: 'fictional-wrong-password' } })
+  await fireEvent.input(within(dialog).getByLabelText('Six-digit code'), { target: { value: '000000' } })
   await fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
 
   expect((await within(dialog).findByRole('alert')).textContent).toBe('The admin password or MFA code is incorrect.')
   expect(screen.getByRole('dialog')).toBeTruthy()
   expect(log.flagUpdates).toBe(1)
 
-  await fireEvent.input(within(dialog).getByLabelText('Admin password'), { target: { value: '' } })
   await fireEvent.input(within(dialog).getByLabelText('Six-digit code'), { target: { value: '123456' } })
   await fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
 
   expect(await screen.findByText('Feature flag updated live.')).toBeTruthy()
   expect(log.flagUpdates).toBe(2)
-  expect(log.stepUps).toBe(2)
   expect(log.stepUpBodies[1]).toBe(JSON.stringify({ code: '123456' }))
   expect(screen.queryByRole('dialog')).toBeNull()
 })

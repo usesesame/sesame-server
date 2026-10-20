@@ -25,6 +25,8 @@ export type OperationalSnapshot = {
 export type SystemMailConfig = { supportNotifyEmailConfigured: boolean; emailDeliveryConfigured: boolean }
 
 export type ExtensionPublication = { id: string; store: 'chrome' | 'edge' | 'firefox'; version: string; packageSha256: string; packageBytes: number; filename: string; status: 'built' | 'uploaded' | 'submitted' | 'approved' | 'published' | 'withdrawn'; evidence: Record<string, Record<string, unknown>>; stateRevision: number; createdAt: string; updatedAt: string; audit: AuditEntry[] }
+export type PublicExtension = { store: 'chrome' | 'edge' | 'firefox'; version?: string; status: 'approved' | 'published'; listingUrl?: string }
+export type ChromeListingState = { listingUrl: string; visible: boolean; public: PublicExtension[] }
 export type TicketStatus = 'open' | 'in_progress' | 'waiting' | 'closed'
 export type TicketPriority = 'low' | 'normal' | 'high' | 'urgent'
 export type TicketCategory = 'general' | 'account' | 'import' | 'sync' | 'browser_helper' | 'billing' | 'bug'

@@ -16,7 +16,7 @@ var chromeExtensionID = regexp.MustCompile(`^[a-p]{32}$`)
 
 type publicExtension struct {
 	Store      string `json:"store"`
-	Version    string `json:"version"`
+	Version    string `json:"version,omitempty"`
 	Status     string `json:"status"`
 	ListingURL string `json:"listingUrl,omitempty"`
 }
@@ -35,23 +35,29 @@ func (a *api) extensionListings(response http.ResponseWriter, request *http.Requ
 	writeJSON(response, http.StatusOK, map[string]any{"extensions": extensions})
 }
 
-// A store record counts as published for the public only when the registry says
-// so, the visibility flag is on, and the server holds the store id it needs to
-// build the listing address. Anything less is reported as approved.
+// The Chrome listing is public once the visibility flag is on and the server
+// holds the store id it needs to build the address. A registry record only adds
+// the version, and a withdrawn one keeps the listing hidden.
 func publicExtensions(records []adminstore.ExtensionListing, visible bool, chromeID string) []publicExtension {
 	extensions := []publicExtension{}
+	chromeAddress := extensionListingURL("chrome", chromeID)
+	chromeSeen := false
 	for _, record := range records {
+		if record.Store == "chrome" {
+			chromeSeen = true
+		}
 		if record.Status != "approved" && record.Status != "published" {
 			continue
 		}
 		extension := publicExtension{Store: record.Store, Version: record.Version, Status: "approved"}
-		if record.Status == "published" && visible {
-			if address := extensionListingURL(record.Store, chromeID); address != "" {
-				extension.Status = "published"
-				extension.ListingURL = address
-			}
+		if record.Store == "chrome" && visible && chromeAddress != "" {
+			extension.Status = "published"
+			extension.ListingURL = chromeAddress
 		}
 		extensions = append(extensions, extension)
+	}
+	if !chromeSeen && visible && chromeAddress != "" {
+		extensions = append(extensions, publicExtension{Store: "chrome", Status: "published", ListingURL: chromeAddress})
 	}
 	return extensions
 }

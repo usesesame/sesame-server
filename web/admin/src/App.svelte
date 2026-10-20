@@ -6,7 +6,7 @@
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
   import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
   import { TICKET_CATEGORY_LABELS, deliveryReasonLabel } from './lib/types'
-  import type { AdminAccount, AuditEntry, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SavedReply, SupportMailState, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
+  import type { AdminAccount, AuditEntry, ChromeListingState, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SavedReply, SupportMailState, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
   type Page = 'overview' | 'support' | 'users' | 'flags' | 'releases' | 'plans' | 'admins' | 'audit' | 'system'
   type AdminIdentity = { admin: AdminAccount; deploymentProfile?: 'operator' | 'project' }
@@ -28,6 +28,7 @@
   let stepUpOpen = false
   let stepUpPassword = ''
   let stepUpCode = ''
+  let stepUpMethod: 'code' | 'password' = 'code'
   let stepUpError = ''
   let stepUpBusy = false
   let stepUpResolvers: ((renewed: boolean) => void)[] = []
@@ -40,6 +41,7 @@
   let plans: Plan[] = []
   let releases: Release[] = []
   let publications: ExtensionPublication[] = []
+  let chromeListing: ChromeListingState | null = null
   let admins: AdminAccount[] = []
   let audit: AuditEntry[] = []
   let auditAction = ''
@@ -79,7 +81,7 @@
   let ticketSearchTimer: ReturnType<typeof setTimeout> | undefined
 
   $: isSetup = setupToken.length > 0
-  $: stepUpReady = (stepUpPassword === '') !== (stepUpCode === '')
+  $: stepUpReady = stepUpMethod === 'code' ? /^\d{6}$/.test(stepUpCode) : stepUpPassword !== ''
   $: projectProfile = deploymentProfile === 'project'
   $: if (!projectProfile && (page === 'releases' || page === 'plans')) page = 'overview'
   $: canUsers = me?.role === 'super' || me?.role === 'support' || me?.role === 'billing' || me?.role === 'readonly'
@@ -150,6 +152,7 @@
     if (stepUpResolvers.length === 0) {
       stepUpPassword = ''
       stepUpCode = ''
+      stepUpMethod = 'code'
       stepUpError = ''
       stepUpBusy = false
       stepUpOpen = true
@@ -164,14 +167,25 @@
     for (const resolve of resolvers) resolve(renewed)
   }
 
-  async function submitStepUp() {
-    const password = stepUpPassword
-    const code = stepUpCode
-    if (stepUpBusy || (password === '') === (code === '')) return
+  function switchStepUpMethod() {
+    stepUpMethod = stepUpMethod === 'code' ? 'password' : 'code'
+    stepUpPassword = ''
+    stepUpCode = ''
+    stepUpError = ''
+  }
+
+  function focusField(node: HTMLInputElement) {
+    node.focus()
+  }
+
+  async function submitStepUp(event?: SubmitEvent) {
+    event?.preventDefault()
+    if (stepUpBusy || !stepUpReady) return
+    const body = stepUpMethod === 'code' ? { code: stepUpCode } : { password: stepUpPassword }
     stepUpBusy = true
     stepUpError = ''
     try {
-      await mutate('/v1/admin/auth/step-up', 'POST', password ? { password } : { code })
+      await mutate('/v1/admin/auth/step-up', 'POST', body)
       finishStepUp(true)
     } catch (reason) {
       stepUpError = reason instanceof Error ? reason.message : 'The request failed.'
@@ -190,7 +204,9 @@
       if (next === 'plans') plans = (await request<{ plans: Plan[] }>('/v1/admin/plans')).plans
       if (next === 'releases') {
         releases = (await request<{ releases: Release[] }>('/v1/admin/releases')).releases
-        publications = (await request<{ publications: ExtensionPublication[] }>('/v1/admin/extension-publications')).publications ?? []
+        const extensionData = await request<{ publications: ExtensionPublication[]; chrome?: ChromeListingState }>('/v1/admin/extension-publications')
+        publications = extensionData.publications ?? []
+        chromeListing = extensionData.chrome ?? null
       }
       if (next === 'admins') admins = (await request<{ admins: AdminAccount[] }>('/v1/admin/admins')).admins
       if (next === 'audit') await loadAudit()
@@ -422,6 +438,15 @@
     }
   }
 
+  async function setExtensionVisible(visible: boolean, select: HTMLSelectElement) {
+    select.disabled = true
+    try {
+      await mutate(`/v1/admin/flags/browser_extension_visible`, 'PATCH', { value: String(visible) })
+      await openPage('releases')
+      showNotice(visible ? 'The extension is now shown on the website.' : 'The extension is now hidden on the website.')
+    } catch (reason) { select.value = String(!visible); showError(reason) } finally { select.disabled = !canEditFlags }
+  }
+
   async function extensionAccept(input: { store: string; version: string; packageSha256: string; filename: string; packageBytes: number }) {
     try { await mutate('/v1/admin/extension-publications', 'POST', input); await openPage('releases'); showNotice('Extension package recorded.') } catch (reason) {
       if (reason instanceof APIError && reason.code === 'extension_publication_conflict') { await openPage('releases'); showNotice('That package is already recorded with different evidence.') }
@@ -501,13 +526,13 @@
         <label>Authenticator secret<input value={setupSecret} readonly onfocus={(event) => event.currentTarget.select()} /></label>
         <details><summary>Authenticator URI</summary><code class="wrap">{setupURI}</code></details>
         <label>New password<input type="password" bind:value={password} minlength="12" maxlength="1024" autocomplete="new-password" /></label>
-        <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" /></label>
+        <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" /></label>
         <button class="primary" onclick={completeSetup} disabled={busy || password.length < 12 || code.length !== 6}>Finish setup</button>
       {:else}
         <h1>Admin sign in</h1><p>This is separate from a Sesame website account.</p>
         <label>Email<input type="email" bind:value={email} autocomplete="username" /></label>
         <label>Password<input type="password" bind:value={password} autocomplete="current-password" /></label>
-        <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" /></label>
+        <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" /></label>
         <button class="primary" onclick={login} disabled={busy || !email || !password || code.length !== 6}>Sign in</button>
       {/if}
       {#if error}<p class="message error" role="alert">{error}</p>{/if}
@@ -693,7 +718,7 @@
         <div class="form-grid">{#each plans as plan (plan.id)}<section class="panel form-card"><h2>{plan.name}</h2><label>Name<input bind:value={plan.name} disabled={!canEditPlans} /></label><div class="two"><label>Price<input bind:value={plan.price} disabled={!canEditPlans} /></label><label>Annual price<input bind:value={plan.annualPrice} placeholder="Optional" disabled={!canEditPlans} /></label></div><label>Billing<select bind:value={plan.billing} disabled={!canEditPlans}><option value="none">None</option><option value="one_time">One time</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label><label>Description<textarea bind:value={plan.description} disabled={!canEditPlans}></textarea></label><label class="check"><input type="checkbox" bind:checked={plan.available} disabled={!canEditPlans} /> Available</label>{#if canEditPlans}<button class="primary" onclick={() => savePlan(plan)}>Save plan</button>{/if}</section>{/each}</div>
       {:else if page === 'releases'}
         <ReleaseWorkspace {releases} canManage={canManageReleases} onCommand={releaseCommand} />
-        <ExtensionStoresWorkspace {publications} canManage={canManageReleases} onTransition={extensionTransition} onAccept={extensionAccept} />
+        <ExtensionStoresWorkspace {publications} canManage={canManageReleases} onTransition={extensionTransition} onAccept={extensionAccept} chrome={chromeListing} canShow={canEditFlags} onSetVisible={setExtensionVisible} />
       {:else if page === 'admins'}
         {#if canEditAdmins}<section class="panel"><h2>Invite an administrator</h2><div class="toolbar"><input type="email" placeholder="name@example.com" bind:value={inviteEmail} /><select aria-label="Role for the new administrator" bind:value={inviteRole}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select><button class="primary" onclick={inviteAdmin} disabled={!inviteEmail}>Create setup link</button></div>{#if inviteURL}<label>One-time setup link<input value={inviteURL} readonly onfocus={(event) => event.currentTarget.select()} /></label>{/if}</section>{/if}
         <section class="panel"><h2>Administrators</h2>{#each admins as admin (admin.id)}<div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select aria-label={`Role for ${admin.email}`} value={admin.role} onchange={(event) => updateAdmin(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => deleteAdmin(admin)} disabled={admin.id === me.id}>Delete</button>{/if}</div>{/each}</section>
@@ -706,16 +731,23 @@
   </div>
   {#if stepUpOpen}
     <div class="stepup-backdrop">
-      <div class="stepup-panel" role="dialog" aria-modal="true" aria-label="Re-authenticate to continue">
-        <h2>Re-authenticate to continue</h2>
-        <p>This action needs a fresh credential check. Enter your admin password or a current six-digit code.</p>
-        <label>Admin password<input type="password" bind:value={stepUpPassword} autocomplete="current-password" /></label>
-        <label>Six-digit code<input bind:value={stepUpCode} inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" /></label>
+      <div class="stepup-panel" role="dialog" aria-modal="true" aria-label="Confirm it is you">
+      <form onsubmit={submitStepUp}>
+        <h2>Confirm it is you</h2>
+        {#if stepUpMethod === 'code'}
+          <p>Enter the current six-digit code from your authenticator app.</p>
+          <label>Six-digit code<input use:focusField bind:value={stepUpCode} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" /></label>
+        {:else}
+          <p>Enter your admin password.</p>
+          <label>Admin password<input use:focusField type="password" bind:value={stepUpPassword} autocomplete="current-password" /></label>
+        {/if}
+        <button type="button" class="link-button" onclick={switchStepUpMethod} disabled={stepUpBusy}>{stepUpMethod === 'code' ? 'Use your password instead' : 'Use a six-digit code instead'}</button>
         {#if stepUpError}<p class="message error" role="alert">{stepUpError}</p>{/if}
         <div class="stepup-actions">
-          <button onclick={() => finishStepUp(false)} disabled={stepUpBusy}>Cancel</button>
-          <button class="primary" onclick={submitStepUp} disabled={stepUpBusy || !stepUpReady}>Confirm</button>
+          <button type="button" onclick={() => finishStepUp(false)} disabled={stepUpBusy}>Cancel</button>
+          <button type="submit" class="primary" disabled={stepUpBusy || !stepUpReady}>Confirm</button>
         </div>
+      </form>
       </div>
     </div>
   {/if}

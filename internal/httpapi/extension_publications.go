@@ -20,7 +20,20 @@ func (a *api) adminExtensionPublications(response http.ResponseWriter, request *
 		adminStoreError(response, err)
 		return
 	}
-	writeJSON(response, http.StatusOK, map[string]any{"publications": publications})
+	listings, err := a.config.Admin.PublicExtensionListings(request.Context())
+	if err != nil {
+		adminStoreError(response, err)
+		return
+	}
+	visible := a.runtimeFlagBool(request.Context(), browserExtensionVisibleFlag, false)
+	writeJSON(response, http.StatusOK, map[string]any{
+		"publications": publications,
+		"chrome": map[string]any{
+			"listingUrl": extensionListingURL("chrome", a.config.ChromeExtensionID),
+			"visible":    visible,
+			"public":     publicExtensions(listings, visible, a.config.ChromeExtensionID),
+		},
+	})
 }
 
 func (a *api) adminExtensionPublicationAccept(response http.ResponseWriter, request *http.Request) {
