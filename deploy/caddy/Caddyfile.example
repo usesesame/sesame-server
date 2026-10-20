@@ -36,6 +36,7 @@ usesesame.app, www.usesesame.app {
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()"
 		Strict-Transport-Security "max-age=63072000; includeSubDomains"
 		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-mktCxBAlzenVOSxI43iU5Xizly4g/yKoU7062ESZCSU='; style-src 'self'; img-src 'self' data:; connect-src 'self' https://api.usesesame.app; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Cache-Control "no-cache"
 		-Server
 	}
 
