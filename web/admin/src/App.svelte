@@ -442,9 +442,19 @@
     select.disabled = true
     try {
       await mutate(`/v1/admin/flags/browser_extension_visible`, 'PATCH', { value: String(visible) })
-      await openPage('releases')
-      showNotice(visible ? 'The extension is now shown on the website.' : 'The extension is now hidden on the website.')
-    } catch (reason) { select.value = String(!visible); showError(reason) } finally { select.disabled = !canEditFlags }
+    } catch (reason) {
+      select.value = String(!visible)
+      select.disabled = !canEditFlags
+      showError(reason)
+      return
+    }
+    await openPage('releases')
+    select.disabled = !canEditFlags
+    if (error) return
+    const linked = chromeListing?.public.some((entry) => entry.store === 'chrome' && entry.status === 'published') ?? false
+    if (!visible) showNotice('The extension is now hidden on the website.')
+    else if (linked) showNotice('The website now links to the Chrome Web Store.')
+    else showNotice('The switch is on, but the website shows nothing until the server has the Chrome extension id.')
   }
 
   async function extensionAccept(input: { store: string; version: string; packageSha256: string; filename: string; packageBytes: number }) {
