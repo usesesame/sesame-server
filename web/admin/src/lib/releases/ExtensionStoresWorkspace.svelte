@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { ExtensionPublication } from '../types'
+  import type { ChromeListingState, ExtensionPublication, PublicExtension } from '../types'
 
   const NEXT: Record<string, string> = { built: 'uploaded', uploaded: 'submitted', submitted: 'approved', approved: 'published', published: 'withdrawn' }
   const NEXT_LABELS: Record<string, string> = { uploaded: 'Mark uploaded', submitted: 'Mark submitted', approved: 'Mark approved', published: 'Mark published', withdrawn: 'Mark withdrawn' }
@@ -10,7 +10,18 @@
     canManage: boolean
     onTransition: (publication: ExtensionPublication, to: string, evidence: Record<string, string>) => void
     onAccept: (input: { store: string; version: string; packageSha256: string; filename: string; packageBytes: number }) => void
+    chrome?: ChromeListingState | null
+    canShow?: boolean
+    onSetVisible?: (visible: boolean, select: HTMLSelectElement) => void
   }>()
+
+  const chromePublic = $derived(props.chrome?.public.find((entry: PublicExtension) => entry.store === 'chrome'))
+  const websiteSentence = $derived.by(() => {
+    if (chromePublic?.status === 'published') return 'The website links to the store listing.'
+    if (props.chrome?.visible && !props.chrome.listingUrl) return 'It stays hidden until the server has the Chrome extension id.'
+    if (chromePublic?.status === 'approved') return 'The website says the extension is coming soon.'
+    return 'The website does not mention the extension.'
+  })
 
   let pending = $state<{ id: string; to: string } | null>(null)
   let reference = $state('')
@@ -51,6 +62,25 @@
 </script>
 
 <div class="release-stack">
+  {#if props.chrome}
+    <section class="panel">
+      <h2>Chrome Web Store</h2>
+      {#if props.chrome.listingUrl}
+        <div class="setting-row">
+          <div><strong>Store listing</strong><small><a href={props.chrome.listingUrl} target="_blank" rel="noopener noreferrer">Open it in the Chrome Web Store</a></small></div>
+        </div>
+      {:else}
+        <p class="empty">The server has no Chrome extension id, so it cannot link the listing. Set SESAME_CHROME_EXTENSION_ID on the server and redeploy.</p>
+      {/if}
+      <div class="setting-row">
+        <div><strong>Show on the website</strong><small>{websiteSentence}</small></div>
+        <select aria-label="Show the Chrome extension on the website" value={props.chrome.visible ? 'true' : 'false'} onchange={(event) => props.onSetVisible?.(event.currentTarget.value === 'true', event.currentTarget)} disabled={!props.canShow}><option value="false">Off</option><option value="true">On</option></select>
+      </div>
+    </section>
+  {/if}
+  <details class="package-records" open={!props.chrome}>
+  <summary>Package records</summary>
+  <div class="release-stack">
   {#each props.publications as publication (publication.id)}
     <article class="panel release-card">
       <header class="release-card-head">
@@ -117,4 +147,6 @@
       </div>
     </section>
   {/if}
+  </div>
+  </details>
 </div>

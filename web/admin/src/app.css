@@ -66,9 +66,11 @@ details summary { cursor: pointer; }
 .stepup-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: var(--backdrop); }
 .stepup-panel { width: min(440px, 100%); padding: 28px; border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-modal); }
 .stepup-panel h2 { margin-bottom: 8px; font-size: var(--type-5); }
-.stepup-panel > p { color: var(--text-muted); font-size: var(--type-3); line-height: 1.6; }
+.stepup-panel p:not(.message) { color: var(--text-muted); font-size: var(--type-3); line-height: 1.6; }
 .stepup-panel .message { margin: 16px 0 0; }
 .stepup-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.link-button, .link-button:hover:not(:disabled), .link-button:active:not(:disabled) { min-height: 0; margin-top: 10px; border: 0; padding: 0; background: none; box-shadow: none; transform: none; color: var(--accent-link); font-size: var(--type-2); }
+.link-button:hover:not(:disabled) { text-decoration: underline; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 235px minmax(0, 1fr); }
 .sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 24px 17px; border-right: 1px solid var(--border); background: var(--surface-inset); color: var(--text); }
@@ -148,6 +150,9 @@ dt { color: var(--text-muted); } dd { margin: 0; color: var(--text-heading); tex
 .form-card .primary { margin-top: 18px; }
 
 .release-stack { display: grid; gap: 16px; margin-top: 16px; }
+.setting-row a { color: var(--accent-link); text-underline-offset: 3px; }
+.package-records { margin-top: 0; color: inherit; font-size: inherit; }
+.package-records > summary { color: var(--text-heading); font-size: var(--type-3); font-weight: var(--weight-bold); }
 .release-card { margin-top: 0; display: grid; gap: 20px; padding: 24px; }
 .release-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; }
 .release-card-title { display: flex; align-items: center; gap: 10px; }
@@ -230,8 +235,8 @@ tbody tr[role="button"]:focus-visible { outline: 2px solid var(--focus-ring); ou
 .saved-replies textarea { min-height: 80px; }
 
 @media (max-width: 1050px) { .split-view { grid-template-columns: 1fr; } .support-split.has-detail { grid-template-columns: 1fr; } .detail, .support-detail { position: static; max-height: none; } .form-grid { grid-template-columns: 1fr 1fr; } .release-card-body { grid-template-columns: 1fr; } .audit-filters > div:first-child { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 760px) { .app-shell { grid-template-columns: 1fr; } .sidebar { position: static; height: auto; } .sidebar nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; } .sidebar nav button { width: auto; flex: none; } .admin-self { margin-top: 20px; } .metric-grid, .form-grid { grid-template-columns: 1fr 1fr; } .page-head { align-items: flex-start; } .table-panel { overflow-x: auto; } }
-@media (max-width: 500px) { .content { padding-inline: 14px; } .metric-grid, .form-grid, .two, .audit-filters > div:first-child { grid-template-columns: 1fr; } .toolbar { align-items: stretch; flex-direction: column; } .toolbar > * { width: 100%; } .toolbar > span { margin-left: 0; } }
+@media (max-width: 760px) { .app-shell { grid-template-columns: minmax(0, 1fr); } .sidebar { position: static; height: auto; } .sidebar nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: thin; } .sidebar nav button { width: auto; flex: none; } .admin-self { margin-top: 20px; } .metric-grid, .form-grid { grid-template-columns: 1fr 1fr; } .page-head { align-items: flex-start; } .table-panel { overflow-x: auto; } }
+@media (max-width: 500px) { .link-button { min-height: 44px; } .content { padding-inline: 14px; } .metric-grid, .form-grid, .two, .audit-filters > div:first-child { grid-template-columns: 1fr; } .toolbar { align-items: stretch; flex-direction: column; } .toolbar > * { width: 100%; } .toolbar > span { margin-left: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
   button:active:not(:disabled) { transform: none; }

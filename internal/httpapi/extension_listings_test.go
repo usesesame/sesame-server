@@ -11,7 +11,7 @@ import (
 
 const testChromeExtensionID = "abcdefghijklmnopabcdefghijklmnop"
 
-func TestPublicExtensionsReportApprovedUntilPublishedFlagAndStoreIDAreSet(t *testing.T) {
+func TestPublicExtensionsPublishChromeOnceTheFlagAndStoreIDAreSet(t *testing.T) {
 	published := []adminstore.ExtensionListing{{Store: "chrome", Version: "0.2.0", Status: "published"}}
 	approved := []adminstore.ExtensionListing{{Store: "chrome", Version: "0.2.0", Status: "approved"}}
 	cases := []struct {
@@ -23,15 +23,36 @@ func TestPublicExtensionsReportApprovedUntilPublishedFlagAndStoreIDAreSet(t *tes
 		address string
 	}{
 		{"published, visible and linked", published, true, testChromeExtensionID, "published", chromeStoreListingBase + testChromeExtensionID},
+		{"approved, visible and linked", approved, true, testChromeExtensionID, "published", chromeStoreListingBase + testChromeExtensionID},
 		{"published but hidden", published, false, testChromeExtensionID, "approved", ""},
 		{"published and visible without a store id", published, true, "", "approved", ""},
 		{"published with a malformed store id", published, true, "../evil", "approved", ""},
-		{"approved and visible", approved, true, testChromeExtensionID, "approved", ""},
+		{"published with an uppercase store id", published, true, strings.ToUpper(testChromeExtensionID), "approved", ""},
 	}
 	for _, test := range cases {
 		got := publicExtensions(test.records, test.visible, test.id)
 		if len(got) != 1 || got[0].Status != test.status || got[0].ListingURL != test.address || got[0].Version != "0.2.0" {
 			t.Fatalf("%s: got %+v, want status %q and address %q", test.name, got, test.status, test.address)
+		}
+	}
+}
+
+func TestPublicExtensionsPublishChromeWithoutARegistryRecord(t *testing.T) {
+	got := publicExtensions(nil, true, testChromeExtensionID)
+	if len(got) != 1 || got[0].Store != "chrome" || got[0].Status != "published" || got[0].ListingURL != chromeStoreListingBase+testChromeExtensionID || got[0].Version != "" {
+		t.Fatalf("got %+v, want one published chrome entry with the listing and no version", got)
+	}
+	for _, test := range []struct {
+		name    string
+		visible bool
+		id      string
+	}{
+		{"hidden", false, testChromeExtensionID},
+		{"no store id", true, ""},
+		{"malformed store id", true, "https://example.invalid/x"},
+	} {
+		if got := publicExtensions(nil, test.visible, test.id); len(got) != 0 {
+			t.Fatalf("%s: got %+v, want nothing", test.name, got)
 		}
 	}
 }

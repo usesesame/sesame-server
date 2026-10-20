@@ -74,3 +74,40 @@ test('shows evidence and audit history', () => {
   expect(screen.getByText(/built: https:\/\/ci.test.invalid\/run\/1/)).toBeTruthy()
   expect(screen.getByText('published by ops@example.invalid')).toBeTruthy()
 })
+
+const listing = 'https://chromewebstore.google.com/detail/abcdefghijklmnopabcdefghijklmnop'
+
+test('links the Chrome Web Store listing and says what the website shows', () => {
+  render(ExtensionStoresWorkspace, {
+    publications: [], canManage: true, onTransition: vi.fn(), onAccept: vi.fn(), canShow: true, onSetVisible: vi.fn(),
+    chrome: { listingUrl: listing, visible: true, public: [{ store: 'chrome', status: 'published', listingUrl: listing }] },
+  })
+  const link = screen.getByRole('link', { name: 'Open it in the Chrome Web Store' }) as HTMLAnchorElement
+  expect(link.href).toBe(listing)
+  expect(link.target).toBe('_blank')
+  expect(screen.getByText('The website links to the store listing.')).toBeTruthy()
+  expect((screen.getByRole('combobox', { name: 'Show the Chrome extension on the website' }) as HTMLSelectElement).value).toBe('true')
+})
+
+test('turns the website listing on through the visibility switch', async () => {
+  const onSetVisible = vi.fn()
+  render(ExtensionStoresWorkspace, {
+    publications: [], canManage: true, onTransition: vi.fn(), onAccept: vi.fn(), canShow: true, onSetVisible,
+    chrome: { listingUrl: listing, visible: false, public: [] },
+  })
+  expect(screen.getByText('The website does not mention the extension.')).toBeTruthy()
+  const select = screen.getByRole('combobox', { name: 'Show the Chrome extension on the website' })
+  await fireEvent.change(select, { target: { value: 'true' } })
+  expect(onSetVisible).toHaveBeenCalledWith(true, select)
+})
+
+test('explains a missing store id and locks the switch without permission', () => {
+  render(ExtensionStoresWorkspace, {
+    publications: [], canManage: false, onTransition: vi.fn(), onAccept: vi.fn(), canShow: false, onSetVisible: vi.fn(),
+    chrome: { listingUrl: '', visible: true, public: [] },
+  })
+  expect(screen.queryByRole('link')).toBeNull()
+  expect(screen.getByText(/Set SESAME_CHROME_EXTENSION_ID on the server/)).toBeTruthy()
+  expect(screen.getByText('It stays hidden until the server has the Chrome extension id.')).toBeTruthy()
+  expect((screen.getByRole('combobox', { name: 'Show the Chrome extension on the website' }) as HTMLSelectElement).disabled).toBe(true)
+})
