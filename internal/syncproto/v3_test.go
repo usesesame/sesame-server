@@ -461,3 +461,38 @@ func FuzzVerifyDeviceList(f *testing.F) {
 		}
 	})
 }
+
+func TestDeviceListAcceptsAHybridPackageKeyAndNoOtherLength(t *testing.T) {
+	hybrid := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, XWingPublicKeyBytes))
+	first := createEntry(laptop)
+	withKey := func(encoded string) []DeviceListEntry {
+		entry := addEntry(first, laptop, desktop, 4)
+		entry.SubjectPackageKey = encoded
+		return []DeviceListEntry{first, SignDeviceListEntry(laptop.key, entry)}
+	}
+
+	list, err := VerifyDeviceList(withKey(hybrid))
+	if err != nil {
+		t.Fatalf("a 1216 byte package key was refused: %v", err)
+	}
+	member, ok := list.MemberAt(desktop.id, 2)
+	if !ok || member.PackageKey != hybrid {
+		t.Fatal("the hybrid package key was not kept on the member")
+	}
+	if _, err := VerifyDeviceList(withKey(desktop.packageKey())); err != nil {
+		t.Fatalf("a 32 byte package key was refused: %v", err)
+	}
+
+	for _, length := range []int{0, 1, 31, 33, 64, 1215, 1217, 64 * 1024} {
+		encoded := base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, length))
+		if _, err := VerifyDeviceList(withKey(encoded)); err == nil {
+			t.Fatalf("a package key of %d bytes was accepted", length)
+		}
+	}
+	if _, err := VerifyDeviceList(withKey(hybrid + "=")); err == nil {
+		t.Fatal("a padded package key was accepted")
+	}
+	if _, err := VerifyDeviceList(withKey(hybrid + "\n")); err == nil {
+		t.Fatal("a package key with a line break was accepted")
+	}
+}
