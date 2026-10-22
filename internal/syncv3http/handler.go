@@ -149,7 +149,7 @@ func (handler *Handler) BeginPairing(response http.ResponseWriter, request *http
 	if _, ok := decodeFixedBase64(response, input.SigningKey, syncproto.Ed25519PublicKeyBytes); !ok {
 		return
 	}
-	if _, ok := decodeFixedBase64(response, input.PackageKey, syncproto.X25519PublicKeyBytes); !ok {
+	if _, ok := decodeOneOfBase64(response, input.PackageKey, syncproto.X25519PublicKeyBytes, syncproto.XWingPublicKeyBytes); !ok {
 		return
 	}
 	message, ok := decodeBase64(response, input.Message)

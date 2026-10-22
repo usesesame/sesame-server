@@ -75,6 +75,15 @@ func decodeCanonical(value string, length int) ([]byte, error) {
 	return decoded, nil
 }
 
+func decodeCanonicalOneOf(value string, lengths ...int) ([]byte, error) {
+	for _, length := range lengths {
+		if decoded, err := decodeCanonical(value, length); err == nil {
+			return decoded, nil
+		}
+	}
+	return nil, errors.New("sync value is not canonical base64url of an allowed length")
+}
+
 func decodeCanonicalRange(value string, minimum, maximum int) ([]byte, error) {
 	if strings.ContainsAny(value, "\r\n") {
 		return nil, errors.New("sync value is not canonical base64url")

@@ -500,6 +500,8 @@ into any Sync handler.
   relay the messages of the pairing exchange. The service cannot read them.
 - `POST /v1/sync/devices` appends a signed `add` entry and the new device's key
   package in one step. The service cannot produce the package.
+  A device's package key in the entry is either a 32 byte X25519 key or a 1216
+  byte X-Wing key, in unpadded base64url, and the service checks only the length.
 - `POST /v1/sync/devices/remove` appends a signed `remove` entry with a new key
   package for every device that stays. A device leaves the same way.
 - `GET /v1/sync/key-package` and `POST /v1/sync/activate` hand a device its

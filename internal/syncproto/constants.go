@@ -8,6 +8,7 @@ const (
 	Ed25519SignatureBytes       = 64
 	Ed25519PublicKeyBytes       = 32
 	X25519PublicKeyBytes        = 32
+	XWingPublicKeyBytes         = 1216
 	MaxEncryptedKeyPackageBytes = 64 * 1024
 	MaxDevicesPerVault          = 10
 )

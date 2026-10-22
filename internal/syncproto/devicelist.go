@@ -75,7 +75,7 @@ func (entry DeviceListEntry) Validate() error {
 		if _, err := decodeCanonical(entry.SubjectSigningKey, Ed25519PublicKeyBytes); err != nil {
 			return fmt.Errorf("%w: signing key", ErrDeviceListInvalid)
 		}
-		if _, err := decodeCanonical(entry.SubjectPackageKey, X25519PublicKeyBytes); err != nil {
+		if _, err := decodeCanonicalOneOf(entry.SubjectPackageKey, X25519PublicKeyBytes, XWingPublicKeyBytes); err != nil {
 			return fmt.Errorf("%w: package key", ErrDeviceListInvalid)
 		}
 		if _, err := decodeCanonicalRange(entry.SealedLabel, MinSealedLabelBytes, MaxSealedLabelBytes); err != nil {
