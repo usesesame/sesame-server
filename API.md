@@ -484,8 +484,9 @@ never a website session, and every route that changes state also needs a
 `Sesame-Request-Signature` header from the device behind the token. The
 signature covers the method, the request target, the body, the token, a
 timestamp and a nonce. The service accepts a timestamp within five minutes and
-refuses a nonce it has seen in the last ten. There is no cookie path into any
-Sync handler.
+refuses a nonce it has seen in the last eleven, and a request that passed
+signature checks and then failed keeps its nonce spent. There is no cookie path
+into any Sync handler.
 
 - `GET /v1/sync/state` returns the vault epoch, the device list head, the
   current revision and the state of the calling device.

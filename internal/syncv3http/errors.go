@@ -79,7 +79,11 @@ func serviceErrorCode(err error) string {
 }
 
 func writeServiceError(response http.ResponseWriter, err error) {
-	writeError(response, serviceErrorCode(err))
+	code := serviceErrorCode(err)
+	if code == codeUnavailable {
+		slog.Error("sync request failed", "error", err)
+	}
+	writeError(response, code)
 }
 
 func writeError(response http.ResponseWriter, code string) {

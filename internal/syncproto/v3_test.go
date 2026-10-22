@@ -494,5 +494,9 @@ func TestDeviceListAcceptsAHybridPackageKeyAndNoOtherLength(t *testing.T) {
 	}
 	if _, err := VerifyDeviceList(withKey(hybrid + "\n")); err == nil {
 		t.Fatal("a package key with a line break was accepted")
+
+func TestNonceRetentionOutlastsTheWholeAcceptedClockWindow(t *testing.T) {
+	if RequestNonceRetention < 2*RequestTimestampSkew+60 {
+		t.Fatalf("a request stamped at the edge of the skew window must find its nonce still stored: retention %d, skew %d", RequestNonceRetention, RequestTimestampSkew)
 	}
 }

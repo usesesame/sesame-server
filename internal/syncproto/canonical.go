@@ -25,7 +25,7 @@ const (
 	RequestNonceBytes     = 16
 	MaxHeaderRetention    = 10000
 	RequestTimestampSkew  = 5 * 60
-	RequestNonceRetention = 10 * 60
+	RequestNonceRetention = 2*RequestTimestampSkew + 60
 )
 
 type canonical struct {
