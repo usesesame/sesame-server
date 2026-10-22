@@ -739,3 +739,25 @@ func TestCheckpointRefusalsOverHTTP(t *testing.T) {
 	f.host.refuse = "checkpoints"
 	expectError(t, f.get(owner, "/v1/sync/checkpoints"), http.StatusTooManyRequests, "rate_limited")
 }
+
+func TestPairingOffersAcceptAClassicalOrAHybridPackageKeyAndNothingElse(t *testing.T) {
+	offer := func(f *fixture, newcomer device, packageKey string) *httptest.ResponseRecorder {
+		return f.signedJSON(newcomer, http.MethodPost, "/v1/sync/pairings", map[string]any{
+			"deviceId": newcomer.id, "signingKey": newcomer.signingKey(), "packageKey": packageKey,
+			"message": encodeBase64([]byte("offer")),
+		})
+	}
+	hybrid := encodeBase64(bytes.Repeat([]byte{5}, syncproto.XWingPublicKeyBytes))
+
+	f := newFixture(t)
+	owner := newDevice(deviceAID, "a")
+	f.createVault(owner)
+	expectStatus(t, offer(f, newDevice(deviceBID, "b"), hybrid), http.StatusCreated)
+
+	for _, length := range []int{0, 31, 33, 1215, 1217} {
+		f := newFixture(t)
+		f.createVault(owner)
+		bad := encodeBase64(bytes.Repeat([]byte{5}, length))
+		expectError(t, offer(f, newDevice(deviceBID, "b"), bad), http.StatusBadRequest, "sync_invalid")
+	}
+}

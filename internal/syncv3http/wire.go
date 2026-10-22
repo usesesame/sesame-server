@@ -267,6 +267,17 @@ func canonicalFixedBase64(value string, length int) bool {
 	return ok && len(decoded) == length
 }
 
+func decodeOneOfBase64(response http.ResponseWriter, value string, lengths ...int) ([]byte, bool) {
+	for _, length := range lengths {
+		if canonicalFixedBase64(value, length) {
+			decoded, _ := canonicalBase64(value)
+			return decoded, true
+		}
+	}
+	writeError(response, codeInvalid)
+	return nil, false
+}
+
 func decodeBase64(response http.ResponseWriter, value string) ([]byte, bool) {
 	decoded, ok := canonicalBase64(value)
 	if !ok {
