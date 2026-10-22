@@ -17,6 +17,7 @@ func Run(t *testing.T, factory Factory) {
 	t.Run("a vault is created once per owner", func(t *testing.T) { testCreateVault(t, factory) })
 	t.Run("pairing adds a device and it can write", func(t *testing.T) { testPairing(t, factory) })
 	t.Run("signed requests refuse every forgery", func(t *testing.T) { testSignedRequests(t, factory) })
+	t.Run("a signed request that failed after verification is spent", func(t *testing.T) { testFailedRequestIsSpent(t, factory) })
 	t.Run("uploads refuse every break in the history", func(t *testing.T) { testUploadRules(t, factory) })
 	t.Run("old ciphertext ages out by size and never the previous head", func(t *testing.T) { testRetentionBySize(t, factory) })
 	t.Run("removing a device rekeys the vault", func(t *testing.T) { testRemove(t, factory) })
@@ -139,6 +140,35 @@ func testSignedRequests(t *testing.T, factory Factory) {
 		t.Fatalf("a valid signed request failed: %v", err)
 	}
 	expect(t, e.svc.CancelPairing(ctx, e.caller(laptop), good, "deviceNobody0000000001"), syncsvc.ErrReplay)
+}
+
+func testFailedRequestIsSpent(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	laptop := e.newDevice("laptop")
+	e.createVault(laptop)
+	ctx := context.Background()
+	reset := func(request syncsvc.SignedRequest, epoch uint64) error {
+		return e.svc.Reset(ctx, e.caller(laptop), request, syncsvc.ResetInput{VaultEpoch: epoch})
+	}
+
+	request := e.sign(laptop, "POST", "/v1/sync/reset", []byte("reset"))
+	first := reset(request, 99)
+	if first == nil {
+		t.Fatal("a reset for the wrong epoch was accepted")
+	}
+	if errors.Is(first, syncsvc.ErrSignature) || errors.Is(first, syncsvc.ErrReplay) {
+		t.Fatalf("the first attempt failed for the wrong reason: %v", first)
+	}
+
+	expect(t, reset(request, 1), syncsvc.ErrReplay)
+	if e.vault(laptop).ID != e.vaultID {
+		t.Fatal("a replayed request changed the vault")
+	}
+
+	fresh := e.sign(laptop, "POST", "/v1/sync/reset", []byte("reset"))
+	if err := reset(fresh, 1); err != nil {
+		t.Fatalf("a freshly signed request failed after a spent one: %v", err)
+	}
 }
 
 func testUploadRules(t *testing.T, factory Factory) {

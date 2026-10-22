@@ -38,7 +38,7 @@ func New(storage Storage, config Config) (*Service, error) {
 	if config.HeaderRetention == 0 {
 		config.HeaderRetention = MaxHeaderRetention
 	}
-	return &Service{storage: storage, config: config}, nil
+	return &Service{storage: nonceKeeper{inner: storage}, config: config}, nil
 }
 
 func (s *Service) now() time.Time {

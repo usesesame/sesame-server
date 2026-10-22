@@ -461,3 +461,9 @@ func FuzzVerifyDeviceList(f *testing.F) {
 		}
 	})
 }
+
+func TestNonceRetentionOutlastsTheWholeAcceptedClockWindow(t *testing.T) {
+	if RequestNonceRetention < 2*RequestTimestampSkew+60 {
+		t.Fatalf("a request stamped at the edge of the skew window must find its nonce still stored: retention %d, skew %d", RequestNonceRetention, RequestTimestampSkew)
+	}
+}
