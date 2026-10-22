@@ -2,8 +2,11 @@ package syncsvc
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
+
+const nonceRecoveryTimeout = 5 * time.Second
 
 type spentNonce struct {
 	scope   string
@@ -43,9 +46,13 @@ func (k nonceKeeper) Update(ctx context.Context, fn func(Tx) error) error {
 		return err
 	}
 	spent := tracked.spent
-	_ = k.inner.Update(ctx, func(inner Tx) error {
+	recovery, cancel := context.WithTimeout(context.WithoutCancel(ctx), nonceRecoveryTimeout)
+	defer cancel()
+	if recordErr := k.inner.Update(recovery, func(inner Tx) error {
 		_, recordErr := inner.RecordNonce(spent.scope, spent.nonce, spent.now, spent.expires)
 		return recordErr
-	})
+	}); recordErr != nil {
+		slog.Error("could not keep the nonce of a failed signed request spent", "error", recordErr)
+	}
 	return err
 }
