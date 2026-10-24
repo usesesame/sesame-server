@@ -15,7 +15,7 @@
     "deploy:contract": "node ./scripts/deploy-release-contracts.test.mjs",
     "sync:contract": "node ./scripts/sync-boundary-contracts.test.mjs",
     "sync:wire": "node --test scripts/sync-wire.test.mjs",
-    "audit:contract": "node --test scripts/audit-contracts.test.mjs",
+    "audit:contract": "node --test scripts/audit-contracts.test.mjs scripts/advisory-exceptions-contracts.test.mjs",
     "governance:contract": "node ./scripts/governance-contracts.test.mjs",
     "setup:contract": "node ./scripts/setup-contracts.test.mjs",
     "selfhost:contract": "node ./scripts/selfhost-ci-contracts.test.mjs",

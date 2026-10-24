@@ -50,7 +50,7 @@ jobs:
       - run: npm ci
 
       - name: Audit npm dependencies
-        run: npm audit --audit-level=high
+        run: node scripts/audit-dependencies.mjs
 
       - run: npm run ci
 
@@ -81,7 +81,7 @@ jobs:
       - run: npm ci
 
       - name: Audit npm dependencies
-        run: npm audit --audit-level=high
+        run: node ../../scripts/audit-dependencies.mjs
 
       - run: npm run ci
 
@@ -110,7 +110,7 @@ jobs:
       - run: npm ci
 
       - name: Audit npm dependencies
-        run: npm audit --audit-level=high
+        run: node ../../scripts/audit-dependencies.mjs
 
       - run: npm run ci
 
@@ -140,7 +140,7 @@ jobs:
         working-directory: web/console
 
       - name: Audit npm dependencies
-        run: npm audit --audit-level=high
+        run: node ../../scripts/audit-dependencies.mjs
         working-directory: web/console
 
       - run: npm run release:check

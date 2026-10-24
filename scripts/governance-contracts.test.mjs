@@ -102,6 +102,16 @@ test('a workflow that writes says so at the job that writes', () => {
   )
 })
 
+test('the release restores no cache that another run could have written', () => {
+  const release = read('.github', 'workflows', 'release.yml')
+  assert.doesNotMatch(release, /^\s+cache:(?!\s*false\s*$)/m, 'the release restores a package or build cache')
+  assert.doesNotMatch(release, /cache-dependency-path/, 'the release keys a cache on a lockfile')
+  const setups = release.split('uses: actions/setup-go@').slice(1).map((rest) => rest.split(/\n\s*\n/)[0])
+  for (const setup of setups) {
+    assert.match(setup, /^\s+cache: false\s*$/m, 'setup-go caches modules and builds unless the release turns it off')
+  }
+})
+
 test('the publish job verifies the artifact digests the images job records', () => {
   const release = read('.github', 'workflows', 'release.yml')
   const imagesJob = jobBlock(release, 'images')
