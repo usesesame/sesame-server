@@ -111,6 +111,7 @@ test('only the Sync packages import the Sync packages', () => {
   const allowed = new Set([
     join('cmd', 'api', 'main.go'),
     join('cmd', 'sesame-server', 'application.go'),
+    join('cmd', 'synctestserver', 'main.go'),
     join('internal', 'httpapi', 'sync_routes.go'),
     join('internal', 'httpapi', 'server.go'),
     join('internal', 'selfhost', 'server', 'server.go'),
@@ -122,5 +123,19 @@ test('only the Sync packages import the Sync packages', () => {
   for (const file of scanned) {
     if (!/internal\/sync(?:svc|proto|v3http)/.test(read(file))) continue
     assert.ok(allowed.has(file), `${file} reaches into the Sync packages`)
+  }
+})
+
+test('the Sync test server is built only with its tag and no image or release script names it', () => {
+  const source = read('cmd', 'synctestserver', 'main.go')
+  assert.match(source.split('\n')[0], /^\/\/go:build synctestserver$/, 'the first line must be the build constraint')
+  assert.match(source, /memstore\.New\(\)/, 'it keeps its data in memory and never opens a database')
+  assert.doesNotMatch(source, /database\/sql|pgx|modernc|os\.Getenv/, 'it reads no database and no configuration')
+  assert.match(source, /127\.0\.0\.1:0/, 'it listens on the loopback address only')
+  for (const file of ['Dockerfile', 'Dockerfile.selfhost', 'package.json']) {
+    assert.doesNotMatch(read(file), /synctestserver/, `${file} must not name the Sync test server`)
+  }
+  for (const file of sourceFiles('scripts', /\.mjs$/).filter((name) => !name.endsWith('sync-boundary-contracts.test.mjs'))) {
+    assert.doesNotMatch(read(file), /synctestserver/, `${file} must not name the Sync test server`)
   }
 })
