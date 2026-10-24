@@ -67,6 +67,7 @@ test('image builds install npm packages without running their scripts', () => {
     assert.ok(installs.length > 0, `${dockerfile} no longer installs npm packages, so this check is stale`)
     for (const [line, , flags] of installs) {
       assert.match(flags, /--ignore-scripts\b/, `${dockerfile} runs package scripts in the image build: ${line}`)
+      assert.match(flags, /--allow-git=none\b/, `${dockerfile} can fetch git dependencies in the image build, because .npmrc is copied after the install: ${line}`)
     }
   }
 })

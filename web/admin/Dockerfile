@@ -1,7 +1,7 @@
 FROM node:26.11.1-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS build
 WORKDIR /src
 COPY web/admin/package.json web/admin/package-lock.json ./
-RUN npm ci --ignore-scripts
+RUN npm ci --ignore-scripts --allow-git=none
 COPY web/admin .
 COPY scripts/release-contract.mjs /tools/release-contract.mjs
 ARG SESAME_VERSION=0.1.0-dev
