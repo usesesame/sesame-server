@@ -4,7 +4,7 @@
   type Failure = '' | 'unavailable' | 'unauthorized'
   type State = { label: string; status: OperationalStatus; detail: string; action: string }
 
-  const props = $props<{ snapshot: OperationalSnapshot | null; mail?: SystemMailConfig | null; failure: Failure }>()
+  const props: { snapshot: OperationalSnapshot | null; mail?: SystemMailConfig | null; failure: Failure } = $props()
 
   function statusText(status: OperationalStatus) {
     return status.replace('_', ' ')
