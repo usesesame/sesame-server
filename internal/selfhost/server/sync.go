@@ -28,6 +28,8 @@ var syncLimits = map[string]syncLimit{
 	"pairing-cancel":  {60, 10},
 	"approve":         {60, 10},
 	"remove":          {60, 10},
+	"rotate":          {60, 10},
+	"device-key":      {60, 10},
 	"key-package":     {90, 15},
 	"activate":        {60, 10},
 	"upload":          {180, 30},

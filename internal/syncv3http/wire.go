@@ -49,6 +49,10 @@ type removeRequest struct {
 	Packages []keyPackageJSON          `json:"packages"`
 }
 
+type upgradeKeyRequest struct {
+	Entry syncproto.DeviceListEntry `json:"entry"`
+}
+
 type activateRequest struct {
 	PackageDigest string `json:"packageDigest"`
 }

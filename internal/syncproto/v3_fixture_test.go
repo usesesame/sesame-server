@@ -80,6 +80,7 @@ type fixtureBrokenHeader struct {
 type v3Fixture struct {
 	Chain          []fixtureEntry        `json:"chain"`
 	RemovalChain   []fixtureEntry        `json:"removalChain"`
+	KeyChain       []fixtureEntry        `json:"keyChain"`
 	Headers        []fixtureHeader       `json:"headers"`
 	Ciphertext     string                `json:"ciphertext"`
 	Request        fixtureRequest        `json:"request"`
@@ -108,6 +109,8 @@ func buildV3Fixture(t *testing.T) v3Fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	keyed := append(append([]DeviceListEntry(nil), chain...), keyEntry(chain[2], desktop, hybridKeyFor(5)))
+	keyed = append(keyed, rotateEntry(keyed[3], laptop))
 	ciphertext := bytes.Repeat([]byte{9}, 64)
 	first := headerOn(list, laptop, nil, 1, ciphertext)
 	second := headerOn(list, desktop, &first, 2, ciphertext)
@@ -147,6 +150,7 @@ func buildV3Fixture(t *testing.T) v3Fixture {
 	return v3Fixture{
 		Chain:        fixtureEntries(chain),
 		RemovalChain: fixtureEntries(removal),
+		KeyChain:     fixtureEntries(keyed),
 		Headers:      headers,
 		Ciphertext:   base64.RawURLEncoding.EncodeToString(ciphertext),
 		Request: fixtureRequest{
@@ -176,6 +180,17 @@ func buildV3Fixture(t *testing.T) v3Fixture {
 			{"a wrong previous digest", []DeviceListEntry{chain[0], resign(laptop, wrongPrevious)}},
 			{"a removal that skips an epoch", []DeviceListEntry{chain[0], chain[1], resign(laptop, epochJump)}},
 			{"a removed device added again", append(append([]DeviceListEntry(nil), removal...), reAdd)},
+			{"a key replacement by a device that already has the larger key", append(append([]DeviceListEntry(nil), keyed[:4]...), keyEntry(keyed[3], desktop, hybridKeyFor(6)))},
+			{"a key replacement signed for another device", []DeviceListEntry{chain[0], chain[1], chain[2], resign(desktop, func() DeviceListEntry {
+				entry := keyEntry(chain[2], desktop, hybridKeyFor(5))
+				entry.SubjectDeviceID = phone.id
+				return entry
+			}())}},
+			{"a rotation that does not raise the epoch", []DeviceListEntry{chain[0], chain[1], chain[2], resign(laptop, func() DeviceListEntry {
+				entry := rotateEntry(chain[2], laptop)
+				entry.EpochAfter = 1
+				return entry
+			}())}},
 		},
 		BrokenHeaders: []fixtureBrokenHeader{
 			{"a revision built on a different second revision", &second, onTheFork},

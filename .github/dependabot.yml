@@ -5,6 +5,9 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
 
   - package-ecosystem: npm
     directory: /
@@ -52,24 +55,32 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: docker
     directory: /web/account
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: docker
     directory: /web/admin
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: docker
     directory: /scripts/selfhost-proxy-images
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
 
   # Every third-party action here is pinned to a full commit SHA. Dependabot is
   # the only thing that moves those pins, so this entry is a security control.
