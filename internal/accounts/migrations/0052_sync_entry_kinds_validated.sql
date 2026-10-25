@@ -1,0 +1,2 @@
+ALTER TABLE sesame_sync3_device_list
+  VALIDATE CONSTRAINT sesame_sync3_device_list_kind_check;
