@@ -110,6 +110,11 @@ func (entry DeviceListEntry) Validate() error {
 	return nil
 }
 
+type packageKeyChange struct {
+	index    uint64
+	previous string
+}
+
 type DeviceListMember struct {
 	DeviceID     string
 	SigningKey   string
@@ -117,6 +122,7 @@ type DeviceListMember struct {
 	SealedLabel  string
 	AddedIndex   uint64
 	RemovedIndex uint64
+	replaced     []packageKeyChange
 }
 
 func (member DeviceListMember) memberAt(index uint64) bool {
@@ -175,6 +181,12 @@ func (list *DeviceList) MemberAt(deviceID string, index uint64) (DeviceListMembe
 	member, ok := list.members[deviceID]
 	if !ok || !member.memberAt(index) {
 		return DeviceListMember{}, false
+	}
+	for _, change := range member.replaced {
+		if index < change.index {
+			member.PackageKey = change.previous
+			break
+		}
 	}
 	return member, true
 }
@@ -306,6 +318,7 @@ func (list *DeviceList) extendKey(entry DeviceListEntry, signer DeviceListMember
 	if _, err := decodeCanonical(signer.PackageKey, X25519PublicKeyBytes); err != nil {
 		return fmt.Errorf("%w: only a device with the older package key can replace it", ErrDeviceListBroken)
 	}
+	signer.replaced = append(append([]packageKeyChange(nil), signer.replaced...), packageKeyChange{index: entry.Index, previous: signer.PackageKey})
 	signer.PackageKey = entry.SubjectPackageKey
 	list.members[signer.DeviceID] = signer
 	list.append(entry, entry.EpochAfter)

@@ -546,6 +546,13 @@ func TestAKeyReplacementChangesOnlyTheSignersPackageKey(t *testing.T) {
 	if member.PackageKey != hybridKeyFor(5) || member.SigningKey != desktop.signingKey() {
 		t.Fatal("the package key was not replaced or the signing key changed")
 	}
+	before, _ := list.MemberAt(desktop.id, 3)
+	if before.PackageKey != desktop.packageKey() {
+		t.Fatal("the package key before the replacement was lost")
+	}
+	if current, _ := list.Member(desktop.id); current.PackageKey != hybridKeyFor(5) {
+		t.Fatal("the current package key is not the replacement")
+	}
 	other, _ := list.MemberAt(phone.id, 4)
 	if other.PackageKey != phone.packageKey() {
 		t.Fatal("another member's package key changed")
