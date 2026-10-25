@@ -17,7 +17,7 @@
         "ci": "npm run design:tokens:check && npm run links:check && npm run lint && npm run check"
     },
     "dependencies": {
-        "svelte": "^5.57.1"
+        "svelte": "^5.57.2"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
@@ -27,7 +27,7 @@
         "@tsconfig/svelte": "^5.0.8",
         "@types/node": "^26.6.5",
         "eslint": "^10.12.0",
-        "eslint-plugin-svelte": "^3.23.0",
+        "eslint-plugin-svelte": "^3.23.1",
         "globals": "^17.13.0",
         "jsdom": "^30.1.2",
         "svelte-check": "^4.7.6",
