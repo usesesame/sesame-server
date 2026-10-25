@@ -23,6 +23,8 @@ var syncRouteList = []struct{ method, path string }{
 	{http.MethodDelete, "/v1/sync/pairings/device-123456789012"},
 	{http.MethodPost, "/v1/sync/devices"},
 	{http.MethodPost, "/v1/sync/devices/remove"},
+	{http.MethodPost, "/v1/sync/devices/key"},
+	{http.MethodPost, "/v1/sync/devices/rotate"},
 	{http.MethodGet, "/v1/sync/key-package"},
 	{http.MethodPost, "/v1/sync/activate"},
 	{http.MethodPost, "/v1/sync/snapshots"},

@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
@@ -45,13 +45,11 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version-file: .node-version
-          cache: npm
-          cache-dependency-path: package-lock.json
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version-file: go.mod
-          cache-dependency-path: go.sum
+          cache: false
 
       - id: contract
         run: node scripts/release-contract.mjs github "$GITHUB_REF_NAME" "$GITHUB_SHA"
@@ -92,7 +90,7 @@ jobs:
 
   images:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: server-release
     permissions:
       contents: read
@@ -175,7 +173,7 @@ jobs:
 
   publish:
     needs: [images, selfhost]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: server-release
     permissions:
       contents: write
@@ -314,7 +312,7 @@ jobs:
 
   selfhost:
     needs: verify
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: server-release
     permissions:
       contents: read

@@ -309,3 +309,55 @@ func (e *env) now() uint64 {
 func content(seed byte) []byte {
 	return bytes.Repeat([]byte{seed}, 1024)
 }
+
+func hybridPackageKey() string {
+	return b64(bytes.Repeat([]byte{9}, syncproto.XWingPublicKeyBytes))
+}
+
+func (e *env) upgradeEntry(signer device, packageKey string) syncproto.DeviceListEntry {
+	list := e.list(signer)
+	return syncproto.SignDeviceListEntry(signer.key, syncproto.DeviceListEntry{
+		VaultID: e.vaultID, Index: list.Head() + 1, PreviousDigest: list.HeadDigest(),
+		Kind: syncproto.EntryKey, SignerDeviceID: signer.id, SubjectDeviceID: signer.id,
+		SubjectPackageKey: packageKey, EpochAfter: list.Epoch(),
+	})
+}
+
+func (e *env) upgradeKey(caller, signer device, entry syncproto.DeviceListEntry) error {
+	return e.svc.UpgradeKey(context.Background(), e.caller(caller), e.sign(caller, "POST", "/v1/sync/devices/key", []byte("key")), syncsvc.UpgradeKeyInput{Entry: entry})
+}
+
+func (e *env) rotateEntry(signer device) syncproto.DeviceListEntry {
+	list := e.list(signer)
+	return syncproto.SignDeviceListEntry(signer.key, syncproto.DeviceListEntry{
+		VaultID: e.vaultID, Index: list.Head() + 1, PreviousDigest: list.HeadDigest(),
+		Kind: syncproto.EntryRotate, SignerDeviceID: signer.id, SubjectDeviceID: signer.id,
+		EpochAfter: list.Epoch() + 1,
+	})
+}
+
+func (e *env) rotate(signer device, entry syncproto.DeviceListEntry, survivors ...device) error {
+	var packages []syncproto.KeyPackageV3
+	for _, survivor := range survivors {
+		packages = append(packages, e.keyPackage(signer, survivor, entry.EpochAfter, entry.Digest()))
+	}
+	return e.svc.Rotate(context.Background(), e.caller(signer), e.sign(signer, "POST", "/v1/sync/devices/rotate", []byte("rotate")), syncsvc.RotateInput{Entry: entry, Packages: packages})
+}
+
+func (e *env) storedPackageKey(d device) string {
+	e.t.Helper()
+	var found string
+	_ = e.storage.View(context.Background(), func(tx syncsvc.Tx) error {
+		devices, err := tx.Devices(e.vaultID)
+		if err != nil {
+			e.t.Fatalf("devices: %v", err)
+		}
+		for _, stored := range devices {
+			if stored.DeviceID == d.id {
+				found = stored.PackageKey
+			}
+		}
+		return nil
+	})
+	return found
+}

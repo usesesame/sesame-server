@@ -21,6 +21,8 @@ func Run(t *testing.T, factory Factory) {
 	t.Run("uploads refuse every break in the history", func(t *testing.T) { testUploadRules(t, factory) })
 	t.Run("old ciphertext ages out by size and never the previous head", func(t *testing.T) { testRetentionBySize(t, factory) })
 	t.Run("removing a device rekeys the vault", func(t *testing.T) { testRemove(t, factory) })
+	t.Run("a device replaces its own package key with a hybrid key", func(t *testing.T) { testUpgradeKey(t, factory) })
+	t.Run("a rotation rekeys the vault without removing a device", func(t *testing.T) { testRotate(t, factory) })
 	t.Run("leaving is a removal signed by the leaver", func(t *testing.T) { testLeave(t, factory) })
 	t.Run("a removed connection can pair with a fresh identity", func(t *testing.T) { testRejoin(t, factory) })
 	t.Run("reset needs a device signature and the current epoch", func(t *testing.T) { testReset(t, factory) })
@@ -646,4 +648,76 @@ func testRejoinAfterRemoval(t *testing.T, factory Factory, leave bool) {
 	if e.vault(laptop).CurrentRevision != 2 {
 		t.Fatal("the old signing key changed the rejoined vault")
 	}
+}
+
+func testUpgradeKey(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	laptop, desktop := e.newDevice("laptop"), e.newDevice("desktop")
+	e.createVault(laptop)
+	e.pair(laptop, desktop)
+	hybrid := hybridPackageKey()
+
+	expect(t, e.upgradeKey(laptop, laptop, e.upgradeEntry(desktop, hybrid)), syncsvc.ErrForbidden)
+	expect(t, e.upgradeKey(desktop, desktop, e.upgradeEntry(laptop, hybrid)), syncsvc.ErrForbidden)
+	short := e.upgradeEntry(desktop, b64(bytes.Repeat([]byte{9}, 32)))
+	expect(t, e.upgradeKey(desktop, desktop, short), syncsvc.ErrInvalid)
+	stale := e.upgradeEntry(desktop, hybrid)
+	stale.Index--
+	expect(t, e.upgradeKey(desktop, desktop, stale), syncsvc.ErrConflict)
+	if e.vault(laptop).HeadIndex != 2 || e.storedPackageKey(desktop) != desktop.packageKey() {
+		t.Fatal("a refused replacement changed the vault")
+	}
+
+	entry := e.upgradeEntry(desktop, hybrid)
+	if err := e.upgradeKey(desktop, desktop, entry); err != nil {
+		t.Fatalf("upgrade key: %v", err)
+	}
+	vault := e.vault(laptop)
+	if vault.HeadIndex != 3 || vault.Epoch != 1 {
+		t.Fatalf("vault after replacement = %+v", vault)
+	}
+	member, ok := e.list(laptop).MemberAt(desktop.id, 3)
+	if !ok || member.PackageKey != hybrid || e.storedPackageKey(desktop) != hybrid {
+		t.Fatal("the new package key was not recorded")
+	}
+	expect(t, e.upgradeKey(desktop, desktop, e.upgradeEntry(desktop, hybrid)), syncsvc.ErrInvalid)
+	e.mustUpload(desktop, 1, nil, content(1))
+}
+
+func testRotate(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	laptop, desktop, phone := e.newDevice("laptop"), e.newDevice("desktop"), e.newDevice("phone")
+	e.createVault(laptop)
+	e.pair(laptop, desktop)
+	e.pair(laptop, phone)
+	first := e.mustUpload(laptop, 1, nil, content(1))
+
+	entry := e.rotateEntry(laptop)
+	expect(t, e.rotate(laptop, entry, desktop), syncsvc.ErrInvalid)
+	expect(t, e.rotate(laptop, entry, desktop, desktop), syncsvc.ErrInvalid)
+	expect(t, e.rotate(laptop, entry, desktop, phone, laptop), syncsvc.ErrInvalid)
+	notRotation := entry
+	notRotation.Kind = syncproto.EntryRemove
+	expect(t, e.rotate(laptop, notRotation, desktop, phone), syncsvc.ErrForbidden)
+	if e.vault(laptop).Epoch != 1 || len(e.list(laptop).Current()) != 3 {
+		t.Fatal("a refused rotation changed the vault")
+	}
+
+	if err := e.rotate(laptop, entry, desktop, phone); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	vault := e.vault(laptop)
+	if vault.Epoch != 2 || vault.HeadIndex != 4 || len(e.list(laptop).Current()) != 3 {
+		t.Fatalf("vault after rotation = %+v", vault)
+	}
+	if _, err := e.upload(desktop, 2, &first.Header.Header, content(2)); !errors.Is(err, syncsvc.ErrNotActivated) {
+		t.Fatalf("a device wrote before taking the new key: %v", err)
+	}
+	e.activate(desktop)
+	e.activate(phone)
+	second := e.mustUpload(desktop, 2, &first.Header.Header, content(2))
+	if second.Header.VaultEpoch != 2 {
+		t.Fatalf("epoch = %d", second.Header.VaultEpoch)
+	}
+	e.mustUpload(laptop, 3, &second.Header.Header, content(3))
 }

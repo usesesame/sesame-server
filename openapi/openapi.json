@@ -5107,6 +5107,40 @@
         "x-sesame-registration-pattern": "/v1/sync/devices"
       }
     },
+    "/v1/sync/devices/key": {
+      "post": {
+        "operationId": "postV1SyncDevicesKey",
+        "summary": "POST sync upgrade key",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncUpgradeKey",
+        "x-sesame-registration-pattern": "/v1/sync/devices/key"
+      }
+    },
     "/v1/sync/devices/remove": {
       "post": {
         "operationId": "postV1SyncDevicesRemove",
@@ -5139,6 +5173,40 @@
         "x-sesame-availability": "operator-enabled",
         "x-sesame-handler": "syncRemove",
         "x-sesame-registration-pattern": "/v1/sync/devices/remove"
+      }
+    },
+    "/v1/sync/devices/rotate": {
+      "post": {
+        "operationId": "postV1SyncDevicesRotate",
+        "summary": "POST sync rotate",
+        "tags": [
+          "sync"
+        ],
+        "security": [
+          {
+            "desktopToken": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "desktop-token-signed-requests",
+        "x-sesame-availability": "operator-enabled",
+        "x-sesame-handler": "syncRotate",
+        "x-sesame-registration-pattern": "/v1/sync/devices/rotate"
       }
     },
     "/v1/sync/headers": {
@@ -5657,5 +5725,5 @@
     "internal/httpapi/sync_routes.go"
   ],
   "x-sesame-deployment-profile": "project",
-  "x-sesame-operation-count": 139
+  "x-sesame-operation-count": 141
 }
