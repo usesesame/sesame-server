@@ -3,7 +3,7 @@
 
   type Command = 'publish' | 'rollout' | 'emergency-stop' | 'withdraw'
 
-  const props = $props<{ releases: Release[]; canManage: boolean; onCommand: (release: Release, command: Command) => void }>()
+  const props: { releases: Release[]; canManage: boolean; onCommand: (release: Release, command: Command) => void } = $props()
   let pending = $state<{ releaseID: string; command: Command } | null>(null)
 
   function platformLabel(platform: string) {

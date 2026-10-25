@@ -5,7 +5,7 @@
   const NEXT_LABELS: Record<string, string> = { uploaded: 'Mark uploaded', submitted: 'Mark submitted', approved: 'Mark approved', published: 'Mark published', withdrawn: 'Mark withdrawn' }
   const STORE_LABELS: Record<string, string> = { chrome: 'Chrome Web Store', edge: 'Edge Add-ons', firefox: 'Firefox Add-ons' }
 
-  const props = $props<{
+  const props: {
     publications: ExtensionPublication[]
     canManage: boolean
     onTransition: (publication: ExtensionPublication, to: string, evidence: Record<string, string>) => void
@@ -13,7 +13,7 @@
     chrome?: ChromeListingState | null
     canShow?: boolean
     onSetVisible?: (visible: boolean, select: HTMLSelectElement) => void
-  }>()
+  } = $props()
 
   const chromePublic = $derived(props.chrome?.public.find((entry: PublicExtension) => entry.store === 'chrome'))
   const websiteSentence = $derived.by(() => {
