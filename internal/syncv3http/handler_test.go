@@ -761,3 +761,82 @@ func TestPairingOffersAcceptAClassicalOrAHybridPackageKeyAndNothingElse(t *testi
 		expectError(t, offer(f, newDevice(deviceBID, "b"), bad), http.StatusBadRequest, "sync_invalid")
 	}
 }
+
+func TestAHybridDeviceIsApprovedAndReceivesAHybridSizedPackageOverHTTP(t *testing.T) {
+	hybridKey := encodeBase64(bytes.Repeat([]byte{5}, syncproto.XWingPublicKeyBytes))
+	hybridPackage := bytes.Repeat([]byte{3}, 1+1120+24+48)
+
+	for _, size := range []int{15, syncproto.MaxEncryptedKeyPackageBytes + 1} {
+		f := newFixture(t)
+		owner := newDevice(deviceAID, "a")
+		newcomer := newDevice(deviceBID, "b")
+		f.createVault(owner)
+		f.confirmPairing(owner, newcomer, hybridKey)
+		list := f.verifiedList(owner)
+		addEntry := hybridAddEntry(owner, newcomer, list, hybridKey)
+		pkg := signedPackage(owner, newcomer, list, addEntry, bytes.Repeat([]byte{3}, size))
+		recorder := f.signedJSON(owner, http.MethodPost, "/v1/sync/devices", map[string]any{
+			"entry": addEntry, "package": wireKeyPackage(pkg),
+		})
+		if recorder.Code == http.StatusCreated {
+			t.Fatalf("a key package of %d bytes was accepted", size)
+		}
+	}
+
+	f := newFixture(t)
+	owner := newDevice(deviceAID, "a")
+	newcomer := newDevice(deviceBID, "b")
+	f.createVault(owner)
+	f.confirmPairing(owner, newcomer, hybridKey)
+	list := f.verifiedList(owner)
+	addEntry := hybridAddEntry(owner, newcomer, list, hybridKey)
+	pkg := signedPackage(owner, newcomer, list, addEntry, hybridPackage)
+	expectStatus(t, f.signedJSON(owner, http.MethodPost, "/v1/sync/devices", map[string]any{
+		"entry": addEntry, "package": wireKeyPackage(pkg),
+	}), http.StatusCreated)
+
+	served := f.verifiedList(newcomer)
+	member, ok := served.MemberAt(newcomer.id, addEntry.Index)
+	if !ok || member.PackageKey != hybridKey {
+		t.Fatal("the service did not keep the hybrid package key on the new member")
+	}
+	keyPackage := f.get(newcomer, "/v1/sync/key-package")
+	expectStatus(t, keyPackage, http.StatusOK)
+	var delivered struct {
+		Package keyPackageBody `json:"package"`
+	}
+	decode(t, keyPackage, &delivered)
+	if delivered.Package.Ciphertext != pkg.Ciphertext || delivered.Package.Signature != pkg.Signature {
+		t.Fatal("the delivered package differs from the one the approver signed")
+	}
+}
+
+func (f *fixture) confirmPairing(owner, newcomer device, packageKey string) {
+	f.t.Helper()
+	expectStatus(f.t, f.signedJSON(newcomer, http.MethodPost, "/v1/sync/pairings", map[string]any{
+		"deviceId": newcomer.id, "signingKey": newcomer.signingKey(), "packageKey": packageKey,
+		"message": encodeBase64([]byte("offer")),
+	}), http.StatusCreated)
+	expectStatus(f.t, f.signedJSON(owner, http.MethodPost, "/v1/sync/pairings/"+newcomer.id+"/answer",
+		map[string]any{"message": encodeBase64([]byte("answer"))}), http.StatusNoContent)
+	expectStatus(f.t, f.signedJSON(newcomer, http.MethodPost, "/v1/sync/pairings/mine/confirm",
+		map[string]any{"message": encodeBase64([]byte("confirm"))}), http.StatusNoContent)
+}
+
+func hybridAddEntry(owner, newcomer device, list *syncproto.DeviceList, packageKey string) syncproto.DeviceListEntry {
+	return syncproto.SignDeviceListEntry(owner.key, syncproto.DeviceListEntry{
+		VaultID: testVaultID, Index: list.Head() + 1, PreviousDigest: list.HeadDigest(),
+		Kind: syncproto.EntryAdd, SignerDeviceID: owner.id, SubjectDeviceID: newcomer.id,
+		SubjectSigningKey: newcomer.signingKey(), SubjectPackageKey: packageKey,
+		SealedLabel: encodeBase64(bytes.Repeat([]byte{2}, 48)), EpochAfter: list.Epoch(),
+	})
+}
+
+func signedPackage(owner, newcomer device, list *syncproto.DeviceList, entry syncproto.DeviceListEntry, ciphertext []byte) syncproto.KeyPackageV3 {
+	pkg := syncproto.KeyPackageV3{
+		VaultID: testVaultID, SenderDeviceID: owner.id, RecipientDeviceID: newcomer.id,
+		VaultEpoch: list.Epoch(), EntryDigest: entry.Digest(), Ciphertext: encodeBase64(ciphertext),
+	}
+	pkg.Signature = encodeBase64(ed25519.Sign(owner.key, pkg.SigningPayload()))
+	return pkg
+}
