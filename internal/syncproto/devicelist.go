@@ -12,6 +12,8 @@ const (
 	EntryCreate = "create"
 	EntryAdd    = "add"
 	EntryRemove = "remove"
+	EntryKey    = "key"
+	EntryRotate = "rotate"
 )
 
 var (
@@ -84,6 +86,17 @@ func (entry DeviceListEntry) Validate() error {
 	case EntryRemove:
 		if entry.SubjectSigningKey != "" || entry.SubjectPackageKey != "" || entry.SealedLabel != "" {
 			return fmt.Errorf("%w: a removal carries no key or label", ErrDeviceListInvalid)
+		}
+	case EntryKey:
+		if entry.SignerDeviceID != entry.SubjectDeviceID || entry.SubjectSigningKey != "" || entry.SealedLabel != "" {
+			return fmt.Errorf("%w: a key replacement is signed by its own device and carries only the new package key", ErrDeviceListInvalid)
+		}
+		if _, err := decodeCanonical(entry.SubjectPackageKey, XWingPublicKeyBytes); err != nil {
+			return fmt.Errorf("%w: package key", ErrDeviceListInvalid)
+		}
+	case EntryRotate:
+		if entry.SignerDeviceID != entry.SubjectDeviceID || entry.SubjectSigningKey != "" || entry.SubjectPackageKey != "" || entry.SealedLabel != "" {
+			return fmt.Errorf("%w: a rotation is signed by its own device and carries no key or label", ErrDeviceListInvalid)
 		}
 	default:
 		return fmt.Errorf("%w: kind", ErrDeviceListInvalid)
@@ -232,8 +245,14 @@ func (list *DeviceList) Extend(entry DeviceListEntry) error {
 		return fmt.Errorf("%w: only the first entry creates", ErrDeviceListBroken)
 	case EntryAdd:
 		return list.extendAdd(entry)
-	default:
+	case EntryRemove:
 		return list.extendRemove(entry)
+	case EntryKey:
+		return list.extendKey(entry, signer)
+	case EntryRotate:
+		return list.extendRotate(entry)
+	default:
+		return fmt.Errorf("%w: kind", ErrDeviceListBroken)
 	}
 }
 
@@ -276,6 +295,28 @@ func (list *DeviceList) extendRemove(entry DeviceListEntry) error {
 	}
 	subject.RemovedIndex = entry.Index
 	list.members[entry.SubjectDeviceID] = subject
+	list.append(entry, entry.EpochAfter)
+	return nil
+}
+
+func (list *DeviceList) extendKey(entry DeviceListEntry, signer DeviceListMember) error {
+	if entry.EpochAfter != list.Epoch() {
+		return fmt.Errorf("%w: a key replacement does not change the epoch", ErrDeviceListBroken)
+	}
+	if _, err := decodeCanonical(signer.PackageKey, X25519PublicKeyBytes); err != nil {
+		return fmt.Errorf("%w: only a device with the older package key can replace it", ErrDeviceListBroken)
+	}
+	signer.PackageKey = entry.SubjectPackageKey
+	list.members[signer.DeviceID] = signer
+	list.append(entry, entry.EpochAfter)
+	return nil
+}
+
+func (list *DeviceList) extendRotate(entry DeviceListEntry) error {
+	nextEpoch, ok := checkedNext(list.Epoch())
+	if !ok || entry.EpochAfter != nextEpoch {
+		return fmt.Errorf("%w: a rotation raises the epoch by one", ErrDeviceListBroken)
+	}
 	list.append(entry, entry.EpochAfter)
 	return nil
 }

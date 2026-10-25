@@ -75,6 +75,35 @@ func removeEntry(previous DeviceListEntry, signer, subject testDevice) DeviceLis
 	})
 }
 
+func hybridKeyFor(seed byte) string {
+	return base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{seed}, XWingPublicKeyBytes))
+}
+
+func keyEntry(previous DeviceListEntry, signer testDevice, packageKey string) DeviceListEntry {
+	return SignDeviceListEntry(signer.key, DeviceListEntry{
+		VaultID:           testVaultID,
+		Index:             previous.Index + 1,
+		PreviousDigest:    previous.Digest(),
+		Kind:              EntryKey,
+		SignerDeviceID:    signer.id,
+		SubjectDeviceID:   signer.id,
+		SubjectPackageKey: packageKey,
+		EpochAfter:        previous.EpochAfter,
+	})
+}
+
+func rotateEntry(previous DeviceListEntry, signer testDevice) DeviceListEntry {
+	return SignDeviceListEntry(signer.key, DeviceListEntry{
+		VaultID:         testVaultID,
+		Index:           previous.Index + 1,
+		PreviousDigest:  previous.Digest(),
+		Kind:            EntryRotate,
+		SignerDeviceID:  signer.id,
+		SubjectDeviceID: signer.id,
+		EpochAfter:      previous.EpochAfter + 1,
+	})
+}
+
 var (
 	laptop  = newTestDevice(1, "deviceLaptop00000001")
 	desktop = newTestDevice(2, "deviceDesktop0000001")
@@ -500,5 +529,110 @@ func TestDeviceListAcceptsAHybridPackageKeyAndNoOtherLength(t *testing.T) {
 func TestNonceRetentionOutlastsTheWholeAcceptedClockWindow(t *testing.T) {
 	if RequestNonceRetention < 2*RequestTimestampSkew+60 {
 		t.Fatalf("a request stamped at the edge of the skew window must find its nonce still stored: retention %d, skew %d", RequestNonceRetention, RequestTimestampSkew)
+	}
+}
+
+func TestAKeyReplacementChangesOnlyTheSignersPackageKey(t *testing.T) {
+	chain := threeDeviceChain()
+	replacement := keyEntry(chain[2], desktop, hybridKeyFor(5))
+	list, err := VerifyDeviceList(append(append([]DeviceListEntry(nil), chain...), replacement))
+	if err != nil {
+		t.Fatalf("a key replacement was refused: %v", err)
+	}
+	if list.Head() != 4 || list.Epoch() != 1 || len(list.Current()) != 3 {
+		t.Fatalf("head %d epoch %d members %d", list.Head(), list.Epoch(), len(list.Current()))
+	}
+	member, _ := list.MemberAt(desktop.id, 4)
+	if member.PackageKey != hybridKeyFor(5) || member.SigningKey != desktop.signingKey() {
+		t.Fatal("the package key was not replaced or the signing key changed")
+	}
+	other, _ := list.MemberAt(phone.id, 4)
+	if other.PackageKey != phone.packageKey() {
+		t.Fatal("another member's package key changed")
+	}
+}
+
+func TestAKeyReplacementIsRefusedWhenItIsNotPlainlyAnUpgradeByTheDeviceItself(t *testing.T) {
+	chain := threeDeviceChain()
+	replaced := append(append([]DeviceListEntry(nil), chain...), keyEntry(chain[2], desktop, hybridKeyFor(5)))
+	cases := map[string][]DeviceListEntry{
+		"signed for another device": {chain[0], chain[1], chain[2], func() DeviceListEntry {
+			entry := keyEntry(chain[2], desktop, hybridKeyFor(5))
+			entry.SubjectDeviceID = phone.id
+			return SignDeviceListEntry(desktop.key, entry)
+		}()},
+		"signed by another device": {chain[0], chain[1], chain[2], func() DeviceListEntry {
+			entry := keyEntry(chain[2], desktop, hybridKeyFor(5))
+			return SignDeviceListEntry(phone.key, entry)
+		}()},
+		"a classical key":      append(append([]DeviceListEntry(nil), chain...), keyEntry(chain[2], desktop, desktop.packageKey())),
+		"a key one byte short": append(append([]DeviceListEntry(nil), chain...), keyEntry(chain[2], desktop, base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, XWingPublicKeyBytes-1)))),
+		"a key one byte long":  append(append([]DeviceListEntry(nil), chain...), keyEntry(chain[2], desktop, base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{5}, XWingPublicKeyBytes+1)))),
+		"a device that has it": append(append([]DeviceListEntry(nil), replaced...), keyEntry(replaced[3], desktop, hybridKeyFor(6))),
+		"a removed device":     append(append([]DeviceListEntry(nil), append(append([]DeviceListEntry(nil), chain...), removeEntry(chain[2], laptop, phone))...), keyEntry(removeEntry(chain[2], laptop, phone), phone, hybridKeyFor(5))),
+		"a changed epoch": append(append([]DeviceListEntry(nil), chain...), func() DeviceListEntry {
+			entry := keyEntry(chain[2], desktop, hybridKeyFor(5))
+			entry.EpochAfter++
+			return SignDeviceListEntry(desktop.key, entry)
+		}()),
+		"a label": append(append([]DeviceListEntry(nil), chain...), func() DeviceListEntry {
+			entry := keyEntry(chain[2], desktop, hybridKeyFor(5))
+			entry.SealedLabel = sealedLabelFor(1)
+			return SignDeviceListEntry(desktop.key, entry)
+		}()),
+		"a signing key": append(append([]DeviceListEntry(nil), chain...), func() DeviceListEntry {
+			entry := keyEntry(chain[2], desktop, hybridKeyFor(5))
+			entry.SubjectSigningKey = desktop.signingKey()
+			return SignDeviceListEntry(desktop.key, entry)
+		}()),
+		"a snapshot floor": append(append([]DeviceListEntry(nil), chain...), func() DeviceListEntry {
+			entry := keyEntry(chain[2], desktop, hybridKeyFor(5))
+			entry.SnapshotFloor = 1
+			return SignDeviceListEntry(desktop.key, entry)
+		}()),
+	}
+	for name, entries := range cases {
+		if _, err := VerifyDeviceList(entries); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+func TestARotationRaisesTheEpochAndKeepsEveryMember(t *testing.T) {
+	chain := threeDeviceChain()
+	rotation := rotateEntry(chain[2], desktop)
+	list, err := VerifyDeviceList(append(append([]DeviceListEntry(nil), chain...), rotation))
+	if err != nil {
+		t.Fatalf("a rotation was refused: %v", err)
+	}
+	if list.Epoch() != 2 || list.Head() != 4 || len(list.Current()) != 3 {
+		t.Fatalf("epoch %d head %d members %d", list.Epoch(), list.Head(), len(list.Current()))
+	}
+	if epoch, _ := list.EpochAt(3); epoch != 1 {
+		t.Fatal("the epoch before the rotation changed")
+	}
+}
+
+func TestARotationIsRefusedWhenItDoesNotRaiseTheEpochByOneOrCarriesAnything(t *testing.T) {
+	chain := threeDeviceChain()
+	mutate := func(change func(*DeviceListEntry)) []DeviceListEntry {
+		entry := rotateEntry(chain[2], desktop)
+		change(&entry)
+		return append(append([]DeviceListEntry(nil), chain...), SignDeviceListEntry(desktop.key, entry))
+	}
+	cases := map[string][]DeviceListEntry{
+		"the same epoch":      mutate(func(e *DeviceListEntry) { e.EpochAfter = 1 }),
+		"two epochs":          mutate(func(e *DeviceListEntry) { e.EpochAfter = 3 }),
+		"another subject":     mutate(func(e *DeviceListEntry) { e.SubjectDeviceID = phone.id }),
+		"a package key":       mutate(func(e *DeviceListEntry) { e.SubjectPackageKey = hybridKeyFor(5) }),
+		"a signing key":       mutate(func(e *DeviceListEntry) { e.SubjectSigningKey = desktop.signingKey() }),
+		"a label":             mutate(func(e *DeviceListEntry) { e.SealedLabel = sealedLabelFor(1) }),
+		"a snapshot floor":    mutate(func(e *DeviceListEntry) { e.SnapshotFloor = 1 }),
+		"a stranger's signer": append(append([]DeviceListEntry(nil), chain...), rotateEntry(chain[2], thief)),
+	}
+	for name, entries := range cases {
+		if _, err := VerifyDeviceList(entries); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
 	}
 }

@@ -42,6 +42,8 @@ func (handler *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /v1/sync/pairings/{deviceId}", handler.CancelPairing)
 	mux.HandleFunc("POST /v1/sync/devices", handler.Approve)
 	mux.HandleFunc("POST /v1/sync/devices/remove", handler.Remove)
+	mux.HandleFunc("POST /v1/sync/devices/key", handler.UpgradeKey)
+	mux.HandleFunc("POST /v1/sync/devices/rotate", handler.Rotate)
 	mux.HandleFunc("GET /v1/sync/key-package", handler.KeyPackage)
 	mux.HandleFunc("POST /v1/sync/activate", handler.Activate)
 	mux.HandleFunc("POST /v1/sync/snapshots", handler.Upload)
@@ -286,6 +288,48 @@ func (handler *Handler) Remove(response http.ResponseWriter, request *http.Reque
 		packages = append(packages, pkg)
 	}
 	err := handler.service.Remove(request.Context(), caller, signed, syncsvc.RemoveInput{Entry: input.Entry, Packages: packages})
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) Rotate(response http.ResponseWriter, request *http.Request) {
+	caller, ok := handler.host.Authenticate(response, request, "rotate")
+	if !ok {
+		return
+	}
+	input, signed, ok := readSignedJSON[removeRequest](response, request, keyChangeBodyBytes)
+	if !ok {
+		return
+	}
+	packages := make([]syncproto.KeyPackageV3, 0, len(input.Packages))
+	for _, wire := range input.Packages {
+		pkg, ok := wire.toService(response)
+		if !ok {
+			return
+		}
+		packages = append(packages, pkg)
+	}
+	err := handler.service.Rotate(request.Context(), caller, signed, syncsvc.RotateInput{Entry: input.Entry, Packages: packages})
+	if err != nil {
+		writeServiceError(response, err)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) UpgradeKey(response http.ResponseWriter, request *http.Request) {
+	caller, ok := handler.host.Authenticate(response, request, "device-key")
+	if !ok {
+		return
+	}
+	input, signed, ok := readSignedJSON[upgradeKeyRequest](response, request, smallBodyBytes)
+	if !ok {
+		return
+	}
+	err := handler.service.UpgradeKey(request.Context(), caller, signed, syncsvc.UpgradeKeyInput{Entry: input.Entry})
 	if err != nil {
 		writeServiceError(response, err)
 		return
