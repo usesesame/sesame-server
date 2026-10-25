@@ -497,7 +497,24 @@ type RemoveInput struct {
 	Packages []syncproto.KeyPackageV3
 }
 
+type RotateInput struct {
+	Entry    syncproto.DeviceListEntry
+	Packages []syncproto.KeyPackageV3
+}
+
+type UpgradeKeyInput struct {
+	Entry syncproto.DeviceListEntry
+}
+
 func (s *Service) Remove(ctx context.Context, caller Caller, request SignedRequest, input RemoveInput) error {
+	return s.rekey(ctx, caller, request, syncproto.EntryRemove, input.Entry, input.Packages)
+}
+
+func (s *Service) Rotate(ctx context.Context, caller Caller, request SignedRequest, input RotateInput) error {
+	return s.rekey(ctx, caller, request, syncproto.EntryRotate, input.Entry, input.Packages)
+}
+
+func (s *Service) rekey(ctx context.Context, caller Caller, request SignedRequest, kind string, entry syncproto.DeviceListEntry, packages []syncproto.KeyPackageV3) error {
 	return s.storage.Update(ctx, func(tx Tx) error {
 		actor, err := s.signedActor(tx, caller, request)
 		if err != nil {
@@ -506,8 +523,7 @@ func (s *Service) Remove(ctx context.Context, caller Caller, request SignedReque
 		if err := requireActivated(actor); err != nil {
 			return err
 		}
-		entry := input.Entry
-		if entry.Kind != syncproto.EntryRemove || entry.SignerDeviceID != actor.Device.DeviceID || entry.VaultID != actor.Vault.ID {
+		if entry.Kind != kind || entry.SignerDeviceID != actor.Device.DeviceID || entry.VaultID != actor.Vault.ID {
 			return ErrForbidden
 		}
 		if entry.Index != actor.Vault.HeadIndex+1 {
@@ -526,14 +542,14 @@ func (s *Service) Remove(ctx context.Context, caller Caller, request SignedReque
 				expected[member.DeviceID] = true
 			}
 		}
-		if len(input.Packages) != len(expected) {
+		if len(packages) != len(expected) {
 			return fmt.Errorf("%w: the survivor set is incomplete", ErrInvalid)
 		}
 		now := s.now()
 		if err := tx.DeleteKeyPackages(actor.Vault.ID); err != nil {
 			return err
 		}
-		for _, pkg := range input.Packages {
+		for _, pkg := range packages {
 			if !expected[pkg.RecipientDeviceID] {
 				return fmt.Errorf("%w: unexpected or repeated recipient", ErrInvalid)
 			}
@@ -551,8 +567,10 @@ func (s *Service) Remove(ctx context.Context, caller Caller, request SignedReque
 		if err := tx.AppendDeviceListEntry(entry); err != nil {
 			return err
 		}
-		if err := tx.DeleteCheckpoint(actor.Vault.ID, entry.SubjectDeviceID); err != nil {
-			return err
+		if kind == syncproto.EntryRemove {
+			if err := tx.DeleteCheckpoint(actor.Vault.ID, entry.SubjectDeviceID); err != nil {
+				return err
+			}
 		}
 		devices, err := tx.Devices(actor.Vault.ID)
 		if err != nil {
@@ -560,7 +578,7 @@ func (s *Service) Remove(ctx context.Context, caller Caller, request SignedReque
 		}
 		for _, device := range devices {
 			switch {
-			case device.DeviceID == entry.SubjectDeviceID:
+			case kind == syncproto.EntryRemove && device.DeviceID == entry.SubjectDeviceID:
 				device.State = DeviceRevoked
 			case device.DeviceID == actor.Device.DeviceID && device.State == DeviceApproved:
 				device.ActivatedEpoch = entry.EpochAfter
@@ -584,6 +602,44 @@ func (s *Service) Remove(ctx context.Context, caller Caller, request SignedReque
 		vault.HeadIndex = entry.Index
 		vault.Epoch = entry.EpochAfter
 		vault.UpdatedAt = now
+		return tx.UpdateVault(vault)
+	})
+}
+
+func (s *Service) UpgradeKey(ctx context.Context, caller Caller, request SignedRequest, input UpgradeKeyInput) error {
+	return s.storage.Update(ctx, func(tx Tx) error {
+		actor, err := s.signedActor(tx, caller, request)
+		if err != nil {
+			return err
+		}
+		if err := requireActivated(actor); err != nil {
+			return err
+		}
+		entry := input.Entry
+		if entry.Kind != syncproto.EntryKey || entry.SignerDeviceID != actor.Device.DeviceID || entry.VaultID != actor.Vault.ID {
+			return ErrForbidden
+		}
+		if entry.Index != actor.Vault.HeadIndex+1 {
+			return ErrConflict
+		}
+		list, err := loadList(tx, actor.Vault.ID)
+		if err != nil {
+			return err
+		}
+		if err := list.Extend(entry); err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+		if err := tx.AppendDeviceListEntry(entry); err != nil {
+			return err
+		}
+		device := actor.Device
+		device.PackageKey = entry.SubjectPackageKey
+		if err := tx.PutDevice(device); err != nil {
+			return err
+		}
+		vault := actor.Vault
+		vault.HeadIndex = entry.Index
+		vault.UpdatedAt = s.now()
 		return tx.UpdateVault(vault)
 	})
 }

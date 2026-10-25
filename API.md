@@ -504,6 +504,13 @@ into any Sync handler.
   byte X-Wing key, in unpadded base64url, and the service checks only the length.
 - `POST /v1/sync/devices/remove` appends a signed `remove` entry with a new key
   package for every device that stays. A device leaves the same way.
+- `POST /v1/sync/devices/key` appends a signed `key` entry in which a device
+  replaces its own 32 byte package key with a 1216 byte X-Wing key. It changes
+  neither the epoch nor any key package, and the service refuses it from a device
+  that already has the larger key.
+- `POST /v1/sync/devices/rotate` appends a signed `rotate` entry that raises the
+  epoch by one without removing a device, with a new key package for every other
+  device.
 - `GET /v1/sync/key-package` and `POST /v1/sync/activate` hand a device its
   package and record that it holds the key.
 - `POST /v1/sync/snapshots` stores a signed header and one padded ciphertext.
