@@ -26,6 +26,8 @@ func (a *api) registerSyncRoutes(mux *http.ServeMux) {
 	a.route(mux, sync, "DELETE /v1/sync/pairings/{deviceId}", a.syncCancelPairing)
 	a.route(mux, sync, "POST /v1/sync/devices", a.syncApprove)
 	a.route(mux, sync, "POST /v1/sync/devices/remove", a.syncRemove)
+	a.route(mux, sync, "POST /v1/sync/devices/key", a.syncUpgradeKey)
+	a.route(mux, sync, "POST /v1/sync/devices/rotate", a.syncRotate)
 	a.route(mux, sync, "GET /v1/sync/key-package", a.syncKeyPackage)
 	a.route(mux, sync, "POST /v1/sync/activate", a.syncActivate)
 	a.route(mux, sync, "POST /v1/sync/snapshots", a.syncUpload)
@@ -96,6 +98,14 @@ func (a *api) syncRemove(response http.ResponseWriter, request *http.Request) {
 	a.withSync(response, request, func(h *syncv3http.Handler) http.HandlerFunc { return h.Remove })
 }
 
+func (a *api) syncUpgradeKey(response http.ResponseWriter, request *http.Request) {
+	a.withSync(response, request, func(h *syncv3http.Handler) http.HandlerFunc { return h.UpgradeKey })
+}
+
+func (a *api) syncRotate(response http.ResponseWriter, request *http.Request) {
+	a.withSync(response, request, func(h *syncv3http.Handler) http.HandlerFunc { return h.Rotate })
+}
+
 func (a *api) syncKeyPackage(response http.ResponseWriter, request *http.Request) {
 	a.withSync(response, request, func(h *syncv3http.Handler) http.HandlerFunc { return h.KeyPackage })
 }
@@ -145,6 +155,8 @@ var syncLimits = map[string]syncLimit{
 	"pairing-cancel":  {60, 20, 10, false},
 	"approve":         {60, 20, 10, true},
 	"remove":          {60, 20, 10, false},
+	"rotate":          {60, 20, 10, false},
+	"device-key":      {60, 20, 10, false},
 	"key-package":     {90, 30, 15, false},
 	"activate":        {60, 20, 10, false},
 	"upload":          {180, 60, 30, true},
