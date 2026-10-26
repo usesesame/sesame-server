@@ -103,6 +103,8 @@ type TokenSessionRotation struct {
 	SessionExpiresAt time.Time
 	SessionLabel     string
 	AuthenticatedAt  time.Time
+	// ConfirmPassword is read only when an email address is verified for the first time. Empty clears the registration password.
+	ConfirmPassword string
 }
 
 type EmailChangeResult struct {
@@ -469,8 +471,22 @@ func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotat
 		return User{}, err
 	}
 	var wasVerified bool
-	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL FROM sesame_accounts WHERE id = $1 FOR NO KEY UPDATE`, accountID).Scan(&wasVerified); err != nil {
+	var registrationHash string
+	if err := tx.QueryRowContext(ctx, `SELECT email_verified_at IS NOT NULL, password_hash FROM sesame_accounts WHERE id = $1 FOR NO KEY UPDATE`, accountID).Scan(&wasVerified, &registrationHash); err != nil {
 		return User{}, err
+	}
+	// The mailbox proves the address, not that its owner chose the password.
+	// Only a verifier who also knows the password keeps it; the error rolls the token back.
+	keepPassword := false
+	if !wasVerified && input.ConfirmPassword != "" {
+		if registrationHash == "" {
+			DummyVerifyPassword()
+			return User{}, ErrPasswordIncorrect
+		}
+		if !VerifyPassword(registrationHash, input.ConfirmPassword) {
+			return User{}, ErrPasswordIncorrect
+		}
+		keepPassword = true
 	}
 	var user User
 	err = tx.QueryRowContext(ctx, `
@@ -489,7 +505,7 @@ func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotat
 	if err := revokePreVerificationCredentials(ctx, tx, accountID, wasVerified); err != nil {
 		return User{}, err
 	}
-	if !wasVerified {
+	if !wasVerified && !keepPassword {
 		if _, err := tx.ExecContext(ctx, `UPDATE sesame_accounts SET password_hash = '' WHERE id = $1`, accountID); err != nil {
 			return User{}, err
 		}

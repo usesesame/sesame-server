@@ -46,6 +46,11 @@ type tokenRequest struct {
 	Token string `json:"token"`
 }
 
+type verificationRequest struct {
+	Token    string `json:"token"`
+	Password string `json:"password"`
+}
+
 type recoveryRequest struct {
 	Email string `json:"email"`
 }
@@ -133,11 +138,11 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
-	var input tokenRequest
+	var input verificationRequest
 	if !decodeJSONBodyWith(response, request, &input, "invalid_verification", "That verification request could not be read.") {
 		return
 	}
-	if !validActionToken(input.Token) {
+	if !validActionToken(input.Token) || len(input.Password) > 1024 {
 		writeError(response, http.StatusBadRequest, "invalid_verification", "That verification link is invalid or expired.")
 		return
 	}
@@ -153,9 +158,14 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 		SessionExpiresAt: now.Add(a.config.SessionDuration),
 		SessionLabel:     browserLabel(request),
 		AuthenticatedAt:  now,
+		ConfirmPassword:  input.Password,
 	})
 	if errors.Is(err, accounts.ErrTokenExpired) {
 		writeError(response, http.StatusBadRequest, "verification_expired", "That verification link is invalid or expired.")
+		return
+	}
+	if errors.Is(err, accounts.ErrPasswordIncorrect) {
+		writeError(response, http.StatusUnauthorized, "incorrect_password", "That is not the password chosen when this account was created. Check it, or choose a new password instead.")
 		return
 	}
 	if err != nil {

@@ -145,14 +145,23 @@ body.
   upstream SMTP relay accepted it. Registration does not create a browser
   session.
 - `POST /v1/auth/email/verification/request` with no body returns `202`.
-- `POST /v1/auth/email/verification/confirm` with `{token}` returns
-  `200 {user,credentialSetupRequired}` and a replacement browser session.
-  Verification revokes every browser session, passkey, and desktop connection
-  created while the account was unverified, cancels its pending desktop-link
-  codes, and deletes its pending email-change tokens, in the same transaction
-  that marks the address verified. `credentialSetupRequired` is true when the
-  account has no password and no passkey, which is the case after a first
-  verification.
+- `POST /v1/auth/email/verification/confirm` with `{token}` or
+  `{token,password}` returns `200 {user,credentialSetupRequired}` and a
+  replacement browser session. Verification revokes every browser session,
+  passkey, and desktop connection created while the account was unverified,
+  cancels its pending desktop-link codes, and deletes its pending email-change
+  tokens, in the same transaction that marks the address verified.
+  The mailbox proves the address, not who chose the registration password,
+  because anyone can register an address with a password they know. A first
+  verification therefore clears the registration password unless the same
+  request carries `password` and it matches. A matching password is kept and
+  `credentialSetupRequired` is false. A `password` that does not match returns
+  `401 incorrect_password`, changes nothing and leaves the link usable, so the
+  person can try again or confirm without a password to choose a new one. A
+  `password` for an account that has none is refused the same way. Without
+  `password`, `credentialSetupRequired` is true when the account has no
+  password and no passkey. A password over 1024 bytes returns
+  `400 invalid_verification`.
 - `POST /v1/auth/password/recovery/request` with `{email}` returns `202`. Missing,
   malformed, and known emails receive the same response shape.
 - `POST /v1/auth/password/recovery/confirm` with `{token,newPassword}` returns
