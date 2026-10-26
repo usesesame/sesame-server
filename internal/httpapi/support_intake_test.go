@@ -162,6 +162,13 @@ func TestContainsSecretShapedText(t *testing.T) {
 		{name: "padded base64 key", value: "The exported key ejgFI6bjzttikWD1325ZdjhohM88ycZWJS84RCntRdU= will not import.", want: true},
 		{name: "url with plus", value: "I want to change the seed phrase storage location and the app pin length, but https://example.invalid/download/Sesame+Release+Notes+September+2026 will not open after the update.", want: false},
 		{name: "ordinary message", value: "The importer stops after the first file and the log shows no error.", want: false},
+		{name: "recovery kit", value: "My kit is F9K4P-7XQ2M-T6V8C-H3R5W-J8L2N and it will not open.", want: true},
+		{name: "recovery kit in lower case", value: "f9k4p-7xq2m-t6v8c-h3r5w-j8l2n", want: true},
+		{name: "recovery kit across lines", value: "F9K4P-\n7XQ2M-\nT6V8C-\nH3R5W-\nJ8L2N", want: true},
+		{name: "desktop link code", value: "The code is SESAME-ABCD EFGH JKLM and it expired.", want: true},
+		{name: "two hyphenated groups are not a kit", value: "The importer said ABCDE-FGHIJ failed twice.", want: false},
+		{name: "product name with a hyphen", value: "Does Sesame-password-manager sync? The Sesame-password prompt is odd.", want: false},
+		{name: "build identifier", value: "The build 2026-10-26-abcde will not start.", want: false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			if got := containsSecretShapedText(testCase.value); got != testCase.want {
