@@ -117,6 +117,9 @@ func (a *api) accountSupportTicket(response http.ResponseWriter, request *http.R
 		return
 	}
 	if action == "attach" {
+		if !a.allowRequest(response, request, "support-attach", 12, time.Hour) {
+			return
+		}
 		if !user.EmailVerified {
 			requestLog(request.Context()).Info("Sesame support request attach rejected", "request", ticketID, "outcome", "email_unverified")
 			writeError(response, http.StatusForbidden, "email_unverified", "Verify your account email before attaching a support request.")

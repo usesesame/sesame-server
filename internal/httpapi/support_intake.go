@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -26,7 +27,7 @@ var (
 	pinNumberPattern        = regexp.MustCompile(`(?i)\bpin\b[ \t]*(?:[:=：]|(?:is|was)[ \t]+)?[ \t]*\d{4,8}\b`)
 	longTokenPattern        = regexp.MustCompile(`(?:^|[^[:alnum:]_-])(?:[A-Fa-f0-9]{40,}|[A-Za-z0-9_-]{48,})(?:$|[^[:alnum:]_-])`)
 	diagnosticCodePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
-	recoveryKitPattern      = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]-])[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}){4}(?:$|[^[:alnum:]-])`)
+	recoveryKitPattern      = regexp.MustCompile(`(?i)(?:^|[^[:alnum:]-])[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}(?:-\s*[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{5}){4}(?:$|[^[:alnum:]-])`)
 	base32SecretPattern     = regexp.MustCompile(`(?:^|[^[:alnum:]])[A-Z2-7]{16,}(?:$|[^[:alnum:]])`)
 	base32DigitPattern      = regexp.MustCompile(`[2-7]`)
 	base64SecretPattern     = regexp.MustCompile(`(?:^|[^A-Za-z0-9+/=_-])([A-Za-z0-9+/_-]{31,}={0,2})(?:$|[^A-Za-z0-9+/=_-])`)
@@ -87,11 +88,17 @@ func (a *api) createSupportRequest(response http.ResponseWriter, request *http.R
 	}
 	accountID := ""
 	if cookie, err := request.Cookie(a.sessionCookieName()); err == nil && cookie.Value != "" {
-		if user, err := a.config.Accounts.UserBySession(request.Context(), accounts.HashSessionToken(cookie.Value)); err == nil {
+		user, err := a.config.Accounts.UserBySession(request.Context(), accounts.HashSessionToken(cookie.Value))
+		switch {
+		case err == nil:
 			accountID = user.ID
 			if accountEmail, ok := normalizedEmail(user.Email); ok {
 				email = accountEmail
 			}
+		case errors.Is(err, accounts.ErrNotFound):
+		default:
+			writeError(response, http.StatusServiceUnavailable, "support_unavailable", "Support intake is temporarily unavailable.")
+			return
 		}
 	}
 	if a.config.EmailSender != nil && !a.allowIdentity(response, request, "support-receipt", email, 3, time.Hour) {
@@ -160,6 +167,9 @@ func (a *api) supportStaffFollowUpNotice(reference, category string) (AccountEma
 	}, true
 }
 
+// A desktop link code is SESAME- followed by groups of four capitals or digits.
+var linkCodePattern = regexp.MustCompile(`\bSESAME-[A-Z0-9]{4}(?:[ -]?[A-Z0-9]{4})+\b`)
+
 // A guard rail, not a guarantee: no filter can recognise every secret.
 func containsSecretShapedText(value string) bool {
 	lower := strings.ToLower(value)
@@ -173,7 +183,7 @@ func containsSecretShapedText(value string) bool {
 			return true
 		}
 	}
-	if secretAssignmentPattern.MatchString(value) || pinNumberPattern.MatchString(value) || longTokenPattern.MatchString(value) || seedPhrasePattern.MatchString(value) {
+	if secretAssignmentPattern.MatchString(value) || pinNumberPattern.MatchString(value) || longTokenPattern.MatchString(value) || seedPhrasePattern.MatchString(value) || linkCodePattern.MatchString(value) {
 		return true
 	}
 	if recoveryKitPattern.MatchString(value) {
