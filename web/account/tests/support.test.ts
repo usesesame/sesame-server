@@ -53,6 +53,11 @@ test.each([
   ['backup code: ABCD-EFGH', 'a recovery code'],
   ['api key = abcdefghijklmnop', 'a token or secret'],
   ['JBSWY3DPEHPK3PXPJBSWY3DP', 'a long authenticator-style secret'],
+  ['My kit is F9K4P-7XQ2M-T6V8C-H3R5W-J8L2N so help', 'a Sesame recovery kit'],
+  ['f9k4p-7xq2m-t6v8c-h3r5w-j8l2n', 'a Sesame recovery kit'],
+  ['F9K4P-\n7XQ2M-\nT6V8C-\nH3R5W-\nJ8L2N', 'a Sesame recovery kit'],
+  ['the code is SESAME-ABCD EFGH JKLM', 'a Sesame link code'],
+  ['SESAME-ABCDEFGHJKLM', 'a Sesame link code'],
 ])('flags %j as %s', async (text, label) => {
   const { findSecretShapedText } = await import('../src/lib/support')
   expect(findSecretShapedText(text)).toBe(label)
@@ -62,6 +67,21 @@ test('clears ordinary support text', async () => {
   const { findSecretShapedText } = await import('../src/lib/support')
   expect(findSecretShapedText('The app crashes when I click Import on Windows 11.')).toBeNull()
   expect(findSecretShapedText('My version is 0.1.0-beta.3 and the diagnostic code is UI-7F2A.')).toBeNull()
+})
+
+test('does not mistake ordinary hyphenated text or short identifiers for a recovery kit or link code', async () => {
+  const { findSecretShapedText } = await import('../src/lib/support')
+  for (const text of [
+    'My request ID is req-1234 and the build is 2026-10-26-abcde.',
+    'The state-of-the-art import said ABCDE-FGHIJ failed twice.',
+    'I use Sesame on Linux and Sesame on Windows.',
+    'Sesame-desktop version 0.5.1 crashed.',
+    'Open SESAME settings and press Repair.',
+    'The Sesame link on my account page does nothing.',
+    'Does Sesame-password-manager sync? The Sesame-password prompt is odd.',
+  ]) {
+    expect(findSecretShapedText(text), text).toBeNull()
+  }
 })
 
 test('maps categories and falls back to General', async () => {
