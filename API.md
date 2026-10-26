@@ -205,14 +205,15 @@ security notice to the previous address. Recovery also revokes every passkey and
 desktop connection created while the account was unverified, cancels its
 pending desktop-link codes, and revokes every desktop connection regardless of
 when it was created. Credentials an attacker attached to an unverified account
-do not survive verification or recovery. Verification clears the password set
-at registration, so the address owner who did not start that registration sets
-a new password right after verifying, with
+do not survive verification or recovery. Verification without a matching
+`password` clears the password set at registration, so the address owner who did
+not start that registration sets a new password right after verifying, with
 `POST /v1/account/password/setup` and `{newPassword}`. It returns `204`. It
 requires a recently authenticated session, a verified email, and an account
 that has no password yet, and it answers `409 password_already_set` otherwise.
-The account portal shows this step after verification and again on the account
-overview while `credentialSetupRequired` is true. A passkey registered from the
+The account portal shows this step after verification when
+`credentialSetupRequired` is true, and again on the account overview while it
+stays true. A passkey registered from the
 same session also ends the setup state. A session older than the recent-auth
 window receives `403 recent_auth_required`, and the owner then uses password
 recovery.
