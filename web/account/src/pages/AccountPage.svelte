@@ -1,6 +1,6 @@
 <script lang="ts">
   import { slidingSelection } from '../lib/sliding-selection'
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, tick } from 'svelte'
   import {
     cancelDesktopLink,
     changePassword,
@@ -206,6 +206,7 @@
     if (next === 'devices' && !devicesLoaded) void loadDevicesAndLink()
     if (next === 'activity' && !activityLoaded) void loadActivity()
     if (next === 'overview' && !accessLoaded) void loadAccess()
+    void tick().then(() => document.getElementById(`account-tab-${next}`)?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' }))
   }
 
   function tabKeydown(event: KeyboardEvent, index: number) {

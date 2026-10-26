@@ -73,7 +73,7 @@
     <nav aria-label="Portal navigation">
       <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
       <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support{#if supportUnread > 0}<span class="nav-count" aria-label={`${supportUnread} unread support ${supportUnread === 1 ? 'reply' : 'replies'}`}>{supportUnread}</span>{/if}</a>
-      <a href={siteOrigin}>{siteHost}</a>
+      <a class="nav-site" href={siteOrigin}>{siteHost}</a>
     </nav>
     {/if}
     <div class="header-account-actions">
@@ -182,10 +182,13 @@
   }
 
   .header-help {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     color: var(--text-muted);
     font-size: var(--type-2);
     font-weight: var(--weight-medium);
-    padding: var(--space-3) var(--space-2);
+    padding: 0 var(--space-2);
     text-decoration: none;
   }
 

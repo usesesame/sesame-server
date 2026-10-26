@@ -220,3 +220,16 @@ test('no step is shown before the account details have loaded', () => {
   expect(screen.queryByRole('heading', { name: 'Connect Sesame on your computer' })).toBeNull()
   expect(screen.queryByRole('heading', { name: 'Verify your email' })).toBeNull()
 })
+
+test('choosing a tab brings it into view when the tab row scrolls on a phone', async () => {
+  mockAccess()
+  auth.listDesktopDevices.mockResolvedValue([])
+  auth.getDesktopLink.mockResolvedValue(null)
+  const scrolled = vi.fn()
+  Element.prototype.scrollIntoView = scrolled
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  await screen.findByText('Beta access')
+  await fireEvent.click(screen.getByRole('tab', { name: 'Desktops' }))
+  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledWith({ inline: 'nearest', block: 'nearest' }))
+  expect(scrolled.mock.contexts.at(-1)).toBe(screen.getByRole('tab', { name: 'Desktops' }))
+})
