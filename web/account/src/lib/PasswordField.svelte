@@ -8,6 +8,7 @@
   export let disabled = false
   export let revealed = false
   export let toggle = true
+  export let required = true
 </script>
 
 <div class="field">
@@ -16,7 +17,7 @@
     <slot name="aside" />
   </div>
   <div class="password-field">
-    <input {id} type={revealed ? 'text' : 'password'} bind:value {autocomplete} aria-describedby={describedby} {minlength} maxlength="1024" required {disabled} />
+    <input {id} type={revealed ? 'text' : 'password'} bind:value {autocomplete} aria-describedby={describedby} {minlength} maxlength="1024" {required} {disabled} />
     {#if toggle}
       <button type="button" class="password-toggle" on:click={() => (revealed = !revealed)} {disabled} aria-label={revealed ? 'Hide password' : 'Show password'}>{revealed ? 'Hide' : 'Show'}</button>
     {/if}

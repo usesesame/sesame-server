@@ -186,9 +186,9 @@ export async function requestEmailVerification(): Promise<void> {
 
 export type EmailVerification = { account: Account; credentialSetupRequired: boolean }
 
-export async function confirmEmailVerification(token: string): Promise<EmailVerification> {
+export async function confirmEmailVerification(token: string, password?: string): Promise<EmailVerification> {
   const response = await apiRequest(API_ROUTES.confirmEmailVerification, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(password ? { token, password } : { token }),
   })
   if (!response.ok) throw await requestError(response)
   const body = await response.json() as AuthResponse & { credentialSetupRequired?: boolean }

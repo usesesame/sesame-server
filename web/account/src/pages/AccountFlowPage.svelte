@@ -16,6 +16,7 @@
 
   let email = ''
   let newPassword = ''
+  let verifyPassword = ''
   let confirmPassword = ''
   let showPassword = false
   let submitting = false
@@ -57,8 +58,12 @@
     errorElement?.focus()
   }
 
-  async function submit() {
+  async function submit(chooseNewPassword = false) {
     error = ''
+    if (mode === 'verify-email' && !chooseNewPassword && !verifyPassword) {
+      await showError('Enter the password you chose when you signed up, or choose a new one instead.')
+      return
+    }
     if (mode === 'reset-password' && newPassword !== confirmPassword) {
       await showError('The new passwords do not match.')
       return
@@ -75,7 +80,7 @@
       } else if (mode === 'reset-password') {
         onAuthenticated(await confirmPasswordRecovery(token, newPassword))
       } else if (mode === 'verify-email') {
-        const verification = await confirmEmailVerification(token)
+        const verification = await confirmEmailVerification(token, chooseNewPassword ? undefined : verifyPassword)
         setupRequired = verification.credentialSetupRequired
         onAuthenticated(verification.account)
       } else {
@@ -87,6 +92,7 @@
     } finally {
       newPassword = ''
       confirmPassword = ''
+      verifyPassword = ''
       submitting = false
     }
     if (failure) await showError(failure)
@@ -112,7 +118,7 @@
           <a class="button" href="/account">Open account</a>
         {/if}
       {:else}
-        <form class="account-form" on:submit|preventDefault={submit}>
+        <form class="account-form" on:submit|preventDefault={() => submit()}>
           {#if mode === 'forgot-password'}
             <div class="field">
               <label for="flow-email">Email</label>
@@ -122,13 +128,19 @@
             <PasswordField id="flow-password" label="New password" bind:value={newPassword} bind:revealed={showPassword} autocomplete="new-password" minlength={12} describedby="flow-password-note" disabled={submitting} />
             <PasswordField id="flow-password-confirm" label="Confirm new password" bind:value={confirmPassword} revealed={showPassword} toggle={false} autocomplete="new-password" disabled={submitting} />
             <small id="flow-password-note">12 characters or more. Completing this signs out other website sessions.</small>
+          {:else if mode === 'verify-email'}
+            <p>Enter the password you chose when you signed up to finish verifying your email.</p>
+            <PasswordField id="flow-verify-password" label="Your password" bind:value={verifyPassword} bind:revealed={showPassword} autocomplete="current-password" required={false} disabled={submitting} />
           {:else}
-            <p>{mode === 'verify-email' ? 'Use this link to verify the email address on your account.' : 'Use this link to replace the email address on your account.'}</p>
+            <p>Use this link to replace the email address on your account.</p>
           {/if}
           {#if error}<p class="auth-error" role="alert" tabindex="-1" bind:this={errorElement}>{error}</p>{/if}
           <button class="button auth-submit" type="submit" disabled={submitting}>
             {submitting ? 'Working…' : mode === 'forgot-password' ? 'Send recovery link' : mode === 'reset-password' ? 'Set password' : mode === 'verify-email' ? 'Verify email' : 'Update email'}
           </button>
+          {#if mode === 'verify-email'}
+            <button class="button button-soft" type="button" disabled={submitting} on:click={() => submit(true)}>Choose a new password instead</button>
+          {/if}
         </form>
       {/if}
     </div>
