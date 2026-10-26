@@ -173,3 +173,50 @@ test('does not ask for a password when the account already has credentials', asy
   expect(await screen.findByText('Signed in as')).toBeTruthy()
   expect(screen.queryByText('Set a password')).toBeNull()
 })
+
+test('a new account is told to verify its email first and can send the link again', async () => {
+  const unverified: Account = { ...account, emailVerified: false }
+  mockAccess(bootstrap({ account: unverified, access: { betaAccess: true, emailVerified: false, downloadsAllowed: true, licences: [] } }))
+  auth.requestEmailVerification.mockResolvedValue(undefined)
+  render(AccountPage, { account: unverified, authState: { state: 'authenticated', account: unverified }, onSignedOut: vi.fn() })
+  expect(await screen.findByRole('heading', { name: 'Verify your email' })).toBeTruthy()
+  expect(screen.getByText(/tester@example.invalid/, { selector: 'p' })).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Send verification email' }))
+  expect(auth.requestEmailVerification).toHaveBeenCalledOnce()
+})
+
+test('a verified account with no desktop is pointed at connecting one, and the button opens that tab', async () => {
+  mockAccess()
+  auth.listDesktopDevices.mockResolvedValue([])
+  auth.getDesktopLink.mockResolvedValue(null)
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  expect(await screen.findByRole('heading', { name: 'Connect Sesame on your computer' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Download Sesame' }).getAttribute('href')).toBe('https://website.test.invalid/releases')
+  expect(screen.getByText('None connected')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Create a link code' }))
+  expect(screen.getByRole('tab', { name: 'Desktops' }).getAttribute('aria-selected')).toBe('true')
+})
+
+test('an account that already has a desktop shows no next step and counts it', async () => {
+  mockAccess(bootstrap({ security: { activeSessions: 2, connectedDesktops: 2, recentAuthenticationAt: '2026-08-31T10:00:00Z', credentialSetupRequired: false } }))
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  expect(await screen.findByText('2 connected')).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Connect Sesame on your computer' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Verify your email' })).toBeNull()
+})
+
+test('an account without beta access is told how to ask, not shown the connect step', async () => {
+  mockAccess(bootstrap({ access: { betaAccess: false, emailVerified: true, downloadsAllowed: true, licences: [] } }))
+  render(AccountPage, { account: { ...account, betaAccess: false }, authState: { state: 'authenticated', account: { ...account, betaAccess: false } }, onSignedOut: vi.fn() })
+  expect(await screen.findByRole('heading', { name: 'Ask for beta access' })).toBeTruthy()
+  expect(screen.getByRole('link', { name: 'Ask for access' }).getAttribute('href')).toBe('/support/request')
+  expect(screen.getByText('Not granted')).toBeTruthy()
+})
+
+test('no step is shown before the account details have loaded', () => {
+  auth.getAccountBootstrap.mockReturnValue(new Promise(() => {}))
+  capabilities.capabilities.mockReturnValue(new Promise(() => {}))
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  expect(screen.queryByRole('heading', { name: 'Connect Sesame on your computer' })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Verify your email' })).toBeNull()
+})

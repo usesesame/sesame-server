@@ -34,6 +34,7 @@
   import { siteOrigin } from '../lib/runtime-config'
   import { capabilities, capabilityEnabled, type CapabilityConfig } from '../lib/capabilities'
   import PasswordSetupForm from '../lib/PasswordSetupForm.svelte'
+  import { nextStep } from '../lib/next-step'
 
   export let account: Account | null
   export let authState: AuthState = { state: 'loading' }
@@ -61,6 +62,7 @@
   let capabilityConfig: CapabilityConfig | null = null
   let accessLoaded = false
   let credentialSetupRequired = false
+  let connectedDesktops = 0
 
   let currentPassword = ''
   let newPassword = ''
@@ -118,6 +120,16 @@
   $: linkCountdown = `${Math.floor(linkSeconds / 60)}:${String(linkSeconds % 60).padStart(2, '0')}`
   $: desktopCodeDisplay = link?.code ? formatDesktopCode(link.code) : ''
   $: betaGranted = access?.betaAccess ?? account?.betaAccess ?? false
+  $: desktopCount = devicesLoaded ? devices.length : connectedDesktops
+  $: step = account && accessLoaded
+    ? nextStep({
+        email: account.email,
+        emailVerified: account.emailVerified,
+        betaGranted,
+        desktopLinkReady,
+        connectedDesktops: desktopCount,
+      })
+    : null
   $: desktopLinkReady = Boolean(account?.emailVerified && betaGranted && capabilityConfig && capabilityEnabled(capabilityConfig, 'desktopLinking'))
   $: desktopLinkBlocker = !account?.emailVerified
     ? 'Verify your account email before connecting a desktop.'
@@ -149,6 +161,7 @@
       capabilityConfig = configuration
       supportUnread = bootstrap.notificationCounts.support
       credentialSetupRequired = bootstrap.security?.credentialSetupRequired === true
+      connectedDesktops = bootstrap.security?.connectedDesktops ?? 0
     } catch { /* Account can still manage security if entitlement data is unavailable. */ }
     accessLoaded = true
   }
@@ -438,16 +451,31 @@
             <PasswordSetupForm onComplete={() => { credentialSetupRequired = false; notice = 'Password set.' }} />
           </div>
         {/if}
-        <div class="panel-section account-summary">
-          <div><p class="account-label">Signed in as</p><strong class="account-email">{account.email}</strong></div>
-          <span class:verified={account.emailVerified} class="verification-state">{account.emailVerified ? 'Email verified' : 'Email not verified'}</span>
-          {#if !account.emailVerified}<button class="button button-soft button-sm" type="button" on:click={resendVerification} disabled={working}>Send verification email</button>{/if}
-        </div>
-        <div class="account-purpose-grid">
-          <article><span>Beta access</span><strong>{betaGranted ? 'Granted' : 'Not granted'}</strong>{#if betaGranted && !account.emailVerified}<p>Verify your email to link a desktop.</p>{/if}</article>
-          <article><span>Licences</span><strong>{access?.licences.length || 0}</strong><p>Purchases will show here when sales open.</p></article>
-          <article><span>Support</span><strong>{supportUnread > 0 ? `${supportUnread} unread` : 'Up to date'}</strong><p><a href="/support">Your requests and replies</a></p></article>
-        </div>
+        {#if step}
+          <section class="next-step" aria-labelledby="next-step-title">
+            <h2 id="next-step-title">{step.title}</h2>
+            <p>{step.body}</p>
+            {#if step.action || step.secondary}
+              <div class="next-step-actions">
+                {#if step.action?.kind === 'verify-email'}
+                  <button class="button" type="button" on:click={resendVerification} disabled={working}>{working ? 'Sending…' : step.action.label}</button>
+                {:else if step.action?.kind === 'tab'}
+                  <button class="button" type="button" on:click={() => step.action?.kind === 'tab' && selectTab(step.action.tab)}>{step.action.label}</button>
+                {:else if step.action?.kind === 'link'}
+                  <a class="button" href={step.action.path}>{step.action.label}</a>
+                {/if}
+                {#if step.secondary}<a class="button button-soft" href={`${siteOrigin}${step.secondary.path}`}>{step.secondary.label}</a>{/if}
+              </div>
+            {/if}
+          </section>
+        {/if}
+        <dl class="account-rows">
+          <div><dt>Signed in as</dt><dd><strong class="account-email">{account.email}</strong><span class:verified={account.emailVerified} class="verification-state">{account.emailVerified ? 'Email verified' : 'Email not verified'}</span></dd></div>
+          <div><dt>Beta access</dt><dd>{betaGranted ? 'Granted' : 'Not granted'}</dd></div>
+          <div><dt>Desktops</dt><dd>{desktopCount === 0 ? 'None connected' : `${desktopCount} connected`}<button class="row-link" type="button" on:click={() => selectTab('devices')}>Manage</button></dd></div>
+          <div><dt>Support</dt><dd>{supportUnread > 0 ? `${supportUnread} unread` : 'Up to date'}<a class="row-link" href="/support">Your requests and replies</a></dd></div>
+          <div><dt>Licences</dt><dd>{access?.licences.length ? access.licences.length : 'None yet'}{#if !access?.licences.length}<span class="row-note">Purchases will show here when sales open.</span>{/if}</dd></div>
+        </dl>
         <div class="panel-section">
           <button class="button button-soft" type="button" on:click={leave} disabled={working}>{working ? 'Signing out…' : 'Sign out'}</button>
         </div>
