@@ -101,3 +101,35 @@ test('sends a visitor to sign in when the account service is unavailable and sho
   expect((await screen.findByRole('alert')).textContent).toContain('Reconnect and try again.')
   expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
 })
+
+test.each(['/login', '/register', '/forgot-password'])('%s shows only the brand and a Support link, without the portal navigation', async (path) => {
+  auth.loadAuthState.mockResolvedValue({ state: 'anonymous', expired: false })
+  render(App, { initialPath: path })
+  await screen.findByRole('heading', { level: 1 })
+  expect(screen.queryByRole('navigation', { name: 'Portal navigation' })).toBeNull()
+  const header = within(screen.getByRole('banner'))
+  expect(header.getByRole('link', { name: /Sesame/ }).getAttribute('href')).toBe('/account')
+  expect(header.getByRole('link', { name: 'Support' }).getAttribute('href')).toBe('/support')
+  expect(header.queryByRole('link', { name: 'Sign in' })).toBeNull()
+})
+
+test.each(['/login', '/register'])('%s has a short footer with the legal links and no large link columns', async (path) => {
+  auth.loadAuthState.mockResolvedValue({ state: 'anonymous', expired: false })
+  render(App, { initialPath: path })
+  await screen.findByRole('heading', { level: 1 })
+  const footer = within(screen.getByRole('contentinfo'))
+  expect(footer.getByRole('link', { name: 'Privacy' }).getAttribute('href')).toBe('https://website.test.invalid/privacy')
+  expect(footer.getByRole('link', { name: 'Terms' }).getAttribute('href')).toBe('https://website.test.invalid/terms')
+  expect(footer.queryByRole('navigation', { name: 'Portal' })).toBeNull()
+})
+
+test('the account pages keep the portal navigation', async () => {
+  auth.loadAuthState.mockResolvedValue({ state: 'authenticated', account })
+  auth.getAccountBootstrap.mockResolvedValue({ notificationCounts: { security: 0, support: 0, product: 0 } })
+  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: true, supportReplies: true, productAnnouncements: false })
+  support.getSupportTickets.mockResolvedValue([])
+  support.getSupportMetadata.mockResolvedValue({ receiptEmail: true })
+  render(App, { initialPath: '/support' })
+  expect(screen.getByRole('navigation', { name: 'Portal navigation' })).toBeTruthy()
+  expect(screen.getByRole('navigation', { name: 'Portal' })).toBeTruthy()
+})
