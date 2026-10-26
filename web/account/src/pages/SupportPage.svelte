@@ -88,6 +88,12 @@ import { siteOrigin } from '../lib/runtime-config'
   onMount(() => {
     const query = new URLSearchParams(window.location.search)
     const prefill = (name: string) => (query.get(name) || '').trim()
+    const draft = loadSupportDraft()
+    if (draft) {
+      category = draft.category
+      subject = draft.subject
+      message = draft.message
+    }
     const prefilledCategory = prefill('category')
     if (SUPPORT_CATEGORIES.some((option) => option.value === prefilledCategory)) category = prefilledCategory as SupportCategory
     if (prefill('intent') === 'sync') {
@@ -99,16 +105,7 @@ import { siteOrigin } from '../lib/runtime-config'
     diagnosticCode = prefill('diagnosticCode').slice(0, 64)
     browserIntegration = prefill('browserIntegration').slice(0, 64)
     requestId = prefill('requestId').slice(0, 64)
-    if (query.size === 0) {
-      const draft = loadSupportDraft()
-      if (draft) {
-        category = draft.category
-        subject = draft.subject
-        message = draft.message
-      }
-    } else {
-      window.history.replaceState({}, '', window.location.pathname + window.location.hash)
-    }
+    if (query.size > 0) window.history.replaceState({}, '', window.location.pathname + window.location.hash)
     draftReady = true
     void loadEmailExpectations()
   })

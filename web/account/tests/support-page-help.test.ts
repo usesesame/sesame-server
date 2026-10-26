@@ -135,3 +135,20 @@ test('a Sesame recovery kit typed into the message is refused on the spot and ne
   expect((screen.getByRole('button', { name: 'Send request' }) as HTMLButtonElement).disabled).toBe(true)
   expect(sessionStorage.getItem('sesame-support-draft-v1')).toBeNull()
 })
+
+test('a link that carries only a request reference keeps the draft that was already written', async () => {
+  sessionStorage.setItem('sesame-support-draft-v1', JSON.stringify({ category: 'bug', subject: 'Old draft', message: 'Old text' }))
+  window.history.replaceState({}, '', '/support?requestId=req-9')
+  render(SupportPage, { account: null })
+  expect((screen.getByLabelText('Short title') as HTMLInputElement).value).toBe('Old draft')
+  expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('Old text')
+  expect(JSON.parse(sessionStorage.getItem('sesame-support-draft-v1') ?? 'null')).toMatchObject({ subject: 'Old draft' })
+})
+
+test('a link that names a topic keeps the written words and takes the topic from the link', async () => {
+  sessionStorage.setItem('sesame-support-draft-v1', JSON.stringify({ category: 'bug', subject: 'Old draft', message: 'Old text' }))
+  window.history.replaceState({}, '', '/support?category=sync')
+  render(SupportPage, { account: null })
+  expect((screen.getByLabelText('Topic') as HTMLSelectElement).value).toBe('sync')
+  expect((screen.getByLabelText('Short title') as HTMLInputElement).value).toBe('Old draft')
+})

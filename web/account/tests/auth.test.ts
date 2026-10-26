@@ -141,6 +141,26 @@ test('signOut tolerates an already ended session', async () => {
   await expect(signOut()).resolves.toBeUndefined()
 })
 
+test('signOut removes a half written support request so the next person on this browser does not see it', async () => {
+  sessionStorage.setItem('sesame-support-draft-v1', JSON.stringify({ category: 'bug', subject: 'Fictional subject', message: 'Fictional message' }))
+  fetchMock.mockImplementation(async (url: string) => url.endsWith('/v1/auth/csrf')
+    ? jsonResponse({ token: 'csrf-test' })
+    : jsonResponse({ ok: true }))
+  const { signOut } = await import('../src/lib/auth')
+  await signOut()
+  expect(sessionStorage.getItem('sesame-support-draft-v1')).toBeNull()
+})
+
+test('signOut removes the support draft even when the server fails', async () => {
+  sessionStorage.setItem('sesame-support-draft-v1', JSON.stringify({ category: 'bug', subject: 'Fictional subject', message: 'Fictional message' }))
+  fetchMock.mockImplementation(async (url: string) => url.endsWith('/v1/auth/csrf')
+    ? jsonResponse({ token: 'csrf-test' })
+    : jsonResponse({ error: { code: 'service_unavailable', message: 'Down for maintenance.' } }, 503))
+  const { signOut } = await import('../src/lib/auth')
+  await expect(signOut()).rejects.toMatchObject({ status: 503 })
+  expect(sessionStorage.getItem('sesame-support-draft-v1')).toBeNull()
+})
+
 test('signOut rejects when the server fails', async () => {
   fetchMock.mockImplementation(async (url: string) => url.endsWith('/v1/auth/csrf')
     ? jsonResponse({ token: 'csrf-test' })

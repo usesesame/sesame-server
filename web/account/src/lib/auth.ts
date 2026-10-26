@@ -1,5 +1,6 @@
 import { API_ROUTES, ApiError, apiRequest, responseError } from './api'
 import { apiBaseURL } from './runtime-config'
+import { clearSupportDraft } from './support-help'
 
 export interface Account {
   id: string
@@ -175,6 +176,7 @@ export async function signIn(email: string, password: string): Promise<Account> 
 }
 
 export async function signOut(): Promise<void> {
+  clearSupportDraft()
   const response = await apiRequest(API_ROUTES.logout, { method: 'POST' })
   if (!response.ok && response.status !== 401) throw await requestError(response)
 }

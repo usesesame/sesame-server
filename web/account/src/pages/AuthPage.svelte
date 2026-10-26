@@ -140,7 +140,8 @@
       password = ''
       submitting = false
     }
-    if (failure) await showError(failure)
+    if (!failure) return
+    await showError(failure)
     if (!isRegistering && quietPasskeyAvailable) void startQuietPasskey()
   }
 </script>
