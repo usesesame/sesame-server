@@ -75,6 +75,8 @@ export type SupportTicketDetail = SupportTicketSummary & { messages: SupportTick
 
 const secretSignals: Array<[RegExp, string]> = [
   [/otpauth:\/\//i, 'an authenticator setup link'],
+  [/(?:[A-HJ-NP-Z2-9]{5}-\s*){4}[A-HJ-NP-Z2-9]{5}/i, 'a Sesame recovery kit'],
+  [/\bSESAME-[A-Z0-9]{4}(?:[ -]?[A-Z0-9]{4})+\b/, 'a Sesame link code'],
   [/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i, 'a private key'],
   [/(?:password|passphrase|master\s+password)\s*[:=]\s*\S+/i, 'a password-shaped value'],
   [/(?:totp|otp|2fa)\s*(?:code|secret)?\s*[:=]\s*\d{6,8}/i, 'a 2FA code'],

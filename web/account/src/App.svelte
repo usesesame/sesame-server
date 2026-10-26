@@ -28,6 +28,7 @@
   const isFlow = (value: Page): value is FlowPage => (FLOW_PAGES as readonly string[]).includes(value)
   const isLegal = (value: Page): value is LegalPageName => (LEGAL_PAGES as readonly string[]).includes(value)
 
+  const focusedPage = page === 'login' || page === 'register' || isFlow(page)
   const needsSessionCheck = page === 'account' || page === 'support' || page === 'support-request' || page === 'login'
   let account: Account | null = null
   let authState: AuthState = needsSessionCheck ? { state: 'loading' } : { state: 'anonymous' }
@@ -68,17 +69,21 @@
       <img class="brand-mark" src="/favicon.svg" alt="" />
       <strong>Sesame <span class="brand-portal">account</span></strong>
     </a>
+    {#if !focusedPage}
     <nav aria-label="Portal navigation">
       <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
       <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support{#if supportUnread > 0}<span class="nav-count" aria-label={`${supportUnread} unread support ${supportUnread === 1 ? 'reply' : 'replies'}`}>{supportUnread}</span>{/if}</a>
-      <a href={siteOrigin}>{siteHost}</a>
+      <a class="nav-site" href={siteOrigin}>{siteHost}</a>
     </nav>
+    {/if}
     <div class="header-account-actions">
-      {#if authState.state === 'authenticated' || (authState.state === 'offline' && account)}
+      {#if focusedPage}
+        <a class="header-help" href="/support">Support</a>
+      {:else if authState.state === 'authenticated' || (authState.state === 'offline' && account)}
         <span class="header-account-email" role="status">{account?.email}</span>
       {:else if page !== 'account' && (authState.state === 'error' || authState.state === 'offline')}
         <span class="header-account-status" role="status">Account service unavailable</span>
-      {:else if authState.state === 'anonymous' && page !== 'login' && page !== 'account'}
+      {:else if authState.state === 'anonymous' && page !== 'account'}
         <a class="button button-sm button-soft" href="/login">Sign in</a>
       {:else if authState.state === 'loading'}
         <span class="header-session-loader" role="status" aria-label="Checking account session"><span class="session-spinner" aria-hidden="true"></span></span>
@@ -126,6 +131,17 @@
   {/if}
 </main>
 
+{#if focusedPage}
+<footer class="site-footer site-footer-compact">
+  <div class="footer-compact-inner">
+    <span>&copy; 2026 Sesame</span>
+    <a href={`${siteOrigin}/privacy`}>Privacy</a>
+    <a href={`${siteOrigin}/terms`}>Terms</a>
+    <a href={`${siteOrigin}/security`}>Security</a>
+    <a href="/support">Support</a>
+  </div>
+</footer>
+{:else}
 <footer class="site-footer">
   <div class="footer-inner">
     <div class="footer-brand">
@@ -158,10 +174,51 @@
     <span>{siteHost}</span>
   </div>
 </footer>
+{/if}
 
 <style>
   .brand-portal {
     color: var(--text-muted);
+  }
+
+  .header-help {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--text-muted);
+    font-size: var(--type-2);
+    font-weight: var(--weight-medium);
+    padding: 0 var(--space-2);
+    text-decoration: none;
+  }
+
+  .header-help:hover {
+    color: var(--text-heading);
+  }
+
+  .footer-compact-inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-5);
+    width: min(var(--site-width), calc(100% - 40px));
+    margin: 0 auto;
+    padding: var(--space-5) 0;
+    color: var(--text-muted);
+    font-size: var(--type-2);
+  }
+
+  .footer-compact-inner a {
+    padding-block: var(--space-2);
+    color: var(--text-muted);
+  }
+
+  .footer-compact-inner a:hover {
+    color: var(--text-heading);
+  }
+
+  .footer-compact-inner span {
+    margin-right: auto;
   }
 
   .header-account-email {

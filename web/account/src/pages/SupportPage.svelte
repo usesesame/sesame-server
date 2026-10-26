@@ -19,6 +19,8 @@ import { siteOrigin } from '../lib/runtime-config'
     type SupportTicketStatus,
     type SupportTicketSummary,
   } from '../lib/support'
+  import { CATEGORY_GUIDANCE, HELP_ENTRIES } from '../lib/support-answers'
+  import { clearSupportDraft, loadSupportDraft, matchHelp, relatedOpenTickets, saveSupportDraft } from '../lib/support-help'
 
   export let account: Account | null = null
 
@@ -45,6 +47,13 @@ import { siteOrigin } from '../lib/runtime-config'
   let supportMetadata: SupportMetadata | null = null
   let supportReplyEmail: boolean | null = null
 
+  let draftReady = false
+  let dismissedHelp: string[] = []
+
+  $: guidance = CATEGORY_GUIDANCE[category]
+  $: help = matchHelp(HELP_ENTRIES, category, `${subject} ${message}`).filter((entry) => !dismissedHelp.includes(entry.id))
+  $: related = relatedOpenTickets(tickets, category)
+  $: if (draftReady) saveSupportDraft({ category, subject, message })
   $: secretSignal = findSecretShapedText(`${subject}\n${message}`)
   $: replySecretSignal = findSecretShapedText(reply)
   $: mailUnavailable = supportMetadata !== null && supportMetadata.receiptEmail === false
@@ -79,6 +88,12 @@ import { siteOrigin } from '../lib/runtime-config'
   onMount(() => {
     const query = new URLSearchParams(window.location.search)
     const prefill = (name: string) => (query.get(name) || '').trim()
+    const draft = loadSupportDraft()
+    if (draft) {
+      category = draft.category
+      subject = draft.subject
+      message = draft.message
+    }
     const prefilledCategory = prefill('category')
     if (SUPPORT_CATEGORIES.some((option) => option.value === prefilledCategory)) category = prefilledCategory as SupportCategory
     if (prefill('intent') === 'sync') {
@@ -91,6 +106,7 @@ import { siteOrigin } from '../lib/runtime-config'
     browserIntegration = prefill('browserIntegration').slice(0, 64)
     requestId = prefill('requestId').slice(0, 64)
     if (query.size > 0) window.history.replaceState({}, '', window.location.pathname + window.location.hash)
+    draftReady = true
     void loadEmailExpectations()
   })
 
@@ -147,11 +163,21 @@ import { siteOrigin } from '../lib/runtime-config'
         ...(requestId.trim() ? { requestId: requestId.trim() } : {}),
       })
       receipt = result.requestId
+      clearSupportDraft()
       subject = ''; message = ''; category = 'general'; diagnosticCode = ''; browserIntegration = ''; requestId = ''
       if (account) await loadTickets(result.requestId)
     } catch (reason) {
       error = reason instanceof Error ? reason.message : 'Support intake is temporarily unavailable.'
     } finally { sending = false }
+  }
+
+  function openRelated(id: string) {
+    void selectTicket(id)
+    document.getElementById('support-requests-heading')?.scrollIntoView?.({ block: 'start' })
+  }
+
+  function helpHref(link: { path: string; site?: boolean }) {
+    return link.site ? `${siteOrigin}${link.path}` : link.path
   }
 
   async function sendReply() {
@@ -194,7 +220,7 @@ import { siteOrigin } from '../lib/runtime-config'
 
 <section class="section support-section safe-support">
   <aside class="support-guide card">
-    <div><h2>Helpful</h2><ul><li>App and Windows version</li><li>What you clicked</li><li>The exact error</li></ul></div>
+    <div><h2>Helpful</h2><ul>{#each guidance.include as item (item)}<li>{item}</li>{/each}</ul></div>
     <div><h2>Never send</h2><ul><li>Passwords or codes</li><li>Vault or export files</li><li>Recovery kits or keys</li></ul></div>
   </aside>
 
@@ -227,7 +253,7 @@ import { siteOrigin } from '../lib/runtime-config'
                 <div><h3>{selectedTicket.subject}</h3><p>{supportCategoryLabel(selectedTicket.category)} · Request {selectedTicket.id} · opened {formatDate(selectedTicket.createdAt)}</p></div>
                 <span class={`ticket-status ${selectedTicket.status}`}>{statusLabels[selectedTicket.status]}</span>
               </header>
-              <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink} <a href="/account#security">Change your reply email setting</a>.{/if}</p>
+              <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink}&nbsp;<a href="/account#security">Change your reply email setting</a>.{/if}</p>
               {#if selectedTicket.appVersion || selectedTicket.diagnosticCode || selectedTicket.browserIntegration || selectedTicket.requestId}<p class="support-ticket-meta">{selectedTicket.appVersion ? `Sesame ${selectedTicket.appVersion}` : ''}{selectedTicket.diagnosticCode ? `${selectedTicket.appVersion ? ' · ' : ''}Diagnostic ${selectedTicket.diagnosticCode}` : ''}{selectedTicket.browserIntegration ? `${selectedTicket.appVersion || selectedTicket.diagnosticCode ? ' · ' : ''}Browser ${selectedTicket.browserIntegration}` : ''}{selectedTicket.requestId ? `${selectedTicket.appVersion || selectedTicket.diagnosticCode || selectedTicket.browserIntegration ? ' · ' : ''}Request ${selectedTicket.requestId}` : ''}</p>{/if}
               <div class="support-messages">
                 {#each selectedTicket.messages as item (item.id)}
@@ -267,11 +293,32 @@ import { siteOrigin } from '../lib/runtime-config'
     {:else}
       <div class="support-form-head"><h2>Send a request</h2><span>No attachments</span></div>
       <p class="support-response-expectation">We aim to reply within 3 business days.</p>
+      {#if related.length > 0}
+        <div class="support-related" role="status" aria-label="Existing request">
+          <p>You already have an open request on this topic: <strong>{related[0].subject}</strong>. Adding to it keeps the history together.</p>
+          <button class="button button-soft button-sm" type="button" on:click={() => openRelated(related[0].id)}>Open request</button>
+        </div>
+      {/if}
       <form class="support-form" on:submit|preventDefault={submit}>
         <label>Email<input type="email" bind:value={email} autocomplete="email" required maxlength="254" readonly={!!account} /></label>
         <label>Topic<select bind:value={category}>{#each SUPPORT_CATEGORIES as option (option.value)}<option value={option.value}>{option.label}</option>{/each}</select></label>
         <label>Short title<input type="text" bind:value={subject} required minlength="3" maxlength="120" /></label>
-        <label>Message<textarea bind:value={message} required minlength="20" maxlength="4000" rows="7" aria-describedby="support-safety"></textarea></label>
+        <label>Message<textarea bind:value={message} required minlength="20" maxlength="4000" rows="7" placeholder={guidance.placeholder} aria-describedby="support-safety"></textarea></label>
+        {#if help.length > 0}
+          <section class="support-help" aria-label="Answers that may help">
+            <h3>These may already answer it</h3>
+            {#each help as entry (entry.id)}
+              <article>
+                <h4>{entry.title}</h4>
+                <p>{entry.answer}</p>
+                <div class="support-help-actions">
+                  {#if entry.link}<a href={helpHref(entry.link)}>{entry.link.label}</a>{/if}
+                  <button class="inline-action" type="button" on:click={() => (dismissedHelp = [...dismissedHelp, entry.id])}>Not what I need</button>
+                </div>
+              </article>
+            {/each}
+          </section>
+        {/if}
         <details class="support-advanced">
           <summary>Add technical details <span>optional</span></summary>
           <div class="support-advanced-fields">
@@ -282,7 +329,7 @@ import { siteOrigin } from '../lib/runtime-config'
           </div>
         </details>
         <p id="support-safety" class:unsafe={secretSignal} class="support-safety">{secretSignal ? `This looks like ${secretSignal}. Remove it before sending.` : 'We check for common secret patterns before sending.'}</p>
-        <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink} <a href="/account#security">Change your reply email setting</a>.{/if}</p>
+        <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink}&nbsp;<a href="/account#security">Change your reply email setting</a>.{/if}</p>
         {#if error}<p class="auth-error" role="alert">{error}</p>{/if}
         <button class="button" type="submit" disabled={sending || !!secretSignal}>{sending ? 'Sending…' : 'Send request'}</button>
       </form>
@@ -295,7 +342,7 @@ import { siteOrigin } from '../lib/runtime-config'
     <h2>Common questions</h2>
     <details><summary>Can I download Sesame now?</summary><p>Yes. Sesame is a free download for Windows and Linux.</p></details>
     <details><summary>Can support unlock my vault?</summary><p>No. Use your recovery kit, PIN, or Windows Hello. Without an unlock method, the vault cannot be recovered.</p></details>
-    <details><summary>What can I import?</summary><p>15 formats from Bitwarden, 1Password, major browsers, and other password managers.</p></details>
+    <details><summary>What can I import?</summary><p>Bitwarden, 1Password, major browsers, other password managers and authenticator apps. The import screen lists every format.</p></details>
     <details><summary>Does Sync work yet?</summary><p>No. The <a href={`${siteOrigin}/roadmap#sync`}>roadmap</a> lists what has to pass first.</p></details>
     <details><summary>Is there a mobile app or browser extension?</summary><p>No mobile app yet. The browser helper is not in stores.</p></details>
     <details><summary>Where is my vault stored?</summary><p>On your computer.</p></details>

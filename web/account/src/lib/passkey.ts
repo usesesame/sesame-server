@@ -17,6 +17,22 @@ export function passkeysSupported(): boolean {
     && typeof navigator.credentials?.create === 'function'
 }
 
+export async function conditionalPasskeysAvailable(): Promise<boolean> {
+  if (!passkeysSupported()) return false
+  const available = window.PublicKeyCredential.isConditionalMediationAvailable
+  if (typeof available !== 'function') return false
+  try {
+    return await available.call(window.PublicKeyCredential)
+  } catch {
+    return false
+  }
+}
+
+export interface PasskeySignInOptions {
+  conditional?: boolean
+  signal?: AbortSignal
+}
+
 function base64urlToBuffer(value: string): ArrayBuffer {
   const padded = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=')
   const binary = atob(padded)
@@ -76,7 +92,7 @@ export async function registerPasskey(name: string): Promise<void> {
   if (!finish.ok) throw await responseError(finish)
 }
 
-export async function signInWithPasskey(): Promise<Account> {
+export async function signInWithPasskey(mode: PasskeySignInOptions = {}): Promise<Account> {
   const options = await beginCeremony('/v1/auth/passkey/login/begin')
   const publicKey = options.publicKey as unknown as Record<string, unknown> & {
     challenge: string
@@ -90,7 +106,11 @@ export async function signInWithPasskey(): Promise<Account> {
       id: base64urlToBuffer(credential.id),
     })),
   } as unknown as PublicKeyCredentialRequestOptions
-  const credential = await navigator.credentials.get({ publicKey: request }) as PublicKeyCredential | null
+  const credential = await navigator.credentials.get({
+    publicKey: request,
+    ...(mode.conditional ? { mediation: 'conditional' as const } : {}),
+    ...(mode.signal ? { signal: mode.signal } : {}),
+  }) as PublicKeyCredential | null
   if (!credential) throw new Error('Passkey sign-in was cancelled.')
   const assertion = credential.response as AuthenticatorAssertionResponse
   const finish = await apiRequest('/v1/auth/passkey/login/finish', {

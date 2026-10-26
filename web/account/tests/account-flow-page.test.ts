@@ -30,6 +30,11 @@ afterEach(() => {
 })
 
 async function verify() {
+  await fireEvent.click(screen.getByRole('button', { name: 'Choose a new password instead' }))
+}
+
+async function verifyWith(password: string) {
+  await fireEvent.input(screen.getByLabelText('Your password'), { target: { value: password } })
   await fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
 }
 
@@ -108,4 +113,40 @@ test('shows the service message when setting the password fails', async () => {
 
   expect((await screen.findByRole('alert')).textContent).toContain('This account already has a password.')
   expect(screen.queryByRole('link', { name: 'send yourself a recovery link' })).toBeNull()
+})
+
+test('asks for the password chosen at sign-up and finishes without asking for another when it is right', async () => {
+  auth.confirmEmailVerification.mockResolvedValue({ account, credentialSetupRequired: false })
+  render(AccountFlowPage, { mode: 'verify-email', onAuthenticated: vi.fn() })
+  expect(screen.getByText(/Enter the password you chose when you signed up/)).toBeTruthy()
+  await verifyWith('fictional-signup-password')
+  expect(auth.confirmEmailVerification).toHaveBeenCalledWith('t'.repeat(40), 'fictional-signup-password')
+  expect(await screen.findByRole('heading', { name: 'Email verified' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Choose a password' })).toBeNull()
+})
+
+test('does not send a verification without a password unless a new one is chosen on purpose', async () => {
+  render(AccountFlowPage, { mode: 'verify-email', onAuthenticated: vi.fn() })
+  await fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('Enter the password you chose')
+  expect(auth.confirmEmailVerification).not.toHaveBeenCalled()
+})
+
+test('choosing a new password instead verifies with no password', async () => {
+  auth.confirmEmailVerification.mockResolvedValue({ account, credentialSetupRequired: true })
+  render(AccountFlowPage, { mode: 'verify-email', onAuthenticated: vi.fn() })
+  await verify()
+  expect(auth.confirmEmailVerification).toHaveBeenCalledWith('t'.repeat(40), undefined)
+  expect(await screen.findByRole('heading', { name: 'Choose a password' })).toBeTruthy()
+})
+
+test('a wrong password says so, clears the field and leaves both ways forward open', async () => {
+  auth.confirmEmailVerification.mockRejectedValue(apiFailure('That is not the password chosen when this account was created.', 'incorrect_password'))
+  render(AccountFlowPage, { mode: 'verify-email', onAuthenticated: vi.fn() })
+  await verifyWith('fictional-wrong-password')
+  expect((await screen.findByRole('alert')).textContent).toContain('That is not the password chosen')
+  expect((screen.getByLabelText('Your password') as HTMLInputElement).value).toBe('')
+  expect(screen.getByRole('button', { name: 'Verify email' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Choose a new password instead' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Email verified' })).toBeNull()
 })
