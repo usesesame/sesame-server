@@ -230,7 +230,7 @@ jobs:
 
       - run: docker load --input release-images.tar
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -351,7 +351,7 @@ jobs:
           node scripts/selfhost-image-check.mjs --image "$SELFHOST_AMD64_IMAGE" --arch amd64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT" --run
           node scripts/selfhost-image-check.mjs --image "$SELFHOST_ARM64_IMAGE" --arch arm64 --version "$SESAME_RELEASE_VERSION" --commit "$SESAME_RELEASE_COMMIT" --run
 
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
