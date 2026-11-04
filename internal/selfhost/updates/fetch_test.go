@@ -14,6 +14,12 @@ import (
 	"time"
 )
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
 func mustURL(t testing.TB, raw string) *url.URL {
 	t.Helper()
 	parsed, err := ParseFeedURL(raw)
@@ -196,10 +202,23 @@ func TestFetchHonoursTimeoutWhileReadingTheBody(t *testing.T) {
 	}))
 	defer server.Close()
 	defer close(release)
-	slow := Fetcher{URL: mustURL(t, server.URL), Client: server.Client(), Timeout: 100 * time.Millisecond}
+	client := server.Client()
+	transport := client.Transport
+	var receivedResponse atomic.Bool
+	client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		response, err := transport.RoundTrip(request)
+		if err == nil && response != nil && response.StatusCode == http.StatusOK {
+			receivedResponse.Store(true)
+		}
+		return response, err
+	})
+	slow := Fetcher{URL: mustURL(t, server.URL), Client: client, Timeout: 100 * time.Millisecond}
 	started := time.Now()
 	if _, err := slow.Fetch(t.Context()); !errors.Is(err, errUnreachable) || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 5*time.Second {
 		t.Fatalf("body timeout err = %v after %v", err, time.Since(started))
+	}
+	if !receivedResponse.Load() {
+		t.Fatal("the timeout occurred before response headers reached the client")
 	}
 }
 
