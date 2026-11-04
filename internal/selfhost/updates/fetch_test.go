@@ -170,23 +170,36 @@ func TestFetchTreatsFailuresAsUnreachable(t *testing.T) {
 
 func TestFetchHonoursTimeoutAndCancellation(t *testing.T) {
 	release := make(chan struct{})
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		select {
-		case <-release:
-		case <-r.Context().Done():
-		}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		<-release
 	}))
 	defer server.Close()
 	defer close(release)
 	slow := Fetcher{URL: mustURL(t, server.URL), Client: server.Client(), Timeout: 100 * time.Millisecond}
 	started := time.Now()
-	if _, err := slow.Fetch(t.Context()); !errors.Is(err, errUnreachable) || time.Since(started) > 5*time.Second {
+	if _, err := slow.Fetch(t.Context()); !errors.Is(err, errUnreachable) || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 5*time.Second {
 		t.Fatalf("timeout err = %v after %v", err, time.Since(started))
 	}
 	cancelled, cancel := context.WithCancel(t.Context())
 	cancel()
-	if _, err := (Fetcher{URL: mustURL(t, server.URL), Client: server.Client()}).Fetch(cancelled); err == nil {
-		t.Fatal("a cancelled context still fetched")
+	if _, err := (Fetcher{URL: mustURL(t, server.URL), Client: server.Client()}).Fetch(cancelled); !errors.Is(err, errUnreachable) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled fetch err = %v", err)
+	}
+}
+
+func TestFetchHonoursTimeoutWhileReadingTheBody(t *testing.T) {
+	release := make(chan struct{})
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+	slow := Fetcher{URL: mustURL(t, server.URL), Client: server.Client(), Timeout: 100 * time.Millisecond}
+	started := time.Now()
+	if _, err := slow.Fetch(t.Context()); !errors.Is(err, errUnreachable) || !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 5*time.Second {
+		t.Fatalf("body timeout err = %v after %v", err, time.Since(started))
 	}
 }
 

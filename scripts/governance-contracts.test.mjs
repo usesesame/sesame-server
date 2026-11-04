@@ -102,6 +102,19 @@ test('a workflow that writes says so at the job that writes', () => {
   )
 })
 
+test('the release verifies the toolchain tests in every web app', () => {
+  const verify = jobBlock(read('.github', 'workflows', 'release.yml'), 'verify')
+  for (const app of ['account', 'admin', 'console']) {
+    const manifest = JSON.parse(read('web', app, 'package.json'))
+    const commands = manifest.scripts['release:check'].split('&&').map((command) => command.trim())
+    assert.ok(commands.includes('npm run check'), `${app} type checks must gate releases`)
+    assert.match(verify, new RegExp(`^ {6}- run: npm run release:check\\r?\\n {8}working-directory: web/${app}[ \\t]*$`, 'm'))
+    if (!commands.includes('npm test') && !commands.includes('npm run test')) {
+      assert.match(verify, new RegExp(`^ {6}- run: npm test\\r?\\n {8}working-directory: web/${app}[ \\t]*$`, 'm'), `${app} toolchain tests must gate releases`)
+    }
+  }
+})
+
 test('the release restores no cache that another run could have written', () => {
   const release = read('.github', 'workflows', 'release.yml')
   assert.doesNotMatch(release, /^\s+cache:(?!\s*false\s*$)/m, 'the release restores a package or build cache')

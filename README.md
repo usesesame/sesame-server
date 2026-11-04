@@ -158,6 +158,15 @@ or browser extension. PostgreSQL integration cases run when
 test database. The Compose flow remains the supported local stack entry point
 because setup generates local secrets before starting services.
 
+The account, admin, and self-host console apps each run TypeScript 7 from
+`@typescript/native` in their `check` script. Their `typescript` alias supplies
+the TypeScript 6 compiler API required by Svelte and ESLint. This follows
+[Microsoft's compatibility setup](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/).
+Each app directory under `web` owns its installation, `release:check`, and
+`test` scripts and builds independently. The account and admin builds
+need `VITE_SESAME_API_URL`, and the account build also needs
+`VITE_SESAME_SITE_ORIGIN`.
+
 Card processing remains deliberately outside Sesame. A regulated provider must
 handle card data; Sesame records only its internal entitlement and receipt
 references after a verified provider event.
