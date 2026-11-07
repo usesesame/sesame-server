@@ -22,6 +22,7 @@ func TestParseCommand(t *testing.T) {
 		{name: "backup without a path", args: []string{"backup"}, want: "backup"},
 		{name: "backup with a path", args: []string{"backup", "/tmp/out.bak"}, want: "backup", wantArgs: []string{"/tmp/out.bak"}},
 		{name: "restore", args: []string{"restore", "in.bak"}, want: "restore", wantArgs: []string{"in.bak"}},
+		{name: "restore from standard input", args: []string{"restore", "-"}, want: "restore", wantArgs: []string{"-"}},
 		{name: "check without a file", args: []string{"check"}, want: "check"},
 		{name: "check with a file", args: []string{"check", "in.bak"}, want: "check", wantArgs: []string{"in.bak"}},
 		{name: "owner reset", args: []string{"owner", "reset", "Ada Quill"}, want: "owner reset", wantArgs: []string{"Ada Quill"}},
@@ -96,7 +97,7 @@ func TestUsageErrorsExitWithTwo(t *testing.T) {
 }
 
 func TestBadConfigurationStopsEveryCommandAndNamesTheVariable(t *testing.T) {
-	for _, command := range [][]string{{"serve"}, {"backup"}, {"restore", "x"}, {"check"}, {"owner", "reset", "Ada"}, {"export"}, {"healthcheck"}} {
+	for _, command := range [][]string{{"serve"}, {"backup"}, {"restore", "x"}, {"check"}, {"owner", "reset", "Ada"}, {"export"}, {"recover"}, {"healthcheck"}} {
 		var calls recorded
 		commands := Commands{
 			Serve:      ApplicationBuilderFunc(func(context.Context, BuildInput) (*Application, error) { t.Fatal("serve built"); return nil, nil }),
@@ -105,6 +106,7 @@ func TestBadConfigurationStopsEveryCommandAndNamesTheVariable(t *testing.T) {
 			Check:      calls.runner(nil),
 			OwnerReset: calls.runner(nil),
 			Export:     calls.runner(nil),
+			Recover:    calls.runner(nil),
 		}
 		env, _, stderr := testEnvironment(t, map[string]string{config.EnvPublicURL: "http://sesame.example.net"}, commands)
 		if code := run(context.Background(), command, env); code != exitFailure {
@@ -160,10 +162,24 @@ func TestEachSubcommandReachesItsRunnerWithConfigAndArguments(t *testing.T) {
 			if strings.Join(got.Args, "|") != strings.Join(tc.args[len(tc.args)-1:], "|") {
 				t.Fatalf("args = %v", got.Args)
 			}
-			if got.Config.LogLevel != "debug" || got.Config.DataDir == "" || got.Logger == nil || got.Stdout == nil || got.Stderr == nil {
+			if got.Config.LogLevel != "debug" || got.Config.DataDir == "" || got.Logger == nil || got.Stdin == nil || got.Stdout == nil || got.Stderr == nil {
 				t.Fatalf("invocation = %+v", got)
 			}
 		})
+	}
+}
+
+func TestRestoreReceivesTheInjectedStandardInput(t *testing.T) {
+	input := strings.NewReader("archive bytes")
+	var calls recorded
+	env, _, _ := testEnvironment(t, nil, Commands{Restore: calls.runner(nil)})
+	env.Stdin = input
+	if code := run(context.Background(), []string{"restore", "-"}, env); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	got := calls.calls()[0]
+	if got.Stdin != input {
+		t.Fatal("the restore command did not receive the injected standard input")
 	}
 }
 

@@ -37,7 +37,14 @@ func runBackup(ctx context.Context, invocation Invocation) error {
 }
 
 func runRestore(ctx context.Context, invocation Invocation) error {
-	result, err := ops.Restore(ctx, invocation.Args[0], invocation.Config.DataDir, opsOptions(invocation)...)
+	source := invocation.Args[0]
+	var result ops.RestoreResult
+	var err error
+	if source == "-" {
+		result, err = ops.RestoreReader(ctx, invocation.Stdin, invocation.Config.DataDir, opsOptions(invocation)...)
+	} else {
+		result, err = ops.Restore(ctx, source, invocation.Config.DataDir, opsOptions(invocation)...)
+	}
 	if result.Recovered != "" {
 		fmt.Fprintf(invocation.Stderr, "An interrupted restore was finished first: %s\n", result.Recovered)
 	}
@@ -47,7 +54,14 @@ func runRestore(ctx context.Context, invocation Invocation) error {
 		}
 		return err
 	}
-	_, err = fmt.Fprintf(invocation.Stdout, "Restored %s into %s at schema %d.\n", invocation.Args[0], invocation.Config.DataDir, result.Report.SchemaVersion)
+	label := source
+	if source == "-" {
+		label = "the archive from standard input"
+	}
+	_, err = fmt.Fprintf(invocation.Stdout, "Restored %s into %s at schema %d and installed schema %d.\n", label, invocation.Config.DataDir, result.Report.SchemaVersion, result.InstalledSchema)
+	if err == nil {
+		_, err = fmt.Fprintf(invocation.Stdout, "The restored database is waiting for local recovery approval. Run sesame-server recover --status to see the generation and choose the owners and devices to keep.\n")
+	}
 	if err == nil && result.AsideDir != "" {
 		_, err = fmt.Fprintf(invocation.Stdout, "The previous contents were moved to %s.\n", result.AsideDir)
 	}
@@ -82,7 +96,7 @@ func checkLive(ctx context.Context, invocation Invocation) error {
 	if err != nil {
 		return err
 	}
-	store, err := openStore(ctx, cfg, loaded, true)
+	store, err := openStore(ctx, cfg, loaded, storeReadOnly)
 	if err != nil {
 		return err
 	}
@@ -113,7 +127,7 @@ func runExport(ctx context.Context, invocation Invocation) error {
 	if err != nil {
 		return err
 	}
-	store, err := openStore(ctx, cfg, loaded, true)
+	store, err := openStore(ctx, cfg, loaded, storeReadOnly)
 	if err != nil {
 		return err
 	}

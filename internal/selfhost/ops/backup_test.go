@@ -213,11 +213,15 @@ func TestRoundTripPreservesState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := sqlitestore.Open(ctx, sqlitestore.Options{Path: filepath.Join(target, DatabaseName), AdminKey: loaded.AdminEncryptionKey})
+	restored, err := sqlitestore.Open(ctx, sqlitestore.Options{Path: filepath.Join(target, DatabaseName), AdminKey: loaded.AdminEncryptionKey, Preserve: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer restored.Close()
+	status, err := restored.RecoveryStatus(ctx)
+	if err != nil || !status.Pending {
+		t.Fatalf("recovery status = %+v, err = %v", status, err)
+	}
 	audit, err := restored.VerifyAudit(ctx)
 	if err != nil || !audit.OK {
 		t.Fatalf("audit = %+v, err = %v", audit, err)

@@ -206,6 +206,27 @@ func fileDigest(t *testing.T, path string) string {
 	return digest
 }
 
+func assertRestored(t *testing.T, dir string, want snapshot, label string) {
+	t.Helper()
+	got := takeSnapshot(t, dir)
+	if got.config != want.config {
+		t.Fatalf("%s: config differs from the expected state", label)
+	}
+	for name, digest := range want.secrets {
+		if got.secrets[name] != digest {
+			t.Fatalf("%s: secret %s differs", label, name)
+		}
+	}
+	if got.database == want.database {
+		t.Fatalf("%s: the installed database is byte-identical to the archive, so no recovery state was written", label)
+	}
+	for _, sidecar := range []string{DatabaseName + "-wal", DatabaseName + "-shm"} {
+		if _, err := os.Lstat(filepath.Join(dir, sidecar)); err == nil {
+			t.Fatalf("%s: %s was left next to the restored database", label, sidecar)
+		}
+	}
+}
+
 func zeroTime() (zero time.Time) { return }
 
 func currentSchema(t *testing.T) int {

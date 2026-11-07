@@ -13,6 +13,7 @@ import (
 type Invocation struct {
 	Config  config.Config
 	Args    []string
+	Stdin   io.Reader
 	Stdout  io.Writer
 	Stderr  io.Writer
 	Logger  *slog.Logger
@@ -61,4 +62,5 @@ type Commands struct {
 	OwnerReset   Runner
 	UpdatesReset Runner
 	Export       Runner
+	Recover      Runner
 }

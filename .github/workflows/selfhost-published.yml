@@ -63,6 +63,13 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Check out the selected release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/v${{ steps.release.outputs.version }}
+          path: .selfhost-release
+          persist-credentials: false
+
       - name: Pull without credentials
         run: |
           set -euo pipefail
@@ -71,12 +78,15 @@ jobs:
           docker pull "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}"
 
       - name: Follow the quick start against the published release and verify its attestations
+        working-directory: .selfhost-release
         run: node scripts/selfhost-quickstart.mjs --mode published --expect-version "${{ steps.release.outputs.version }}" --verify-attestations
 
       - name: Run the published arm64 image under emulation
+        working-directory: .selfhost-release
         run: |
           docker pull --platform linux/arm64 "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}-linux-arm64"
           node scripts/selfhost-image-check.mjs --image "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}-linux-arm64" --arch arm64 --version "${{ steps.release.outputs.version }}" --run
 
       - name: Upgrade the previous published image to this one and roll back
+        working-directory: .selfhost-release
         run: node scripts/selfhost-upgrade-check.mjs --from-published --none-ok --before "${{ steps.release.outputs.version }}" --to "ghcr.io/usesesame/sesame-server-selfhost:${{ steps.release.outputs.version }}" --expect-version "${{ steps.release.outputs.version }}"

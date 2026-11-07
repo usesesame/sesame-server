@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -23,7 +24,7 @@ type realRun struct {
 }
 
 func realEnvironment(values map[string]string, stdout, stderr *syncBuffer) Environment {
-	return defaultEnvironment(lookupFrom(values), stdout, stderr)
+	return defaultEnvironment(lookupFrom(values), strings.NewReader(""), stdout, stderr)
 }
 
 func startReal(t *testing.T, dataDir string) *realRun {
@@ -86,8 +87,15 @@ func (r *realRun) getJSON(t *testing.T, path string) map[string]any {
 
 func command(t *testing.T, values map[string]string, args ...string) (int, string, string) {
 	t.Helper()
+	return commandInput(t, values, strings.NewReader(""), args...)
+}
+
+func commandInput(t *testing.T, values map[string]string, input io.Reader, args ...string) (int, string, string) {
+	t.Helper()
 	stdout, stderr := &syncBuffer{}, &syncBuffer{}
-	code := run(context.Background(), args, realEnvironment(values, stdout, stderr))
+	env := realEnvironment(values, stdout, stderr)
+	env.Stdin = input
+	code := run(context.Background(), args, env)
 	return code, stdout.String(), stderr.String()
 }
 
@@ -121,6 +129,10 @@ func TestRealServerLifecycle(t *testing.T) {
 	code, _, stderr = command(t, values, "restore", filepath.Join(dataDir, "nothing.tar"))
 	if code != exitFailure || !strings.Contains(stderr, "stop the running server") {
 		t.Fatalf("restore while running: exit %d, stderr %q", code, stderr)
+	}
+	code, _, stderr = commandInput(t, values, strings.NewReader(""), "restore", "-")
+	if code != exitFailure || !strings.Contains(stderr, "stop the running server") {
+		t.Fatalf("restore from standard input while running: exit %d, stderr %q", code, stderr)
 	}
 
 	code, out, stderr := command(t, map[string]string{config.EnvDataDir: dataDir, config.EnvAddr: first.addr}, "healthcheck")
@@ -217,6 +229,35 @@ func operate(t *testing.T, dataDir string) {
 	}
 	if code, out, stderr = command(t, map[string]string{config.EnvDataDir: restored}, "check"); code != exitOK {
 		t.Fatalf("check restored: exit %d, %s %s", code, out, stderr)
+	}
+
+	streamed := t.TempDir()
+	archiveBytes, err := os.ReadFile(explicit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr = commandInput(t, map[string]string{config.EnvDataDir: streamed}, bytes.NewReader(archiveBytes), "restore", "-")
+	if code != exitOK || !strings.Contains(out, "standard input") {
+		t.Fatalf("restore from standard input: exit %d, %s %s", code, out, stderr)
+	}
+	if bytes.Contains([]byte(out), original.AdminEncryptionKey) || bytes.Contains([]byte(stderr), original.AdminEncryptionKey) {
+		t.Fatal("restore output contains key material")
+	}
+	streamedSecrets, err := secrets.Load(streamed)
+	if err != nil || !streamedSecrets.SigningKey.Equal(original.SigningKey) {
+		t.Fatalf("restored from standard input secrets = %v, %v", streamedSecrets, err)
+	}
+	if code, out, stderr = command(t, map[string]string{config.EnvDataDir: streamed}, "check"); code != exitOK {
+		t.Fatalf("check restored from standard input: exit %d, %s %s", code, out, stderr)
+	}
+	entries, err := os.ReadDir(streamed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".restore-input-") {
+			t.Fatalf("restore left %s behind", entry.Name())
+		}
 	}
 }
 

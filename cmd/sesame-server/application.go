@@ -26,15 +26,40 @@ func databasePath(cfg config.Config) string {
 	return filepath.Join(cfg.DataDir, ops.DatabaseName)
 }
 
-func openStore(ctx context.Context, cfg config.Config, loaded *secrets.Secrets, readOnly bool) (*sqlitestore.Store, error) {
-	store, err := sqlitestore.Open(ctx, sqlitestore.Options{
+type storeMode int
+
+const (
+	storeServing storeMode = iota
+	storeMutation
+	storeReadOnly
+	storeRecovery
+)
+
+func openStore(ctx context.Context, cfg config.Config, loaded *secrets.Secrets, mode storeMode) (*sqlitestore.Store, error) {
+	options := sqlitestore.Options{
 		Path:     databasePath(cfg),
 		AdminKey: loaded.AdminEncryptionKey,
 		Flags:    server.FlagDefinitions(),
-		ReadOnly: readOnly,
-	})
+	}
+	switch mode {
+	case storeServing, storeMutation:
+		options.RequireRecovered = true
+	case storeReadOnly:
+		options.ReadOnly = true
+	case storeRecovery:
+		options.Preserve = true
+	default:
+		return nil, fmt.Errorf("unsupported database access mode %d", mode)
+	}
+	store, err := sqlitestore.Open(ctx, options)
 	if errors.Is(err, selfhost.ErrSchemaTooNew) {
 		return nil, fmt.Errorf("%s was written by a newer Sesame server and this one refuses to open it: %w", databasePath(cfg), err)
+	}
+	if errors.Is(err, selfhost.ErrRecoveryPending) {
+		return nil, fmt.Errorf("%s holds a restored database that is waiting for local recovery approval; run sesame-server recover --status and then approve it with sesame-server recover --confirm <generation> --retain-owner <id> --retain-device <id>: %w", databasePath(cfg), err)
+	}
+	if errors.Is(err, selfhost.ErrRecoveryStateInvalid) {
+		return nil, fmt.Errorf("%s has invalid recovery state and will not be opened: %w", databasePath(cfg), err)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("the database %s cannot be opened: %w", databasePath(cfg), err)
@@ -50,7 +75,7 @@ func buildApplication(ctx context.Context, input BuildInput) (*Application, erro
 	} else if path != "" {
 		logger.Info("Sesame wrote a backup before upgrading the database", "path", path)
 	}
-	store, err := openStore(ctx, cfg, input.Secrets, false)
+	store, err := openStore(ctx, cfg, input.Secrets, storeServing)
 	if err != nil {
 		return nil, err
 	}

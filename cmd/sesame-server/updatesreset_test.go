@@ -70,7 +70,7 @@ func TestUpdateSequenceResetAgainstARealDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := openStore(t.Context(), cfg, loaded, false)
+	store, err := openStore(t.Context(), cfg, loaded, storeMutation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestUpdateSequenceResetAgainstARealDatabase(t *testing.T) {
 	if code != exitOK || !strings.Contains(out, "for 1 signing keys") {
 		t.Fatalf("exit %d: %s %s", code, out, stderr)
 	}
-	store, err = openStore(t.Context(), cfg, loaded, false)
+	store, err = openStore(t.Context(), cfg, loaded, storeMutation)
 	if err != nil {
 		t.Fatal(err)
 	}

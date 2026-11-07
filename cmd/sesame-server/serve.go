@@ -31,6 +31,9 @@ func serve(ctx context.Context, env Environment, invocation Invocation) error {
 		return fmt.Errorf("%s=%s cannot be created: %w", config.EnvDataDir, cfg.DataDir, err)
 	}
 	recovered, err := ops.Recover(cfg.DataDir)
+	if errors.Is(err, ops.ErrInstanceRunning) {
+		return fmt.Errorf("another Sesame server is already using %s=%s", config.EnvDataDir, cfg.DataDir)
+	}
 	if err != nil {
 		return fmt.Errorf("an interrupted restore in %s could not be finished: %w", cfg.DataDir, err)
 	}

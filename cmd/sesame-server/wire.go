@@ -15,10 +15,11 @@ func wireCommands() Commands {
 		Check:   RunnerFunc(runCheck),
 		Export:  RunnerFunc(runExport),
 		UpdatesReset: newUpdateSequenceReset(func(ctx context.Context, cfg config.Config, loaded *secrets.Secrets) (updateResetStore, error) {
-			return openStore(ctx, cfg, loaded, false)
+			return openStore(ctx, cfg, loaded, storeMutation)
 		}),
 		OwnerReset: newOwnerReset(func(ctx context.Context, cfg config.Config, loaded *secrets.Secrets) (ownerResetStore, error) {
-			return openStore(ctx, cfg, loaded, false)
+			return openStore(ctx, cfg, loaded, storeMutation)
 		}),
+		Recover: RunnerFunc(runRecover),
 	}
 }

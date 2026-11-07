@@ -31,6 +31,8 @@ type Options struct {
 	SessionTTL         time.Duration
 	Flags              []selfhost.FlagDefinition
 	ReadOnly           bool
+	RequireRecovered   bool
+	Preserve           bool
 	MigrationBackupDir string
 }
 
@@ -105,10 +107,24 @@ func openWith(ctx context.Context, options Options, migrations []migration) (*St
 
 func (s *Store) prepare(ctx context.Context, options Options, migrations []migration) error {
 	if options.ReadOnly {
-		return s.requireCurrentSchema(ctx, migrations)
+		if err := s.requireCurrentSchema(ctx, migrations); err != nil {
+			return err
+		}
+		if options.RequireRecovered {
+			return s.requireRecovered(ctx)
+		}
+		return nil
 	}
 	if err := s.migrate(ctx, migrations, options.MigrationBackupDir); err != nil {
 		return err
+	}
+	if options.RequireRecovered {
+		if err := s.requireRecovered(ctx); err != nil {
+			return err
+		}
+	}
+	if options.Preserve {
+		return nil
 	}
 	return s.write(ctx, func(tx *sql.Tx) error {
 		if err := s.ensureInstance(ctx, tx, options.InstanceName); err != nil {

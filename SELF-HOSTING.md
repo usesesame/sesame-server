@@ -30,7 +30,7 @@ You need a machine with Docker and the Compose plugin, and about five minutes. T
    cat .env
    ```
 
-   `cat .env` should print a version such as `SESAME_IMAGE_TAG=0.3.2`. To run another release, put its version on that line instead.
+   `cat .env` should print a version such as `SESAME_IMAGE_TAG=0.3.2`. To run another release, put its version on that line instead and follow that release's own `SELF-HOSTING.md`, because commands can differ between releases.
 
 2. Start the server, check that it is healthy and read the setup link from its log.
 
@@ -68,7 +68,7 @@ To connect a desktop:
 
 A link has the form `https://your-server/pair#code=...&fp=...`. Opening it in a browser only shows an explanation, because the address is meant for the desktop app. The `fp` part is the fingerprint of the server's signing key. The Settings page shows the same fingerprint, so you can compare the two.
 
-Pairing a device for a member asks for your password and a code again unless you signed in within the last 10 minutes. Revoking a device or removing a member does the same. A revoked device is refused at its next request.
+Pairing any device asks for your password and a code again unless you signed in within the last 10 minutes. Revoking a device or removing a member does the same. A revoked device is refused at its next request.
 
 Each device token lasts 90 days from pairing. The server does not extend it when the desktop is used, so a desktop that reaches 90 days must be paired again.
 
@@ -179,6 +179,8 @@ The server also accepts `SESAME_SMTP_*` settings and checks them, but nothing in
 
 All state is in the data directory: the database `sesame.db`, the directory `secrets` and the optional `config.json`.
 
+Keep your backup files in `backups/` or outside the data directory. Files named `.restore-input-` followed only by digits and directories named `.restore-new-` followed by exactly 12 lowercase hexadecimal characters are reserved for temporary restore data. Startup or the next restore removes abandoned temporary data under the instance lock and leaves symlinks alone.
+
 ### Back up
 
 The server writes a backup to `backups/` in the data directory every 24 hours and keeps the newest seven scheduled ones. Each backup is one tar file with a consistent copy of the database, the three secret files and a checksum for each. You can take one at any time, also while the server runs:
@@ -202,23 +204,67 @@ docker compose exec sesame /sesame-server check /data/backups/before-trip.tar
 
 Restore needs the server stopped, and it refuses to run while the server uses the data directory. The command moves the old contents aside into a `restore-previous-` directory and installs the backup. It refuses an archive whose checksums fail or whose secrets do not match its database.
 
+A restored database is left in recovery approval. The server refuses to start, so the console and every device are unreachable, until you confirm the restore on the host and choose the owners and devices that keep access. This stops a device that was revoked after the backup, or an owner who was removed, from coming back. Read [Approve a restore](#approve-a-restore) before you start the server.
+
 ```sh
 docker compose stop sesame
 docker compose run --rm --no-deps sesame restore /data/backups/before-trip.tar
-docker compose up -d
 ```
 
-For a backup file that lives outside the volume, such as one copied from another machine, mount it read-only into the one-off container. The container runs as user 65532 and a backup can be read only by the user who made it, so make the file readable for the restore and private again afterwards. The command makes the file private again when it ends, but while it runs every account on the machine can read it, and it holds the keys that unlock owner sign-in. Do this only on a machine that only you use.
+The restore prints the archive schema and the installed schema. A restore interrupted by a crash finishes itself the next time the server or a restore starts.
+
+### Approve a restore
+
+Run status after a restore. It first finishes any interrupted restore and removes abandoned temporary restore data, then reads the recovery state without approving it. It does not create a missing database or migrate an older one. For a restored database it prints the pending generation, the active owners and the devices in the archive, including devices that were already revoked. Devices held by removed owners cannot be retained.
 
 ```sh
-docker compose stop sesame
-(trap 'chmod 0600 before-trip.tar' EXIT; chmod 0644 before-trip.tar; docker compose run --rm --no-deps -v "$PWD/before-trip.tar:/restore.tar:ro" sesame restore /restore.tar)
+docker compose run --rm --no-deps sesame recover --status
+```
+
+The JSON form gives the exact values for a script. It uses lower camel-case fields named `pending`, `generation`, `startedAt`, `completedAt`, `owners` and `devices`. Each owner has `id`, `name`, `setupPending` and `lastLoginAt`. Each device has `id`, `name`, `holder` with `kind`, `id` and `name`, `expiresAt`, `lastSeenAt` and `revokedAt`. It holds no device tokens, pairing codes, passwords or authenticator secrets.
+
+```sh
+docker compose run --rm --no-deps sesame recover --status --json
+```
+
+Approve the restore with the generation and the owner and device `id` values from status. Repeat `--retain-owner` and `--retain-device` to keep more than one, and leave out `--retain-device` when no device should keep access. A device you do not name is revoked, including a device that was active in the archive, and every owner you do not name is removed. There is no option that keeps everything. A retained owner's device must belong to an owner you retain. A member's device can be retained if the member has not been removed. A device that is already revoked or expired cannot be retained. At least one complete owner must be retained when the archive holds one.
+
+Retention is a security decision. A retained device keeps the token from the backup, so select only devices you still hold. A retained owner signs in with the credentials that were in the backup, which may predate a password or authenticator change. Run `owner reset` after approval if those credentials are suspect.
+
+Set `SESAME_RECOVERY_GENERATION`, `SESAME_RETAIN_OWNER_ID` and `SESAME_RETAIN_DEVICE_ID` from the status output, then run the approval block.
+
+```sh
+docker compose run --rm --no-deps sesame recover --json \
+  --confirm "$SESAME_RECOVERY_GENERATION" \
+  --retain-owner "$SESAME_RETAIN_OWNER_ID" \
+  --retain-device "$SESAME_RETAIN_DEVICE_ID"
+```
+
+The approval prints JSON with `pending`, `generation`, `alreadyComplete`, `retainedOwners`, `removedOwners`, `retainedDevices` and `revokedDevices`. A repeated approval names the same generation, reports `alreadyComplete: true` and applies no selection.
+
+Start the server after the approval.
+
+```sh
 docker compose up -d
 ```
 
-A restore interrupted by a crash finishes itself the next time the server or a restore starts.
+The approval belongs to the generation from the restore that created it. If you restore again, status shows a new generation and a command with the old one is refused. Approving the same completed generation again changes nothing. A retained owner signs in again after the restore. Every owner session, setup token and unused pairing from before the restore is gone.
 
-Devices revoked after the backup was taken become active again when you restore it. Revoke them again after a restore if that matters.
+### Restore a backup outside the data volume
+
+For a backup file that lives outside the volume, such as one copied from another machine, keep it at mode 0600 and pipe it into the one-off container on standard input. The container runs as user 65532 with the same data volume as the server, so the backup needs no mount and its host permissions stay private. The `-` argument tells `restore` to read standard input, and `-T` turns off terminal allocation so the archive arrives unchanged. The server needs room in its data volume for a temporary archive as well as the extracted database. An interrupted input copy is discarded on the next startup or restore.
+
+```sh
+chmod 0600 before-trip.tar
+docker compose stop sesame
+docker compose run --rm --no-deps -T sesame restore - < before-trip.tar
+```
+
+The restore leaves the same pending state as a restore from the volume. Approve it with [Approve a restore](#approve-a-restore) before you start the server.
+
+A device that was revoked after the backup appears in the archive as active. It keeps access only when you name it during approval. Every device you do not name is revoked.
+
+A release that predates recovery approval installs a backup directly and has no `recover` command. Follow the `SELF-HOSTING.md` in that release's tag for its exact commands, because this page describes the current release.
 
 ### Upgrade
 
@@ -229,7 +275,7 @@ docker compose pull
 docker compose up -d
 ```
 
-When a release changes the database schema, the server first writes a backup named `sesame-premigration-` in `backups/` and then migrates. A server refuses a database that a newer version wrote, so you cannot run an older release over migrated data. To go back, restore the pre-migration backup with the older image.
+When a release changes the database schema, the server first writes a backup named `sesame-premigration-` in `backups/` and then migrates. A server refuses a database that a newer version wrote, so you cannot run an older release over migrated data. To go back, restore the pre-migration backup with the older image. An image that predates recovery approval does not ask for it, so a rollback with that image skips the review. Use it only after you have decided that the restored access is acceptable.
 
 Before you upgrade, read the release notes and take a manual backup. Verify the image first if you want to, as described at the end of this page.
 
@@ -259,7 +305,7 @@ How a new device joins: a device that already syncs shows a one-time code, and t
 
 What the console shows: for each person, whether a synced vault exists, how many devices it has, its latest version number and how much space it uses. The console can reset a person's synced vault, which deletes the stored ciphertext and history. Resetting needs your password and code and is written to the audit log. The console cannot approve a device, read a name or open a vault.
 
-Backups contain the Sync data, which is ciphertext. If you restore an old backup, every synced desktop sees the server offer an older version than it already applied and stops with a warning. Reset that person's vault and start Sync again from the desktop that has the newest copy.
+Backups contain the Sync data, which is ciphertext. A retained device keeps its stable Sync ID and the signed history in the backup. If a retained synced desktop has applied a version newer than the backup, it refuses the older history and shows a warning. Reset that person's vault and start Sync again from the desktop that has the newest copy.
 
 ## Update notices
 
@@ -310,8 +356,8 @@ The hosted Sesame service has accounts with email addresses. A self-hosted serve
 - Members cannot sign in. Only owners sign in, so a member cannot see their own devices, revoke a lost laptop or change anything. An owner does all of it for them.
 - There is no new-device email. Nothing tells a member or an owner when a device is paired. The Audit log and the Devices page record it, but someone has to look.
 - There is no per-person login history. The audit log records owner sign-ins and device events. A member has no sign-ins to record, and the Devices page shows when each device last connected and not where from.
-- Whoever holds a signed-in owner session can create a device. Pairing a device for yourself asks for no password, so a stolen or unattended owner browser session lets someone attach a device to that owner for as long as the session lasts, up to 12 hours. Pairing for a member asks for the password and a code unless the owner signed in within the last 10 minutes.
-- Whoever controls the host controls the server. Anyone who can run commands as the server's user or read the data directory can run `owner reset` and sign in as an owner, or copy the secrets and the database.
+- Whoever holds a signed-in owner session can read the console. For the first 10 minutes after sign-in, that session can also pair a device without asking again. After that, pairing any device, revoking a device or removing a member asks for the password and a current code, so a stolen session alone is not enough. A session lasts up to 12 hours.
+- Whoever controls the host controls the server. Anyone who can run commands as the server's user or read the data directory can run `owner reset` and sign in as an owner, approve a restored backup retaining any owner or device, or copy the secrets and the database.
 - Device tokens are not bound to hardware. A token copied from a desktop works from any machine until the owner revokes it or it expires after 90 days.
 
 Keep the owner list short, and look at the Devices page now and then to check that every listed device is one you know.
@@ -372,5 +418,6 @@ The build compiles the console and then a static program with `CGO_ENABLED=0`, a
 | The log says another server is using the data directory | A second process or a running restore holds the lock. Stop it first. |
 | The Updates page shows `feed_rollback` | The feed host served a feed older than one this server already accepted. The server keeps the last good result. If the host's own sequence numbers went backwards by mistake, it must publish a feed with a higher number. |
 | The log says the database was written by a newer server | Run the newer release again, or restore a backup made by the older one. |
+| The log says the restored database is waiting for local recovery approval | Run `docker compose run --rm --no-deps sesame recover --status`, then approve the generation with the owners and devices to keep. The server refuses to start until you do. |
 
 The HTTP routes are listed in [internal/selfhost/server/API.md](internal/selfhost/server/API.md). Report a security problem as [SECURITY.md](SECURITY.md) describes.

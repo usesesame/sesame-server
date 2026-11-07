@@ -92,7 +92,7 @@ The session object is `{owner:{id,name}, csrfToken, recentAuthUntil, expiresAt}`
 
 ## Pairings and devices
 
-`POST /v1/owner/pairings` takes either `{self:true}` or `{memberId}`, plus an optional `deviceName` hint of printable ASCII up to 64 characters. It returns 201 `{pairingId, code, link, holder, expiresAt}`. The code is shown once, works once and expires after 10 minutes. The link is `<publicOrigin>/pair#code=<code>&fp=<fingerprint>`. A pairing for a member needs step-up, a pairing for yourself does not. Sending both fields or neither returns 400 `invalid_pairing`. An unknown member returns 404 `not_found`. Creating a pairing cancels any earlier pending pairing for the same holder, so the older code then fails with 401 `invalid_desktop_link`.
+`POST /v1/owner/pairings` takes either `{self:true}` or `{memberId}`, plus an optional `deviceName` hint of printable ASCII up to 64 characters. It returns 201 `{pairingId, code, link, holder, expiresAt}`. The code is shown once, works once and expires after 10 minutes. The link is `<publicOrigin>/pair#code=<code>&fp=<fingerprint>`. Every pairing needs step-up. Sending both fields or neither returns 400 `invalid_pairing`. An unknown member returns 404 `not_found`. Creating a pairing cancels any earlier pending pairing for the same holder, so the older code then fails with 401 `invalid_desktop_link`.
 
 `GET /v1/owner/pairings` returns `{pairings:[{id, holder:{kind,id,name}, deviceName, createdBy, createdAt, expiresAt}]}` for pending pairings. It never includes codes.
 
