@@ -548,6 +548,98 @@ test('the guided installation guide names three profiles and the limits of gener
   assert.match(quickStart[1], /docker compose up -d/)
 })
 
+test('the doctor guide names the candidate build, the offline evidence and the three report states', () => {
+  const blocks = sectionBlocks(document, '## Diagnose an installation')
+  assert.equal(blocks.length, 3, 'the doctor section must hold the native, running container and one-off commands')
+  assert.equal(blocks[0], [
+    'SESAME_DATA_DIR=/var/lib/sesame \\',
+    'SESAME_CONFIG_FILE=/var/lib/sesame/config.json \\',
+    '/usr/local/bin/sesame-server doctor --json',
+  ].join('\n'), 'the native doctor command must set the data directory and config file explicitly')
+  assert.equal(blocks[1], 'docker compose exec -T sesame /sesame-server doctor --json')
+  assert.equal(blocks[2], 'docker compose run --rm --no-deps -T sesame doctor --json')
+  assert.ok(document.indexOf('## Diagnose an installation') > document.indexOf('## Guided installation'))
+  assert.ok(document.indexOf('## Diagnose an installation') < document.indexOf('## First run and pairing'))
+  const text = document.slice(document.indexOf('## Diagnose an installation'), document.indexOf('## First run and pairing'))
+  for (const phrase of [
+    'candidate build',
+    'accepts `--json` and the help flags',
+    'rejects unknown and repeated options, positional arguments and a value attached to `--json`',
+    '`doctor --help` exits 0 and prints usage',
+    'not an HTTP endpoint or a host command service',
+    'does not open SQLite',
+    'read the contents of the secrets files',
+    'does not repair, migrate, seed, checkpoint or recover anything',
+    'The exit is 0 for `ok`, 1 for `action`, 3 for `unknown` and 2 for a usage error',
+    '`--network` is not available',
+    'same account that runs the service',
+    'Do not source or evaluate a systemd `EnvironmentFile`',
+    'generated `.env`',
+    'cannot prove that its environment matches',
+    'shares the container environment and the mounted data',
+    'rereads `config.json`',
+    'cached by the running server',
+    'one-off run',
+    'can create Docker resources',
+    'not a zero-mutation observation',
+    'database schema, integrity, audit chain or recovery state',
+    'secret contents or their match',
+    'network reachability, DNS, certificates, proxy mapping, ACLs, write access, clock accuracy',
+    'Any group or other permission bit',
+    'is not a pass',
+    'not a statement that the service is healthy or secure',
+  ]) {
+    assert.ok(text.includes(phrase), `the doctor guide no longer says ${phrase}`)
+  }
+  assert.match(text, /Linux is the only runtime tested/)
+  assert.match(text, /Windows and macOS compile/)
+  assert.match(text, /does not inspect an access control list/)
+  assert.doesNotMatch(text, /[—–]/)
+})
+
+test('the doctor command and native journey are wired into package scripts and ordinary CI', () => {
+  const packageJson = JSON.parse(read('package.json'))
+  assert.equal(packageJson.scripts['selfhost:doctor'], 'node ./scripts/selfhost-doctor-check.mjs')
+  assert.ok(packageJson.scripts.ci.includes('npm run selfhost:doctor'), 'the ordinary CI command does not run the doctor journey')
+  assert.equal(packageJson.dependencies, undefined)
+  assert.equal(packageJson.devDependencies, undefined)
+
+  const runner = read('scripts', 'selfhost-doctor-check.mjs')
+  for (const token of [
+    "sectionBlocks(document, '## Diagnose an installation')",
+    "['doctor', '--json']",
+    "['doctor', '--network', '--json']",
+    "['doctor', '--json', '--network']",
+    "['doctor', '--json=true']",
+    "['doctor', '--json', '--json']",
+    "['doctor', 'extra']",
+    "['doctor', '--help']",
+    'mkfifo',
+    'process.getuid',
+    'assertNoRuntimeArtifacts',
+    'snapshotTree',
+    'SESAME_DOCTOR_COMMAND_LOG',
+    'configuration_invalid',
+    'configuration_report_limit',
+    'config_file_permissions',
+    'proxy_trust_wide',
+    'listen_all_interfaces',
+    'database_not_opened',
+    'database_missing',
+    'database_permissions',
+    'secrets_metadata_ok',
+    'secrets_size',
+    'space_unavailable',
+    'The database fixture is deliberate non-SQLite data',
+    'Not run by this native check',
+  ]) {
+    assert.ok(runner.includes(token), `the doctor journey does not exercise ${token}`)
+  }
+  assert.match(runner, /'mkfifo', \['-m', '0600', path\]/)
+  assert.doesNotMatch(runner, /docker compose up/)
+  assert.doesNotMatch(runner, /continue-on-error/)
+})
+
 test('the ordinary CI command runs the native guided installation journey', () => {
   const packageJson = JSON.parse(read('package.json'))
   assert.equal(packageJson.scripts['selfhost:install'], 'node ./scripts/selfhost-install-check.mjs')
