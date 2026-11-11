@@ -35,6 +35,7 @@ var ownerRoutes = []routeCase{
 	{http.MethodGet, "/v1/owner/flags", nil},
 	{http.MethodPatch, "/v1/owner/flags/desktop_linking_enabled", map[string]bool{"enabled": true}},
 	{http.MethodGet, "/v1/owner/system", nil},
+	{http.MethodGet, "/v1/owner/system/diagnostics", nil},
 	{http.MethodPost, "/v1/owner/export", nil},
 }
 

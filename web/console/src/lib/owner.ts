@@ -1,5 +1,6 @@
 import { mutate, request, setCSRFToken } from './api'
-import type { AuditPage, Config, Device, IssuedPairing, Member, MemberRemoval, Owner, OwnerInvite, PendingPairing, SessionInfo, Settings, SettingsChange, SetupDetails, SyncHolder, SyncOverview, SystemInfo, UpdateChange, UpdateInfo } from './types'
+import { parseSystemInfo } from './system'
+import type { AuditPage, Config, Device, IssuedPairing, Member, MemberRemoval, Owner, OwnerInvite, PendingPairing, SessionInfo, Settings, SettingsChange, SetupDetails, SyncHolder, SyncOverview, UpdateChange, UpdateInfo } from './types'
 
 export function loadConfig() {
   return request<Config>('/config.json')
@@ -54,7 +55,8 @@ export function loadAudit(cursor?: number | null) {
 
 export const loadSettings = () => request<Settings>('/v1/owner/settings')
 export const saveSettings = (change: SettingsChange) => mutate<Settings>('/v1/owner/settings', 'PATCH', change)
-export const loadSystem = () => request<SystemInfo>('/v1/owner/system')
+export const loadSystem = async () => parseSystemInfo(await request<unknown>('/v1/owner/system'))
+export const loadDiagnostics = () => request<unknown>('/v1/owner/system/diagnostics')
 export const exportData = () => mutate<unknown>('/v1/owner/export', 'POST', undefined, { timeoutMs: 60_000 })
 export const loadUpdates = () => request<UpdateInfo>('/v1/owner/updates')
 export const saveUpdates = (change: UpdateChange) => mutate<UpdateInfo>('/v1/owner/updates', 'PATCH', change)

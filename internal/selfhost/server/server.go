@@ -211,6 +211,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc("PATCH /v1/owner/updates", s.ownerStepUp(s.patchUpdates))
 	mux.HandleFunc("POST /v1/owner/updates/check", s.owner(s.checkUpdates))
 	mux.HandleFunc("GET /v1/owner/system", s.owner(s.system))
+	mux.HandleFunc("GET /v1/owner/system/diagnostics", s.owner(s.systemDiagnostics))
 	mux.HandleFunc("POST /v1/owner/export", s.ownerStepUp(s.export))
 
 	mux.HandleFunc("/", s.fallback(mux))

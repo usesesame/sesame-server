@@ -86,6 +86,11 @@ func TestAgainstTheSQLiteStore(t *testing.T) {
 	if system["auditChainOk"] != true {
 		t.Fatalf("system = %v", system)
 	}
+	diagnostics := decodeBody(t, o.do(req{path: "/v1/owner/system/diagnostics"}))
+	if diagnostics["schemaVersion"] != float64(1) || diagnostics["overall"] != "action" {
+		t.Fatalf("diagnostics = %v", diagnostics)
+	}
+	expectDiagnosticsCheck(t, diagnostics, "audit", "ok", "audit_incremental_ok")
 	flags := decodeBody(t, o.do(req{path: "/v1/owner/flags"}))["flags"].([]any)
 	if len(flags) != 2 || flags[0].(map[string]any)["enabled"] != true || flags[1].(map[string]any)["enabled"] != false {
 		t.Fatalf("flags = %v", flags)

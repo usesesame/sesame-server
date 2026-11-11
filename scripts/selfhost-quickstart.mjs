@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   connect,
   createMember,
@@ -21,6 +20,7 @@ import { dockerAllowFailure, docker, mustRun, run, runBlock, waitUntil } from '.
 import { readSelfHostingDocument, repositoryRoot, replaceOnce, sectionBlocks } from './selfhost-doc.mjs'
 import { approvalEnvironment, assertApprovalResult, assertRecoveryStatus, parseRecoveryJson, redactSensitiveLog } from './selfhost-recovery.mjs'
 import { resolveAgeTools, runEncryptedJourney } from './selfhost-export-check.mjs'
+import { copyFixtureBackup, fixtureDataDigest } from './selfhost-volume-check.mjs'
 
 const options = parseArguments(process.argv.slice(2))
 const imageRepository = 'ghcr.io/usesesame/sesame-server-selfhost'
@@ -100,19 +100,7 @@ function composeLogs(cwd, project) {
 function composeDataDigest({ cwd, project }) {
   const container = compose(['ps', '-q', 'sesame'], { cwd, project }).stdout.trim()
   assert.ok(container, 'the live service container is missing')
-  const directory = mkdtempSync(join(tmpdir(), 'sesame-live-digest-'))
-  try {
-    const hash = createHash('sha256')
-    for (const path of ['/data/sesame.db', '/data/secrets/admin-encryption.key', '/data/secrets/signing.key', '/data/secrets/ip-pepper.key']) {
-      const copy = join(directory, basename(path))
-      docker(['cp', `${container}:${path}`, copy])
-      hash.update(path)
-      hash.update(readFileSync(copy))
-    }
-    return hash.digest('hex')
-  } finally {
-    rmSync(directory, { recursive: true, force: true })
-  }
+  return fixtureDataDigest(container)
 }
 
 function volumeSet() {
@@ -282,6 +270,30 @@ async function main() {
     return { member: created, good, bad }
   })
 
+  if (options.mode === 'local') {
+    await check('the running candidate reports diagnostics only to the signed-in owner', async () => {
+      const path = '/v1/owner/system/diagnostics'
+      expectError(await request(instance, 'GET', path), 401, 'not_authenticated', 'anonymous diagnostics')
+      expectError(await request(instance, 'GET', path, { headers: { authorization: `Bearer ${member.good.token}` } }), 401, 'not_authenticated', 'device diagnostics')
+      const response = expectStatus(await setup.session.call('GET', path), 200, 'owner diagnostics')
+      assert.deepEqual(Object.keys(response.json).sort(), ['checks', 'generatedAt', 'limitations', 'overall', 'schemaVersion'])
+      assert.equal(response.json.schemaVersion, 1)
+      assert.ok(['action', 'unknown'].includes(response.json.overall))
+      assert.deepEqual(response.json.checks.map((finding) => finding.id), ['origin', 'proxy', 'audit', 'backup', 'forwarding', 'external'])
+      assert.equal(response.json.checks.find((finding) => finding.id === 'external').state, 'unknown')
+      for (const finding of response.json.checks) {
+        assert.ok(['ok', 'action', 'unknown'].includes(finding.state))
+        assert.ok(typeof finding.summary === 'string' && finding.summary.length > 0 && finding.summary.length <= 500)
+      }
+      for (const secret of [ownerPassword, setup.session.state.cookie, member.good.token, member.bad.token]) {
+        assert.ok(!response.text.includes(secret), 'the diagnostics report contains authentication material')
+      }
+      const system = await ownerSystem(setup.session)
+      assert.equal(system.warningCodes.length, system.warnings.length)
+      expectStatus(await setup.session.call('GET', `${path}?network=true`), 400, 'diagnostics with a query')
+    })
+  }
+
   const before = await check('the instance identity and an unused pairing are recorded before the backup', async () => {
     const info = expectStatus(await request(instance, 'GET', '/v1/instance'), 200, 'instance')
     const pairing = expectStatus(await setup.session.call('POST', '/v1/owner/pairings', { json: { memberId: member.member.id, deviceName: 'Never redeemed' } }), 201, 'unused pairing')
@@ -371,7 +383,7 @@ async function main() {
     const fresh = join(workDir, 'fresh')
     mkdirSync(fresh)
     const copy = join(fresh, archive)
-    compose(['cp', `sesame:/data/backups/${archive}`, copy])
+    copyFixtureBackup(compose(['ps', '-q', 'sesame']).stdout.trim(), archive, copy)
     assert.ok(existsSync(copy))
     chmodSync(copy, 0o600)
     compose(['down'])

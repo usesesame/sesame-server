@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"usesesame.app/backend/internal/selfhost"
@@ -15,36 +14,7 @@ const (
 	exportPageSize  = 200
 	exportMaxPages  = 5000
 	exportWriteTime = 10 * time.Minute
-	staleBackupText = "No backup has been made in over twice the configured interval."
 )
-
-func (s *server) warnings(info selfhost.SystemInfo, report selfhost.AuditReport) []string {
-	warnings := append([]string{}, s.cfg.Warnings...)
-	if !report.OK {
-		reason := "The audit log chain does not verify."
-		if report.FirstBreak != nil {
-			reason = "The audit log chain breaks at entry " + strconv.FormatInt(report.FirstBreak.Seq, 10) + ": " + report.FirstBreak.Reason + "."
-		}
-		warnings = append(warnings, reason)
-	}
-	if s.cfg.BackupInterval > 0 {
-		switch {
-		case info.LastBackupAt == nil:
-			warnings = append(warnings, "No backup has been made yet.")
-		case s.now().Sub(*info.LastBackupAt) > 2*s.cfg.BackupInterval:
-			warnings = append(warnings, staleBackupText)
-		}
-	} else if info.LastBackupAt == nil {
-		warnings = append(warnings, "Scheduled backups are off and no backup has been made yet.")
-	}
-	if s.forwardedFromUntrusted() {
-		warnings = append(warnings, "Requests from a private address carry X-Forwarded-For, but that address is not a trusted proxy. Every visitor shares one rate limit until SESAME_TRUSTED_PROXIES is set.")
-	}
-	if !s.cfg.PublicURL.Secure {
-		warnings = append(warnings, "The public address is plain http on this machine, so pairing from another machine needs an https SESAME_PUBLIC_URL.")
-	}
-	return warnings
-}
 
 func fullCheckRequested(w http.ResponseWriter, r *http.Request) (bool, bool) {
 	switch r.URL.Query().Get("full") {
@@ -79,13 +49,21 @@ func (s *server) system(w http.ResponseWriter, r *http.Request, _ selfhost.Owner
 		s.storeError(w, r, err)
 		return
 	}
+	notices := s.systemWarnings(info, report)
+	warnings := make([]string, 0, len(notices))
+	warningCodes := make([]string, 0, len(notices))
+	for _, notice := range notices {
+		warnings = append(warnings, notice.text)
+		warningCodes = append(warningCodes, notice.code)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version":         s.cfg.Version,
 		"commit":          s.cfg.Commit,
 		"schemaVersion":   info.SchemaVersion,
 		"databaseBytes":   info.DatabaseBytes,
 		"lastBackupAt":    stampPointer(info.LastBackupAt),
-		"warnings":        s.warnings(info, report),
+		"warnings":        warnings,
+		"warningCodes":    warningCodes,
 		"auditChainOk":    report.OK,
 		"activeOwners":    info.ActiveOwners,
 		"members":         info.Members,

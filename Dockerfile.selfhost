@@ -29,7 +29,7 @@ LABEL org.opencontainers.image.title="Sesame self-hosted server" \
       org.opencontainers.image.version="${SESAME_VERSION}" \
       org.opencontainers.image.revision="${SESAME_COMMIT}" \
       org.opencontainers.image.source="${SESAME_SOURCE_URL}"
-COPY --from=build --chown=65532:65532 /out/data /data
+COPY --from=build --chown=65532:65532 --chmod=0700 /out/data /data
 COPY --from=build /out/sesame-server /sesame-server
 USER nonroot:nonroot
 VOLUME ["/data"]
