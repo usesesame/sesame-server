@@ -10,9 +10,16 @@ import (
 	"usesesame.app/backend/internal/selfhost/secrets"
 )
 
+type CommandFlags struct {
+	Stdout bool
+	Stdin  bool
+	JSON   bool
+}
+
 type Invocation struct {
 	Config  config.Config
 	Args    []string
+	Flags   CommandFlags
 	Stdin   io.Reader
 	Stdout  io.Writer
 	Stderr  io.Writer

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 
 	"usesesame.app/backend/internal/buildinfo"
 	"usesesame.app/backend/internal/selfhost/config"
@@ -41,8 +42,9 @@ func defaultEnvironment(lookup config.Lookup, stdin io.Reader, stdout, stderr io
 }
 
 type parsed struct {
-	name string
-	args []string
+	name  string
+	args  []string
+	flags CommandFlags
 }
 
 func run(ctx context.Context, args []string, env Environment) int {
@@ -69,7 +71,7 @@ func run(ctx context.Context, args []string, env Environment) int {
 		return exitFailure
 	}
 	logger := newLogger(env.Stderr, cfg)
-	invocation := Invocation{Config: cfg, Args: command.args, Stdin: env.Stdin, Stdout: env.Stdout, Stderr: env.Stderr, Logger: logger, Version: env.Version}
+	invocation := Invocation{Config: cfg, Args: command.args, Flags: command.flags, Stdin: env.Stdin, Stdout: env.Stdout, Stderr: env.Stderr, Logger: logger, Version: env.Version}
 	if err := execute(ctx, command, env, invocation); err != nil {
 		fmt.Fprintf(env.Stderr, "sesame-server: %v\n", err)
 		return exitFailure
@@ -137,10 +139,17 @@ func parseCommand(args []string) (parsed, error) {
 		}
 		return parsed{name: name, args: rest}, nil
 	}
+	if name == "check" {
+		positional, flags, err := parseCheckArgs(rest)
+		if err != nil {
+			return parsed{}, err
+		}
+		return parsed{name: name, args: positional, flags: flags}, nil
+	}
 	var minArgs, maxArgs int
 	switch name {
 	case "serve", "healthcheck", "updates reset-sequence":
-	case "backup", "check", "export":
+	case "backup", "export":
 		maxArgs = 1
 	case "restore", "owner reset":
 		minArgs, maxArgs = 1, 1
@@ -149,6 +158,10 @@ func parseCommand(args []string) (parsed, error) {
 	}
 	flags := flag.NewFlagSet(name, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	var archiveStdout bool
+	if name == "backup" {
+		flags.BoolVar(&archiveStdout, "stdout", false, "")
+	}
 	if err := flags.Parse(rest); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return parsed{}, err
@@ -159,7 +172,48 @@ func parseCommand(args []string) (parsed, error) {
 	if len(positional) < minArgs || len(positional) > maxArgs {
 		return parsed{}, fmt.Errorf("%s: %s", name, argumentCount(minArgs, maxArgs, len(positional)))
 	}
-	return parsed{name: name, args: positional}, nil
+	if archiveStdout && len(positional) > 0 {
+		return parsed{}, errors.New("backup: --stdout accepts no output file")
+	}
+	return parsed{name: name, args: positional, flags: CommandFlags{Stdout: archiveStdout}}, nil
+}
+
+func parseCheckArgs(args []string) ([]string, CommandFlags, error) {
+	var flags CommandFlags
+	var positional []string
+	parsingFlags := true
+	for _, arg := range args {
+		if parsingFlags && arg == "--" {
+			parsingFlags = false
+			continue
+		}
+		if parsingFlags {
+			switch arg {
+			case "-h", "-help", "--help":
+				return nil, CommandFlags{}, flag.ErrHelp
+			case "--stdin":
+				flags.Stdin = true
+				continue
+			case "--json":
+				flags.JSON = true
+				continue
+			}
+			if strings.HasPrefix(arg, "-") && arg != "-" {
+				return nil, CommandFlags{}, fmt.Errorf("check: flag provided but not defined: %s", arg)
+			}
+		}
+		positional = append(positional, arg)
+	}
+	if flags.Stdin && len(positional) > 0 {
+		return nil, CommandFlags{}, errors.New("check: --stdin does not take a backup file")
+	}
+	if len(positional) > 1 {
+		return nil, CommandFlags{}, fmt.Errorf("check: %s", argumentCount(0, 1, len(positional)))
+	}
+	if flags.JSON && !flags.Stdin && len(positional) == 0 {
+		return nil, CommandFlags{}, errors.New("check: --json needs a backup file or --stdin")
+	}
+	return positional, flags, nil
 }
 
 func argumentCount(minArgs, maxArgs, got int) string {

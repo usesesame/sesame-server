@@ -200,6 +200,75 @@ docker compose exec sesame /sesame-server check /data/backups/before-trip.tar
 
 `check` without a file name checks the live database, including the audit chain. `export` writes the members, devices and audit log as JSON without tokens, secrets or password data.
 
+### Encrypted backup export
+
+The scheduled and manual backups stay local and unchanged. They hold the keys that unlock owner sign-in, so a copy of one is as sensitive as the server. An encrypted export writes a copy that protects the archive with a public recipient. The server needs only that recipient, and the private identity stays on the recovery device.
+
+Install [age 1.3.2](https://github.com/FiloSottile/age/releases/tag/v1.3.2) on the machine that runs the commands. It is an operator tool and is not in the server image or the server build. Run `scripts/export-backup.mjs` from the source checkout of the release tag that matches the server. A server that predates the encrypted export flags exits with a usage error instead of treating `--stdout` or `--stdin` as a file name. Follow that release's own `SELF-HOSTING.md`, or upgrade the server before using this section.
+
+Create the identity on the recovery device and copy only its public recipient to the server:
+
+```sh
+age-keygen -o /media/recovery/identity.txt
+age-keygen -y /media/recovery/identity.txt > /etc/sesame/recipients.txt
+chmod 0600 /etc/sesame/recipients.txt
+```
+
+For a binary install, run the export against the release checkout and data directory:
+
+```sh
+node scripts/export-backup.mjs export \
+  --native /usr/local/bin/sesame-server --data-dir /var/lib/sesame \
+  --destination /mnt/sesame-exports --recipients-file /etc/sesame/recipients.txt
+```
+
+For the Compose install, run the export from the release checkout that holds your Compose file and name the service:
+
+```sh
+node /opt/sesame/scripts/export-backup.mjs export \
+  --compose-service sesame --destination /mnt/sesame-exports \
+  --recipients-file /etc/sesame/recipients.txt
+```
+
+The tool uses `docker compose exec` and never starts a service for an export. If the service is already stopped, add `--stopped` so it uses a one-off container instead. Use `--compose-file` when your Compose file is not `compose.yaml` in the current directory.
+
+The export takes a complete private archive through the same post-write check as a manual backup, then encrypts that archive. The database limit is still 4 GiB and the config limit is still 1 MiB. Plan for the database size plus the completed archive while the export runs, and keep the destination and the data directory on filesystems with room to spare. The private snapshot and archive are removed when the command returns. A hard kill can leave private work behind, as a manual backup can. The command publishes a new `sesame-...tar.age` file with mode 0600 and never overwrites or deletes an earlier export.
+
+The printed JSON records the source and ciphertext byte counts and digests and the published path. A separate private history keeps one mode-0600 record per operation. A successful export shows that the ciphertext was written and read back. It does not show that this identity can decrypt it, and it does not prove that a copy exists anywhere else.
+
+Copy the complete encrypted file to a separately held destination with the tools you already use. An export on the same machine or disk is not off-host protection. Sesame does not refresh exports on a schedule and promises neither a recovery point objective nor a restoration time. A daily export is one operator schedule, not a one-day guarantee. The scheduled local backups still run unchanged and do not refresh exports.
+
+Verify the copy on the recovery device, which holds the identity:
+
+```sh
+node scripts/export-backup.mjs verify \
+  --archive /mnt/sesame-exports/sesame-example.tar.age \
+  --identity-file /media/recovery/identity.txt --native /usr/local/bin/sesame-server
+```
+
+Verification succeeds only when age and the archive check both succeed. Streaming decryption can release authenticated data before the final chunk fails, so a valid prefix is not a passing result. To use a candidate image instead of a local binary:
+
+```sh
+node scripts/export-backup.mjs verify \
+  --archive /mnt/sesame-exports/sesame-example.tar.age \
+  --identity-file /media/recovery/identity.txt \
+  --image "ghcr.io/usesesame/sesame-server-selfhost:${SESAME_IMAGE_TAG:?set a compatible server version}"
+```
+
+Drill the archive into a fresh disposable target without touching the live data:
+
+```sh
+node scripts/export-backup.mjs drill \
+  --archive /mnt/sesame-exports/sesame-example.tar.age \
+  --identity-file /media/recovery/identity.txt --native /usr/local/bin/sesame-server
+```
+
+The drill decrypts and restores into a new target, checks the restored database and reads the recovery status. It succeeds only if age, the restore and the check all succeed. The restored state is left pending. The drill does not approve recovery, retain a device, start a network service or request a device token, and it removes its disposable target afterwards. The `--image` form uses a fresh volume and never attaches the live data volume. To keep a restored copy, use the restore and approval commands below instead.
+
+Export reads only the recipient file and never accepts or asks for a private identity. Verification and drilling need the identity and run offline. Do not put the identity in the data directory, the export destination or the server image. Operation history is private and holds no identity path, recipient value, private key, owner credential or device token. Use `--state-dir` to choose that directory, `--age` to name the age executable, and `--work-dir` to choose the parent of a fresh verification or drill workspace.
+
+For an image target, set `SESAME_IMAGE_TAG` to a release that supports these commands and the archive's schema. If the tool reports `cleanup_failed`, temporary data may remain because a child process has not stopped. A cleanup warning can also accompany a failed verification or restore, and its history record has `cleanupFailed: true`. Confirm that the process has exited before removing its temporary files or volumes.
+
 ### Restore
 
 Restore needs the server stopped, and it refuses to run while the server uses the data directory. The command moves the old contents aside into a `restore-previous-` directory and installs the backup. It refuses an archive whose checksums fail or whose secrets do not match its database.
@@ -417,6 +486,8 @@ The build compiles the console and then a static program with `CGO_ENABLED=0`, a
 | `port is already allocated` | Another program uses port 8787 on the host. Change the left side of the `ports` line in the compose file, and set `SESAME_PUBLIC_URL` to the same port. |
 | The log says another server is using the data directory | A second process or a running restore holds the lock. Stop it first. |
 | The Updates page shows `feed_rollback` | The feed host served a feed older than one this server already accepted. The server keeps the last good result. If the host's own sequence numbers went backwards by mistake, it must publish a feed with a higher number. |
+| The server prints a usage error for `--stdout` or `--stdin` | The server predates encrypted backup export. Use the `export-backup.mjs` from the same release tag as that server, or upgrade before following the encrypted export section. |
+| The export or verify command cannot find a usable age program | Install age 1.3.2 on the machine that runs the operator command, or name the age program with `--age`. The server image does not include age. |
 | The log says the database was written by a newer server | Run the newer release again, or restore a backup made by the older one. |
 | The log says the restored database is waiting for local recovery approval | Run `docker compose run --rm --no-deps sesame recover --status`, then approve the generation with the owners and devices to keep. The server refuses to start until you do. |
 

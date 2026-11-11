@@ -136,6 +136,12 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
+      - name: Build the pinned age tools outside the image
+        run: |
+          mkdir -p "$RUNNER_TEMP/age-tools"
+          GOBIN="$RUNNER_TEMP/age-tools" go install filippo.io/age/cmd/age@v1.3.2 filippo.io/age/cmd/age-keygen@v1.3.2
+          echo "$RUNNER_TEMP/age-tools" >> "$GITHUB_PATH"
+
       - run: npm ci
         working-directory: web/console
 
@@ -146,7 +152,14 @@ jobs:
       - run: npm run release:check
         working-directory: web/console
 
+      - name: Run the operator contract with real age
+        run: npm run backup:contract
+        env:
+          SESAME_REQUIRE_AGE: "1"
+
       - run: npm run selfhost:smoke -- --skip-console-build
+
+      - run: npm run backup:contract:age
 
   selfhost-image:
     runs-on: ubuntu-latest
@@ -198,14 +211,25 @@ jobs:
         with:
           node-version-file: .node-version
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Build the pinned age tools outside the image
+        run: |
+          mkdir -p "$RUNNER_TEMP/age-tools"
+          GOBIN="$RUNNER_TEMP/age-tools" go install filippo.io/age/cmd/age@v1.3.2 filippo.io/age/cmd/age-keygen@v1.3.2
+          echo "$RUNNER_TEMP/age-tools" >> "$GITHUB_PATH"
+
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           name: selfhost-image-ci
 
       - run: docker load --input selfhost-image.tar
 
-      - name: Follow the quick start, backup and restore sections of SELF-HOSTING.md
-        run: node scripts/selfhost-quickstart.mjs --mode local --image sesame-selfhost:ci-amd64
+      - name: Follow the quick start, backup, restore and encrypted export sections of SELF-HOSTING.md
+        run: node scripts/selfhost-export-check.mjs --mode docker --image sesame-selfhost:ci-amd64
 
   selfhost-upgrade:
     needs: selfhost-image
