@@ -7,4 +7,12 @@
 .env*
 .github
 deploy
+!deploy
+deploy/*
+!deploy/selfhost
+deploy/selfhost/*
+!deploy/selfhost/*.go
+deploy/selfhost/*_test.go
+!deploy/selfhost/compose.yaml
+!deploy/selfhost/Caddyfile
 **/.vite

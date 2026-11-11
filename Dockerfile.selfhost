@@ -11,6 +11,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
+COPY deploy/selfhost ./deploy/selfhost
 COPY --from=console /src/dist ./internal/selfhost/console/dist
 ARG TARGETOS
 ARG TARGETARCH

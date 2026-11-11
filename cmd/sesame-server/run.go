@@ -42,9 +42,10 @@ func defaultEnvironment(lookup config.Lookup, stdin io.Reader, stdout, stderr io
 }
 
 type parsed struct {
-	name  string
-	args  []string
-	flags CommandFlags
+	name    string
+	args    []string
+	flags   CommandFlags
+	install InstallRequest
 }
 
 func run(ctx context.Context, args []string, env Environment) int {
@@ -63,6 +64,14 @@ func run(ctx context.Context, args []string, env Environment) int {
 	}
 	if command.name == "help" {
 		fmt.Fprint(env.Stdout, usage)
+		return exitOK
+	}
+	if command.name == "install" {
+		invocation := Invocation{Install: command.install, Flags: command.flags, Stdin: env.Stdin, Stdout: env.Stdout, Stderr: env.Stderr, Version: env.Version}
+		if err := env.Commands.Install.Run(ctx, invocation); err != nil {
+			fmt.Fprintf(env.Stderr, "sesame-server: %v\n", err)
+			return exitFailure
+		}
 		return exitOK
 	}
 	cfg, err := config.Load(env.Lookup)
@@ -145,6 +154,13 @@ func parseCommand(args []string) (parsed, error) {
 			return parsed{}, err
 		}
 		return parsed{name: name, args: positional, flags: flags}, nil
+	}
+	if name == "install" {
+		request, flags, err := parseInstallArgs(rest)
+		if err != nil {
+			return parsed{}, err
+		}
+		return parsed{name: name, flags: flags, install: request}, nil
 	}
 	var minArgs, maxArgs int
 	switch name {

@@ -4,6 +4,8 @@ const usage = `Usage: sesame-server [command] [arguments]
 
 Commands:
   serve                 Run the server. This is the default.
+  install --profile local|caddy|tailscale --version <tag> --dir <path> [--host <name>] [--json]
+                        Generate Compose files and a plan in a new private directory. Caddy and Tailscale need --host. Nothing is started.
   backup [--stdout] [path]
                         Write a backup of the database and secrets. With --stdout, write the archive to standard output.
   restore <file|->      Restore a backup into the data directory. Use - to read it from standard input.
