@@ -16,6 +16,8 @@ import (
 
 type snapshot struct {
 	database string
+	durable  map[string][]string
+	audit    []string
 	secrets  map[string]string
 	config   string
 }
@@ -72,7 +74,12 @@ func restoreFixture(t *testing.T) (oldInst, newInst *instance, archive string, o
 	archive = newInst.backup(t)
 	oldState = takeSnapshot(t, oldInst.dir)
 	u := unpack(t, archive)
-	newState = snapshot{database: fileDigest(t, u.path(DatabaseName)), secrets: map[string]string{}}
+	newState = snapshot{
+		database: fileDigest(t, u.path(DatabaseName)),
+		durable:  durableRows(t, u.path(DatabaseName)),
+		audit:    tableRows(t, u.path(DatabaseName), "audit_log"),
+		secrets:  map[string]string{},
+	}
 	for _, name := range secrets.Files() {
 		newState.secrets[name] = fileDigest(t, u.path("secrets/"+name))
 	}

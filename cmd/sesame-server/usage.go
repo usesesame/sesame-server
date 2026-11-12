@@ -9,8 +9,8 @@ Commands:
   check [file]          Verify the database, or a backup file, opens and is intact.
   recover [--status] [--json]
                         Show the recovery state after a restore.
-  recover --confirm <generation> --retain-owner <id> --retain-device <id> [--json]
-                        Approve a restored database and choose the owners and devices to keep.
+  recover --confirm <generation> [--retain-owner <id>] [--retain-device <id>] [--json]
+                        Approve a restored database and choose the owners and devices to keep. Keep at least one owner when the restore holds a complete owner.
   owner reset <name>    Print a one-time link that sets a new password and authenticator for an owner.
   updates reset-sequence  Forget the highest accepted update feed sequence for every signing key.
   export [path]         Write the members, devices and audit log as JSON.

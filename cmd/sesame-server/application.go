@@ -56,7 +56,7 @@ func openStore(ctx context.Context, cfg config.Config, loaded *secrets.Secrets, 
 		return nil, fmt.Errorf("%s was written by a newer Sesame server and this one refuses to open it: %w", databasePath(cfg), err)
 	}
 	if errors.Is(err, selfhost.ErrRecoveryPending) {
-		return nil, fmt.Errorf("%s holds a restored database that is waiting for local recovery approval; run sesame-server recover --status and then approve it with sesame-server recover --confirm <generation> --retain-owner <id> --retain-device <id>: %w", databasePath(cfg), err)
+		return nil, fmt.Errorf("%s holds a restored database that is waiting for local recovery approval; run sesame-server recover --status and then approve it with sesame-server recover --confirm <generation> [--retain-owner <id>] [--retain-device <id>]: %w", databasePath(cfg), err)
 	}
 	if errors.Is(err, selfhost.ErrRecoveryStateInvalid) {
 		return nil, fmt.Errorf("%s has invalid recovery state and will not be opened: %w", databasePath(cfg), err)

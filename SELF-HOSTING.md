@@ -229,7 +229,7 @@ docker compose run --rm --no-deps sesame recover --status --json
 
 Approve the restore with the generation and the owner and device `id` values from status. Repeat `--retain-owner` and `--retain-device` to keep more than one, and leave out `--retain-device` when no device should keep access. A device you do not name is revoked, including a device that was active in the archive, and every owner you do not name is removed. There is no option that keeps everything. A retained owner's device must belong to an owner you retain. A member's device can be retained if the member has not been removed. A device that is already revoked or expired cannot be retained. At least one complete owner must be retained when the archive holds one.
 
-Retention is a security decision. A retained device keeps the token from the backup, so select only devices you still hold. A retained owner signs in with the credentials that were in the backup, which may predate a password or authenticator change. Run `owner reset` after approval if those credentials are suspect.
+Retention is a security decision. A retained device keeps the token from the backup, so select only devices you still hold. A retained owner signs in with the credentials that were in the backup, which may predate a password or authenticator change. If those credentials are suspect, reset the owner after approval and before you start the server with `docker compose run --rm --no-deps sesame owner reset "owner name"`. The reset also revokes every device paired to that owner, so pair those devices again afterwards.
 
 Set `SESAME_RECOVERY_GENERATION`, `SESAME_RETAIN_OWNER_ID` and `SESAME_RETAIN_DEVICE_ID` from the status output, then run the approval block.
 
