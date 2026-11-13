@@ -44,6 +44,7 @@ func (g generator) generate(ctx context.Context, options Options) (plan Plan, er
 	published := false
 	committed := false
 	defer func() {
+		defer closePins(created)
 		if committed || published {
 			target.close()
 			return

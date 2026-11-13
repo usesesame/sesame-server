@@ -37,6 +37,34 @@ type renderedFile struct {
 type createdFile struct {
 	name string
 	info fs.FileInfo
+	pin  *os.File
+}
+
+func pinCreatedFile(root *os.Root, name string, info fs.FileInfo) (*os.File, error) {
+	if runtime.GOOS == "windows" {
+		return nil, nil
+	}
+	pin, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	pinned, err := pin.Stat()
+	if err == nil && !os.SameFile(info, pinned) {
+		err = fmt.Errorf("%s changed while it was being created", name)
+	}
+	if err != nil {
+		_ = pin.Close()
+		return nil, err
+	}
+	return pin, nil
+}
+
+func closePins(created []createdFile) {
+	for _, file := range created {
+		if file.pin != nil {
+			_ = file.pin.Close()
+		}
+	}
 }
 
 type target struct {
@@ -300,7 +328,13 @@ func (g generator) writeNewFile(ctx context.Context, root *os.Root, name string,
 		_ = root.Remove(name)
 		return err
 	}
-	*created = append(*created, createdFile{name: name, info: info})
+	pin, err := pinCreatedFile(root, name, info)
+	if err != nil {
+		_ = file.Close()
+		_ = removeIfSame(root, name, info)
+		return err
+	}
+	*created = append(*created, createdFile{name: name, info: info, pin: pin})
 	failed := func(cause error) error {
 		_ = file.Close()
 		if removeErr := removeIfSame(root, name, info); removeErr != nil {
