@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -16,15 +17,16 @@ import (
 )
 
 const (
-	journalName     = ".restore-journal"
-	stagingPrefix   = ".restore-new-"
-	asidePrefix     = "restore-previous-"
-	journalVersion  = 1
-	phaseMovingOld  = "moving-old"
-	phaseInstalling = "installing-new"
-	phaseCommitted  = "committed"
-	asideTimeFormat = "20060102T150405Z"
-	journalMode     = 0o600
+	journalName        = ".restore-journal"
+	stagingPrefix      = ".restore-new-"
+	restoreInputPrefix = ".restore-input-"
+	asidePrefix        = "restore-previous-"
+	journalVersion     = 1
+	phaseMovingOld     = "moving-old"
+	phaseInstalling    = "installing-new"
+	phaseCommitted     = "committed"
+	asideTimeFormat    = "20060102T150405Z"
+	journalMode        = 0o600
 )
 
 var errSimulatedCrash = errors.New("ops: simulated crash")
@@ -41,9 +43,10 @@ type journal struct {
 }
 
 type RestoreResult struct {
-	Report    Report
-	AsideDir  string
-	Recovered string
+	Report          Report
+	InstalledSchema int
+	AsideDir        string
+	Recovered       string
 }
 
 func Restore(ctx context.Context, file, dataDir string, options ...Option) (RestoreResult, error) {
@@ -51,31 +54,69 @@ func Restore(ctx context.Context, file, dataDir string, options ...Option) (Rest
 	if err != nil {
 		return RestoreResult{}, err
 	}
-	dataDir, err = filepath.Abs(dataDir)
+	dataDir, lock, result, err := beginRestore(ctx, dataDir, cfg)
+	if err != nil {
+		return result, err
+	}
+	defer releaseLock(lock, cfg.logger)
+	return restoreLocked(ctx, file, dataDir, cfg, result)
+}
+
+func RestoreReader(ctx context.Context, input io.Reader, dataDir string, options ...Option) (RestoreResult, error) {
+	cfg, err := newConfig(options)
 	if err != nil {
 		return RestoreResult{}, err
 	}
+	if input == nil {
+		return RestoreResult{}, errors.New("ops: restore input is required")
+	}
+	dataDir, lock, result, err := beginRestore(ctx, dataDir, cfg)
+	if err != nil {
+		return result, err
+	}
+	defer releaseLock(lock, cfg.logger)
+	archive, err := stageRestoreInput(ctx, dataDir, input, cfg.limits)
+	if err != nil {
+		return result, err
+	}
+	defer func() { _ = os.Remove(archive) }()
+	return restoreLocked(ctx, archive, dataDir, cfg, result)
+}
+
+func beginRestore(ctx context.Context, dataDir string, cfg config) (string, *Lock, RestoreResult, error) {
+	var result RestoreResult
+	dataDir, err := filepath.Abs(dataDir)
+	if err != nil {
+		return "", nil, result, err
+	}
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
-		return RestoreResult{}, fmt.Errorf("data directory %s cannot be created: %w", dataDir, err)
+		return "", nil, result, fmt.Errorf("data directory %s cannot be created: %w", dataDir, err)
 	}
 	lock, err := AcquireInstanceLock(dataDir)
 	if err != nil {
-		return RestoreResult{}, err
+		return "", nil, result, err
 	}
-	defer releaseLock(lock, cfg.logger)
-
-	var result RestoreResult
 	if result.Recovered, err = recoverLocked(dataDir); err != nil {
-		return result, err
+		releaseLock(lock, cfg.logger)
+		return "", nil, result, err
 	}
 	busy, err := writeLockBusy(ctx, filepath.Join(dataDir, DatabaseName))
 	if err != nil {
-		return result, err
+		releaseLock(lock, cfg.logger)
+		return "", nil, result, err
 	}
 	if busy {
-		return result, fmt.Errorf("%w: the database has an open write lock", ErrInstanceRunning)
+		releaseLock(lock, cfg.logger)
+		return "", nil, result, fmt.Errorf("%w: the database has an open write lock", ErrInstanceRunning)
 	}
+	if err := cleanupRestoreTemporaryFiles(dataDir); err != nil {
+		releaseLock(lock, cfg.logger)
+		return "", nil, result, err
+	}
+	return dataDir, lock, result, nil
+}
 
+func restoreLocked(ctx context.Context, file, dataDir string, cfg config, result RestoreResult) (RestoreResult, error) {
 	suffix, err := randomSuffix()
 	if err != nil {
 		return result, err
@@ -96,8 +137,13 @@ func Restore(ctx context.Context, file, dataDir string, options ...Option) (Rest
 	if err != nil {
 		return result, err
 	}
-	for _, leftover := range []string{DatabaseName + "-wal", DatabaseName + "-shm"} {
-		_ = os.Remove(filepath.Join(staging, leftover))
+	installed, err := prepareRestoreDatabase(ctx, staging, cfg.now)
+	if err != nil {
+		return result, err
+	}
+	result.InstalledSchema = installed
+	if err := removeStagedDatabaseSidecars(staging); err != nil {
+		return result, err
 	}
 	if err := syncTree(staging); err != nil {
 		return result, err
@@ -106,6 +152,9 @@ func Restore(ctx context.Context, file, dataDir string, options ...Option) (Rest
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if err := cfg.step("restore-prepared"); err != nil {
 		return result, err
 	}
 
@@ -120,6 +169,58 @@ func Restore(ctx context.Context, file, dataDir string, options ...Option) (Rest
 		return result, err
 	}
 	return result, nil
+}
+
+func stageRestoreInput(ctx context.Context, dataDir string, input io.Reader, limits Limits) (string, error) {
+	file, err := os.CreateTemp(dataDir, restoreInputPrefix)
+	if err != nil {
+		return "", fmt.Errorf("temporary input for the restore cannot be created: %w", err)
+	}
+	path := file.Name()
+	cleanup := func() { _ = os.Remove(path) }
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", err
+	}
+	max := limits.maxArchiveBytes()
+	written, err := io.Copy(file, io.LimitReader(contextReader{ctx: ctx, reader: input}, max+1))
+	if err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", fmt.Errorf("the restore archive from standard input cannot be stored: %w", err)
+	}
+	if written > max {
+		_ = file.Close()
+		cleanup()
+		return "", invalid("the archive from standard input is over the limit of %d bytes", max)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		cleanup()
+		return "", err
+	}
+	if err := file.Close(); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
+		cleanup()
+		return "", err
+	}
+	return path, nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 func swap(dataDir, staging string, cfg config) (string, error) {
@@ -295,7 +396,11 @@ func Recover(dataDir string) (string, error) {
 		return "", err
 	}
 	present, err := exists(filepath.Join(dataDir, journalName))
-	if err != nil || !present {
+	if err != nil {
+		return "", err
+	}
+	temporary, err := restoreTemporaryFiles(dataDir)
+	if err != nil || (!present && len(temporary) == 0) {
 		return "", err
 	}
 	lock, err := AcquireInstanceLock(dataDir)
@@ -303,7 +408,17 @@ func Recover(dataDir string) (string, error) {
 		return "", err
 	}
 	defer releaseLock(lock, slog.Default())
-	return recoverLocked(dataDir)
+	recovered, err := recoverLocked(dataDir)
+	if err != nil {
+		return "", err
+	}
+	if err := cleanupRestoreTemporaryFiles(dataDir); err != nil {
+		return "", err
+	}
+	if recovered == "" && len(temporary) > 0 {
+		return "discarded interrupted restore files", nil
+	}
+	return recovered, nil
 }
 
 func recoverLocked(dataDir string) (string, error) {

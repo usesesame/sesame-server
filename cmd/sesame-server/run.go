@@ -20,6 +20,7 @@ const (
 
 type Environment struct {
 	Lookup   config.Lookup
+	Stdin    io.Reader
 	Stdout   io.Writer
 	Stderr   io.Writer
 	Commands Commands
@@ -27,9 +28,10 @@ type Environment struct {
 	Commit   string
 }
 
-func defaultEnvironment(lookup config.Lookup, stdout, stderr io.Writer) Environment {
+func defaultEnvironment(lookup config.Lookup, stdin io.Reader, stdout, stderr io.Writer) Environment {
 	return Environment{
 		Lookup:   lookup,
+		Stdin:    stdin,
 		Stdout:   stdout,
 		Stderr:   stderr,
 		Commands: wireCommands(),
@@ -67,7 +69,7 @@ func run(ctx context.Context, args []string, env Environment) int {
 		return exitFailure
 	}
 	logger := newLogger(env.Stderr, cfg)
-	invocation := Invocation{Config: cfg, Args: command.args, Stdout: env.Stdout, Stderr: env.Stderr, Logger: logger, Version: env.Version}
+	invocation := Invocation{Config: cfg, Args: command.args, Stdin: env.Stdin, Stdout: env.Stdout, Stderr: env.Stderr, Logger: logger, Version: env.Version}
 	if err := execute(ctx, command, env, invocation); err != nil {
 		fmt.Fprintf(env.Stderr, "sesame-server: %v\n", err)
 		return exitFailure
@@ -95,6 +97,8 @@ func execute(ctx context.Context, command parsed, env Environment, invocation In
 		return env.Commands.UpdatesReset.Run(ctx, invocation)
 	case "export":
 		return env.Commands.Export.Run(ctx, invocation)
+	case "recover":
+		return env.Commands.Recover.Run(ctx, invocation)
 	case "healthcheck":
 		return healthcheck(ctx, invocation)
 	}
@@ -126,6 +130,12 @@ func parseCommand(args []string) (parsed, error) {
 			return parsed{}, errors.New("updates needs the subcommand reset-sequence, as in: sesame-server updates reset-sequence")
 		}
 		name, rest = "updates reset-sequence", rest[1:]
+	}
+	if name == "recover" {
+		if _, err := parseRecoverArgs(rest); err != nil {
+			return parsed{}, err
+		}
+		return parsed{name: name, args: rest}, nil
 	}
 	var minArgs, maxArgs int
 	switch name {

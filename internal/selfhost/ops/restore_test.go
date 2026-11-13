@@ -11,10 +11,13 @@ import (
 	"testing"
 
 	"usesesame.app/backend/internal/selfhost/secrets"
+	"usesesame.app/backend/internal/selfhost/sqlitestore"
 )
 
 type snapshot struct {
 	database string
+	durable  map[string][]string
+	audit    []string
 	secrets  map[string]string
 	config   string
 }
@@ -71,7 +74,12 @@ func restoreFixture(t *testing.T) (oldInst, newInst *instance, archive string, o
 	archive = newInst.backup(t)
 	oldState = takeSnapshot(t, oldInst.dir)
 	u := unpack(t, archive)
-	newState = snapshot{database: fileDigest(t, u.path(DatabaseName)), secrets: map[string]string{}}
+	newState = snapshot{
+		database: fileDigest(t, u.path(DatabaseName)),
+		durable:  durableRows(t, u.path(DatabaseName)),
+		audit:    tableRows(t, u.path(DatabaseName), "audit_log"),
+		secrets:  map[string]string{},
+	}
 	for _, name := range secrets.Files() {
 		newState.secrets[name] = fileDigest(t, u.path("secrets/"+name))
 	}
@@ -91,7 +99,7 @@ func TestRestoreReplacesDataAndKeepsPreviousAside(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSnapshot(t, oldInst.dir, newState, "restored")
+	assertRestored(t, oldInst.dir, newState, "restored")
 	if _, err := os.Lstat(filepath.Join(oldInst.dir, ConfigName)); err == nil {
 		t.Fatal("config.json from the old data remained although the backup has none")
 	}
@@ -117,7 +125,7 @@ func TestRestoreReplacesDataAndKeepsPreviousAside(t *testing.T) {
 	if again.AsideDir == result.AsideDir {
 		t.Fatal("second restore reused the aside directory")
 	}
-	assertSnapshot(t, again.AsideDir, newState, "second aside")
+	assertRestored(t, again.AsideDir, newState, "second aside")
 }
 
 func TestRestoreIntoEmptyDirectory(t *testing.T) {
@@ -127,7 +135,7 @@ func TestRestoreIntoEmptyDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSnapshot(t, target, newState, "fresh restore")
+	assertRestored(t, target, newState, "fresh restore")
 	entries, _ := os.ReadDir(result.AsideDir)
 	if len(entries) != 0 {
 		t.Fatalf("aside directory of an empty target holds %v", entries)
@@ -258,7 +266,22 @@ func TestInterruptedRestoreLeavesOldOrNewData(t *testing.T) {
 				if recovered != "completed" {
 					t.Fatalf("recovered = %q", recovered)
 				}
-				assertSnapshot(t, oldInst.dir, newState, "after recovery")
+				assertRestored(t, oldInst.dir, newState, "after recovery")
+				loaded, err := secrets.Load(oldInst.dir)
+				if err != nil {
+					t.Fatal(err)
+				}
+				store, err := sqlitestore.Open(context.Background(), sqlitestore.Options{
+					Path: filepath.Join(oldInst.dir, DatabaseName), AdminKey: loaded.AdminEncryptionKey, ReadOnly: true,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				status, err := store.RecoveryStatus(context.Background())
+				store.Close()
+				if err != nil || !status.Pending || status.Generation == "" || status.CompletedAt != nil {
+					t.Fatalf("committed crash lost pending recovery: %+v, %v", status, err)
+				}
 			}
 			assertCleanDataDir(t, oldInst.dir)
 
@@ -269,7 +292,7 @@ func TestInterruptedRestoreLeavesOldOrNewData(t *testing.T) {
 			if _, err := Restore(context.Background(), archive, oldInst.dir); err != nil {
 				t.Fatalf("restore after recovery: %v", err)
 			}
-			assertSnapshot(t, oldInst.dir, newState, "final restore")
+			assertRestored(t, oldInst.dir, newState, "final restore")
 		})
 	}
 }
@@ -297,7 +320,7 @@ func TestInterruptedRestoreIsRecoveredByNextRestore(t *testing.T) {
 	if result.Recovered != "rolled back" {
 		t.Fatalf("recovered = %q", result.Recovered)
 	}
-	assertSnapshot(t, oldInst.dir, newState, "after second restore")
+	assertRestored(t, oldInst.dir, newState, "after second restore")
 	assertSnapshot(t, result.AsideDir, oldState, "previous data after recovered restore")
 }
 

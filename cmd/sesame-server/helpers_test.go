@@ -71,5 +71,5 @@ func testEnvironment(t *testing.T, values map[string]string, commands Commands) 
 		merged[key] = value
 	}
 	stdout, stderr := &syncBuffer{}, &syncBuffer{}
-	return Environment{Lookup: lookupFrom(merged), Stdout: stdout, Stderr: stderr, Commands: commands, Version: "9.9.9-test", Commit: "abc1234"}, stdout, stderr
+	return Environment{Lookup: lookupFrom(merged), Stdin: bytes.NewReader(nil), Stdout: stdout, Stderr: stderr, Commands: commands, Version: "9.9.9-test", Commit: "abc1234"}, stdout, stderr
 }

@@ -14,6 +14,8 @@ import {
   setupTokenFrom,
 } from './selfhost-client.mjs'
 import { containerLogs, docker, dockerAllowFailure, run, waitUntil } from './selfhost-docker.mjs'
+import { repositoryRoot } from './selfhost-doc.mjs'
+import { assertRecoveryStatus, parseRecoveryJson, readInstalledSchema, redactSensitiveLog, skipAllowedWithoutUpgrade } from './selfhost-recovery.mjs'
 
 const imageRepository = 'ghcr.io/usesesame/sesame-server-selfhost'
 const ownerName = 'upgrade-owner'
@@ -28,8 +30,8 @@ let passed = 0
 try {
   if ((await main()) !== false) console.log(`Upgrade check passed: ${passed} checks.\n${summary.join('\n')}`)
 } catch (error) {
-  console.error(`Upgrade check failed: ${error.stack ?? error}`)
-  for (const name of containers) console.error(`\n--- ${name} log ---\n${containerLogs(name).slice(-3000)}`)
+  console.error(`Upgrade check failed: ${redactSensitiveLog(error.stack ?? error)}`)
+  for (const name of containers) console.error(`\n--- ${name} log ---\n${redactSensitiveLog(containerLogs(name).slice(-3000))}`)
   process.exitCode = 1
 } finally {
   for (const name of containers) dockerAllowFailure(['rm', '--force', name])
@@ -121,11 +123,13 @@ function stopContainer(name) {
 }
 
 async function main() {
+  const expectedSchema = readInstalledSchema(repositoryRoot)
   let fromImage = options.from
   let fromVersion = ''
   if (options.fromPublished) {
     const previous = previousPublishedImage()
     if (!previous && options.noneOk) {
+      assert.ok(skipAllowedWithoutUpgrade(expectedSchema), `No earlier published image exists, and this checkout installs schema ${expectedSchema}, so the schema transition cannot be skipped.`)
       console.log(`::notice::No release before ${options.before || 'now'} has a published self-host image, so no upgrade was tested.`)
       console.log('Upgrade check did not run: there is no earlier published image.')
       return false
@@ -165,7 +169,7 @@ async function main() {
     expectStatus(await desktopStatus(instance, state.device.token), 200, 'the device token after the upgrade')
     const system = await ownerSystem(session)
     assert.equal(system.auditChainOk, true, 'the audit chain does not verify after the upgrade')
-    assert.ok(system.schemaVersion >= state.schema, 'the schema went backwards')
+    assert.equal(system.schemaVersion, expectedSchema, `the upgraded database is at schema ${system.schemaVersion}, but this checkout installs schema ${expectedSchema}`)
     return { version: live.version, schema: system.schemaVersion }
   })
 
@@ -183,6 +187,13 @@ async function main() {
   })
 
   await check('the new image stops cleanly', async () => stopContainer('sesame-upgrade-new'))
+
+  await check('a normal upgrade leaves no recovery approval pending', async () => {
+    const result = docker(['run', '--rm', '--volume', `${volume}:/data`, options.to, 'recover', '--status', '--json'])
+    const status = assertRecoveryStatus(parseRecoveryJson(result.stdout, 'recovery status after the upgrade'), 'recovery status after the upgrade')
+    assert.equal(status.pending, false, 'a normal upgrade asked for recovery approval')
+    assert.equal(status.generation, '', 'a normal upgrade invented a recovery generation')
+  })
 
   startContainer('sesame-upgrade-back', fromImage, port)
   await check('rolling back to the previous image behaves as SELF-HOSTING.md says', async () => {

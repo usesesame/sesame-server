@@ -9,7 +9,9 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := run(ctx, os.Args[1:], defaultEnvironment(os.LookupEnv, os.Stdout, os.Stderr))
+	input, closeInput := interruptibleStdin(ctx, os.Stdin)
+	code := run(ctx, os.Args[1:], defaultEnvironment(os.LookupEnv, input, os.Stdout, os.Stderr))
+	closeInput()
 	stop()
 	os.Exit(code)
 }

@@ -20,6 +20,7 @@ import {
   requestSigningPayload,
   signEd25519,
 } from './sync-wire.mjs'
+import { approvalArguments, assertApprovalResult, assertRecoveryStatus, parseRecoveryJson, redactSensitiveLog } from './selfhost-recovery.mjs'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const consoleRoot = join(root, 'web', 'console')
@@ -43,8 +44,8 @@ try {
   await main()
   console.log(`Self-host smoke passed: ${passed} checks.`)
 } catch (error) {
-  console.error(`Self-host smoke failed: ${error.stack ?? error}`)
-  for (const server of servers) console.error(`\n--- server log (port ${server.port}) ---\n${server.log().slice(-4000)}`)
+  console.error(`Self-host smoke failed: ${redactSensitiveLog(error.stack ?? error)}`)
+  for (const server of servers) console.error(`\n--- server log (port ${server.port}) ---\n${redactSensitiveLog(server.log().slice(-4000))}`)
   process.exitCode = 1
 } finally {
   for (const server of servers) await server.stop().catch(() => {})
@@ -392,6 +393,18 @@ function browser(server) {
 
 function cli(binary, dataDir, port, args, extra = {}) {
   return run(binary, args, { env: serverEnvironment(dataDir, port, extra), stdio: ['ignore', 'pipe', 'pipe'] })
+}
+
+function recoveryStatus(binary, dataDir, port) {
+  const result = cli(binary, dataDir, port, ['recover', '--status', '--json'])
+  assert.equal(result.status, 0, result.stderr)
+  return assertRecoveryStatus(parseRecoveryJson(result.stdout, 'recover --status --json'), 'recover --status --json')
+}
+
+function approveRecovery(binary, dataDir, port, status, selection) {
+  const result = cli(binary, dataDir, port, approvalArguments(status, selection))
+  assert.equal(result.status, 0, result.stderr)
+  return parseRecoveryJson(result.stdout, 'recover --confirm')
 }
 
 async function main() {
@@ -758,19 +771,28 @@ async function main() {
     return response.json.owner
   })
 
-  const [tokenA, tokenB] = await check('the owner links two desktops to the owner account', async () => {
-    const tokens = []
+  const desktops = await check('the owner links two desktops to the owner account', async () => {
+    const linkedDevices = []
     for (const deviceName of ['Smoke laptop A', 'Smoke laptop B']) {
       const created = expectStatus(await owner.call('POST', '/v1/owner/pairings', { json: { self: true, deviceName } }), 201, 'owner pairing')
       assert.equal(created.json.holder.kind, 'owner')
       const linked = expectStatus(await request(first, 'POST', '/v1/desktop/link', { json: { code: created.json.code, deviceName: `${deviceName} desktop` } }), 201, 'desktop link')
-      tokens.push(linked.json.accessToken)
+      linkedDevices.push({ token: linked.json.accessToken, deviceId: linked.json.device.deviceId })
     }
-    return tokens
+    return linkedDevices
+  })
+  const [desktopA, desktopB] = desktops
+
+  const abandonedPairing = await check('the owner leaves an unused pairing in the backup', async () => {
+    const created = expectStatus(await owner.call('POST', '/v1/owner/pairings', { json: { self: true, deviceName: 'Never redeemed' } }), 201, 'unused pairing')
+    assert.ok(created.json.code.length >= 32, 'the unused pairing code is too short')
+    const listed = expectStatus(await owner.call('GET', '/v1/owner/pairings'), 200, 'pairings before the backup')
+    assert.ok(listed.json.pairings.some((entry) => entry.id === created.json.pairingId), 'the unused pairing is not pending before the backup')
+    return created.json.code
   })
 
-  const syncA = syncDevice('syncDeskAlpha000001', tokenA)
-  const syncB = syncDevice('syncDeskBravo000002', tokenB)
+  const syncA = syncDevice('syncDeskAlpha000001', desktopA.token)
+  const syncB = syncDevice('syncDeskBravo000002', desktopB.token)
   const vaultId = 'vaultSmokeAlpha0001'
   const ciphertextOne = randomBytes(256)
   const ciphertextTwo = randomBytes(256)
@@ -897,10 +919,18 @@ async function main() {
     assert.equal(holder.currentRevision, 2)
   })
 
-  await check('the owner resets the synced vault with a fresh sign-in and the state route reports no vault', async () => {
-    expectStatus(await owner.call('POST', '/v1/owner/step-up', { json: { password: ownerPassword, code: await freshTotp(ownerSecret) } }), 200, 'step-up before reset')
-    expectStatus(await owner.call('DELETE', `/v1/owner/sync/owner/${syncOwner.id}`), 204, 'reset synced vault')
-    expectError(await request(first, 'GET', '/v1/sync/state', tokenHeaders(syncA)), 404, 'sync_vault_not_found', 'state after reset')
+  const backedUpSync = await check('the synced vault and device list read back before the backup', async () => {
+    const state = expectStatus(await request(first, 'GET', '/v1/sync/state', tokenHeaders(syncA)), 200, 'sync state before the backup')
+    const headers = expectStatus(await request(first, 'GET', '/v1/sync/headers?after=0', tokenHeaders(syncA)), 200, 'headers before the backup')
+    const devices = expectStatus(await request(first, 'GET', '/v1/sync/devices', tokenHeaders(syncA)), 200, 'devices before the backup')
+    return {
+      vaultId: state.json.vaultId,
+      vaultEpoch: state.json.vaultEpoch,
+      headIndex: state.json.headIndex,
+      currentRevision: state.json.currentRevision,
+      digests: headers.json.headers.map((header) => header.digest),
+      deviceIds: devices.json.devices.map((device) => device.deviceId).sort(),
+    }
   })
 
   await check('a health probe from the CLI succeeds while the server runs', async () => {
@@ -921,6 +951,12 @@ async function main() {
     assert.match(verified.stdout, /secrets match the database: true/)
     const again = cli(binary, dataDir, first.port, ['backup', backupFile])
     assert.notEqual(again.status, 0, 'backup overwrote an existing file')
+  })
+
+  await check('the owner resets the synced vault with a fresh sign-in and the state route reports no vault', async () => {
+    expectStatus(await owner.call('POST', '/v1/owner/step-up', { json: { password: ownerPassword, code: await freshTotp(ownerSecret) } }), 200, 'step-up before reset')
+    expectStatus(await owner.call('DELETE', `/v1/owner/sync/owner/${syncOwner.id}`), 204, 'reset synced vault')
+    expectError(await request(first, 'GET', '/v1/sync/state', tokenHeaders(syncA)), 404, 'sync_vault_not_found', 'state after reset')
   })
 
   await check('check, export and owner reset also work while the server runs', async () => {
@@ -967,29 +1003,93 @@ async function main() {
     assert.ok(!exported.stdout.includes(ownerSecret), 'the export holds the TOTP secret')
   })
 
-  await check('restore rebuilds the instance in a second directory', async () => {
-    const port = await freePort()
-    const result = cli(binary, restoredDir, port, ['restore', backupFile])
+  const restoredPort = await freePort()
+  await check('restore stages the backup in a second directory without starting an approval', async () => {
+    const result = cli(binary, restoredDir, restoredPort, ['restore', backupFile])
     assert.equal(result.status, 0, result.stderr)
-    const verified = cli(binary, restoredDir, port, ['check'])
+    assert.match(result.stdout, /installed schema \d+/)
+    const verified = cli(binary, restoredDir, restoredPort, ['check'])
     assert.equal(verified.status, 0, verified.stderr)
     assert.match(verified.stdout, /passed its checks/)
   })
 
+  await check('the restored database refuses to start before recovery approval', async () => {
+    const result = run(binary, ['serve'], { env: serverEnvironment(restoredDir, restoredPort), stdio: ['ignore', 'pipe', 'pipe'], timeout: 15000 })
+    assert.equal(result.status, 1, 'the pending server did not refuse to start')
+    assert.match(result.stderr, /waiting for local recovery approval/)
+    assert.ok(!`${result.stdout}${result.stderr}`.includes('Sesame server listening'), 'the pending server listened')
+  })
+
+  const pending = await check('the restore reports the pending generation and its backed up principals', async () => {
+    const status = recoveryStatus(binary, restoredDir, restoredPort)
+    assert.equal(status.pending, true, 'the restored database is not pending')
+    const restoredOwner = status.owners.find((entry) => entry.id === syncOwner.id)
+    assert.ok(restoredOwner, 'the restored owner is missing')
+    assert.equal(restoredOwner.name, ownerName)
+    assert.equal(restoredOwner.setupPending, false)
+    for (const [deviceId, revoked] of [[desktopA.deviceId, false], [desktopB.deviceId, false], [desktop.deviceId, true]]) {
+      const restoredDevice = status.devices.find((entry) => entry.id === deviceId)
+      assert.ok(restoredDevice, `the restored device ${deviceId} is missing`)
+      if (revoked) assert.ok(restoredDevice.revokedAt, `the restored device ${deviceId} lost its revocation`)
+      else assert.equal(restoredDevice.revokedAt, null, `the restored device ${deviceId} is revoked`)
+    }
+    const serialized = JSON.stringify(status)
+    for (const secret of [desktopA.token, desktopB.token, desktop.token, owner.state.cookie, ownerSecret, ownerPassword, abandonedPairing]) {
+      assert.ok(!serialized.includes(secret), 'the recovery status printed a sensitive value')
+    }
+    return status
+  })
+
+  const selection = { ownerIds: [syncOwner.id], deviceIds: [desktopA.deviceId] }
+  await check('an explicit approval retains only the named owner and device', async () => {
+    const result = approveRecovery(binary, restoredDir, restoredPort, pending, selection)
+    assertApprovalResult(result, { status: pending, ...selection })
+    const completed = recoveryStatus(binary, restoredDir, restoredPort)
+    assert.equal(completed.pending, false, 'the approved restore is still pending')
+    assert.equal(completed.generation, pending.generation, 'the approval changed the generation')
+    assert.ok(completed.completedAt, 'the approved restore has no completion time')
+  })
+
+  await check('a repeated approval changes nothing', async () => {
+    const again = approveRecovery(binary, restoredDir, restoredPort, pending, selection)
+    assert.equal(again.alreadyComplete, true, 'a repeated approval applied a selection')
+    assert.equal(again.pending, false)
+    assert.equal(again.generation, pending.generation)
+    const completed = recoveryStatus(binary, restoredDir, restoredPort)
+    assert.equal(completed.pending, false)
+    assert.equal(completed.generation, pending.generation)
+  })
+
   const requestsBeforeRestore = feed.requests.length
   const restored = await startServer(binary, restoredDir)
-  await check('the restored server keeps the identity, the owner and the revocation', async () => {
+  await check('the restored server keeps the identity, the retained device and signed Sync history', async () => {
     const response = expectStatus(await request(restored, 'GET', '/v1/instance'), 200, 'restored instance')
     assert.equal(response.json.instanceId, instance.instanceId)
     assert.equal(response.json.fingerprint, instance.fingerprint)
     assert.equal(response.json.setupRequired, false)
     assert.ok(!/setup#token=/.test(restored.log()), 'the restored server logged a first-run setup link')
-    expectError(await request(restored, 'GET', '/v1/desktop/status', { headers: authorization }), 401, 'not_authenticated', 'revoked token on the restored server')
-    await clearOfPeriodEdge()
+    expectError(await request(restored, 'GET', '/v1/desktop/status', { headers: authorization }), 401, 'not_authenticated', 'the device revoked before the backup')
+    expectError(await request(restored, 'GET', '/v1/desktop/status', { headers: { authorization: `Sesame ${desktopB.token}` } }), 401, 'not_authenticated', 'the device left out of the approval')
+    const good = expectStatus(await request(restored, 'GET', '/v1/desktop/status', { headers: { authorization: `Sesame ${desktopA.token}` } }), 200, 'the retained device')
+    assert.equal(good.json.device.deviceId, desktopA.deviceId, 'the retained device changed its ID')
+    expectError(await request(restored, 'GET', '/v1/owner/session', { headers: { cookie: owner.state.cookie } }), 401, 'session_expired', 'the owner session from before the restore')
+    expectError(await request(restored, 'POST', '/v1/desktop/link', { json: { code: abandonedPairing, deviceName: 'Never redeemed' } }), 401, 'invalid_desktop_link', 'the pairing from before the restore')
+    const syncState = expectStatus(await request(restored, 'GET', '/v1/sync/state', tokenHeaders(syncA)), 200, 'the retained Sync state')
+    assert.equal(syncState.json.vaultId, backedUpSync.vaultId)
+    assert.equal(syncState.json.vaultEpoch, backedUpSync.vaultEpoch)
+    assert.equal(syncState.json.headIndex, backedUpSync.headIndex)
+    assert.equal(syncState.json.currentRevision, backedUpSync.currentRevision)
+    const syncHeaders = expectStatus(await request(restored, 'GET', '/v1/sync/headers?after=0', tokenHeaders(syncA)), 200, 'the retained Sync headers')
+    assert.deepEqual(syncHeaders.json.headers.map((header) => header.digest), backedUpSync.digests)
+    const syncDevices = expectStatus(await request(restored, 'GET', '/v1/sync/devices', tokenHeaders(syncA)), 200, 'the retained Sync device list')
+    assert.deepEqual(syncDevices.json.devices.map((device) => device.deviceId).sort(), backedUpSync.deviceIds)
     const session = browser(restored)
-    const login = await session.call('POST', '/v1/owner/login', { json: { name: ownerName, password: ownerPassword, code: totp(ownerSecret, 30) } })
-    expectStatus(login, 200, 'owner login on the restored server')
+    const login = expectStatus(await session.call('POST', '/v1/owner/login', {
+      json: { name: ownerName, password: ownerPassword, code: await freshTotp(ownerSecret) },
+    }), 200, 'the restored owner sign-in')
     session.adopt(login)
+    const view = expectStatus(await session.call('GET', '/v1/owner/session'), 200, 'the restored owner session')
+    assert.equal(view.json.owner.id, syncOwner.id, 'the restored owner changed its ID')
     const audit = expectStatus(await session.call('GET', '/v1/owner/audit'), 200, 'restored audit')
     assert.equal(audit.json.chain.ok, true)
     const members = expectStatus(await session.call('GET', '/v1/owner/members'), 200, 'restored members')
