@@ -80,6 +80,9 @@ type fakeStore struct {
 	panicPing                         bool
 	backupAt                          *time.Time
 	updates                           selfhost.UpdateSettings
+	systemErr                         error
+	auditErr                          error
+	auditBreak                        *selfhost.AuditBreak
 }
 
 func newFakeStore(c *clock) *fakeStore {
@@ -631,6 +634,9 @@ func (f *fakeStore) VerifyAudit(context.Context) (selfhost.AuditReport, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.fullVerifies++
+	if f.auditErr != nil {
+		return selfhost.AuditReport{}, f.auditErr
+	}
 	return f.auditReport(), nil
 }
 
@@ -638,6 +644,9 @@ func (f *fakeStore) VerifyAuditIncremental(context.Context) (selfhost.AuditRepor
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.incrementalVerifies++
+	if f.auditErr != nil {
+		return selfhost.AuditReport{}, f.auditErr
+	}
 	return f.auditReport(), nil
 }
 
@@ -646,6 +655,11 @@ func (f *fakeStore) auditReport() selfhost.AuditReport {
 	if len(f.audit) > 0 {
 		report.HeadSeq = f.audit[len(f.audit)-1].Seq
 		report.HeadHash = f.audit[len(f.audit)-1].Hash
+	}
+	if f.auditBreak != nil {
+		firstBreak := *f.auditBreak
+		report.OK = false
+		report.FirstBreak = &firstBreak
 	}
 	return report
 }
@@ -682,6 +696,9 @@ func (f *fakeStore) Maintain(context.Context) (selfhost.MaintenanceReport, error
 func (f *fakeStore) System(context.Context) (selfhost.SystemInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.systemErr != nil {
+		return selfhost.SystemInfo{}, f.systemErr
+	}
 	active := 0
 	for _, device := range f.devices {
 		if device.RevokedAt == nil {

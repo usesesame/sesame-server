@@ -26,8 +26,12 @@ async function shot(page, name, viewport, scheme) {
 async function run(viewport, scheme) {
   const browser = await chromium.launch()
   const context = await browser.newContext({ viewport: viewports[viewport], colorScheme: scheme, acceptDownloads: true })
-  const watch = (page, label) => {
-    page.on('console', (message) => { if (['error', 'warning'].includes(message.type()) && !/^Failed to load resource: the server responded with a status of 4\d\d/.test(message.text())) problems.push(`${label} ${viewport}/${scheme} console ${message.type()}: ${message.text()}`) })
+  const watch = (page, label, ignoreResourceErrors = false) => {
+    page.on('console', (message) => {
+      if (!['error', 'warning'].includes(message.type())) return
+      if (/^Failed to load resource: the server responded with a status of \d{3}/.test(message.text()) && (ignoreResourceErrors || /^Failed to load resource: the server responded with a status of 4\d\d/.test(message.text()))) return
+      problems.push(`${label} ${viewport}/${scheme} console ${message.type()}: ${message.text()}`)
+    })
     page.on('pageerror', (error) => problems.push(`${label} ${viewport}/${scheme} page error: ${error.message}`))
   }
 
@@ -108,14 +112,36 @@ async function run(viewport, scheme) {
 
   await page.goto(`${mock.origin}/#/system`)
   await page.getByText('Database size').waitFor()
+  await page.getByText('Overall: Action needed').waitFor()
   await shot(page, '70-system', viewport, scheme)
   const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export data' }).click()])
   if (!/^sesame-export-\d{4}-\d{2}-\d{2}\.json$/.test(download.suggestedFilename())) problems.push(`unexpected export file name ${download.suggestedFilename()}`)
 
+  await page.goto(`${mock.origin}/#/devices`)
+  await page.getByRole('heading', { name: 'Devices' }).waitFor()
+  let reachedSystem = false
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await page.keyboard.press('Tab')
+    const focused = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? '')
+    if (focused === 'System') {
+      reachedSystem = true
+      break
+    }
+  }
+  if (!reachedSystem) problems.push(`keyboard focus could not reach System on ${viewport}/${scheme}`)
+  await page.keyboard.press('Enter')
+  await page.getByRole('heading', { name: 'System' }).waitFor()
+  await page.getByText('Overall: Action needed').waitFor()
+  await page.keyboard.press('Tab')
+  const focusedAfterHeading = await page.evaluate(() => document.activeElement?.textContent?.trim() ?? '')
+  if (focusedAfterHeading !== 'Export data') problems.push(`keyboard focus after the System heading was ${focusedAfterHeading} on ${viewport}/${scheme}`)
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await shot(page, '79-system-keyboard', viewport, scheme)
+
   await page.close()
   await mock.close()
 
-  const brokenMock = await startMock({ dist: join(root, 'dist'), chainBroken: true, warnings: ['The audit log chain breaks at entry 41: the stored hash does not match the recomputed hash.', 'Requests from a private address carry X-Forwarded-For, but that address is not a trusted proxy.'], lastBackupAt: null })
+  const brokenMock = await startMock({ dist: join(root, 'dist'), chainBroken: true, diagnostics: 'broken', warnings: ['The audit log chain breaks at entry 41: the stored hash does not match the recomputed hash.', 'The configuration file is readable by other users.', 'A notice from a later server stays visible.'], warningCodes: ['audit', 'configuration', 'future'], lastBackupAt: null })
   page = await context.newPage()
   watch(page, 'broken')
   await page.goto(`${brokenMock.origin}/`)
@@ -129,6 +155,7 @@ async function run(viewport, scheme) {
   await shot(page, '41-audit-broken', viewport, scheme)
   await page.goto(`${brokenMock.origin}/#/system`)
   await page.getByText('Database size').waitFor()
+  await page.getByText('Overall: Action needed').waitFor()
   await shot(page, '71-system-warnings', viewport, scheme)
   await page.goto(`${brokenMock.origin}/pair#code=fictionalcode&fp=abcd`)
   await page.getByRole('heading', { name: 'Open this link in the Sesame app' }).waitFor()
@@ -136,6 +163,31 @@ async function run(viewport, scheme) {
   await shot(page, '80-pair-landing', viewport, scheme)
   await page.close()
   await brokenMock.close()
+
+  const systemScenes = [
+    ['90-system-old', { diagnostics: 'old', warningCodes: null, warnings: ['No backup has been made yet.', 'Requests from a private address carry X-Forwarded-For, but that address is not a trusted proxy.'], lastBackupAt: null }, 'This server does not provide the diagnostics report.'],
+    ['91-system-partial-failure', { diagnostics: 'failure', warnings: ['No backup has been made yet.'], warningCodes: ['backup'], lastBackupAt: null }, 'The diagnostics report could not be loaded. The system information is still shown.'],
+    ['92-system-malformed', { diagnostics: 'malformed', warnings: ['No backup has been made yet.'], warningCodes: ['backup'], lastBackupAt: null }, 'The diagnostics report could not be read. The system information is still shown.'],
+    ['93-system-future', { diagnostics: 'future', warnings: ['The audit log chain does not verify.', 'No backup has been made yet.'], warningCodes: ['audit', 'backup'], lastBackupAt: null }, 'Overall: Unknown'],
+  ]
+  for (const [name, options, expected] of systemScenes) {
+    const sceneMock = await startMock({ dist: join(root, 'dist'), ...options })
+    page = await context.newPage()
+    watch(page, name, options.diagnostics === 'failure')
+    await page.goto(`${sceneMock.origin}/`)
+    await page.getByLabel('Name').fill(sceneMock.credentials.name)
+    await page.getByLabel('Password').fill(sceneMock.credentials.password)
+    await page.getByLabel('Six-digit code').fill('123456')
+    await page.getByRole('button', { name: 'Sign in' }).click()
+    await page.getByRole('heading', { name: 'Devices' }).waitFor()
+    await page.goto(`${sceneMock.origin}/#/system`)
+    await page.getByText('Database size').waitFor()
+    await page.getByText(expected).waitFor()
+    if (options.diagnostics === 'future') await page.getByText('Other check').waitFor()
+    await shot(page, name, viewport, scheme)
+    await page.close()
+    await sceneMock.close()
+  }
 
   const scenes = [['72-updates-unset', 'unset'], ['73-updates-available', 'available'], ['74-updates-current', 'current'], ['75-updates-error', 'error'], ['76-updates-not-configured', 'unconfigured']]
   for (const [name, updates] of scenes) {
@@ -155,7 +207,7 @@ async function run(viewport, scheme) {
       problems.push(`banner shown for ${updates}`)
     }
     await page.goto(`${updatesMock.origin}/#/updates`)
-    await page.getByRole('heading', { name: 'Updates' }).waitFor()
+    await page.getByRole('heading', { name: 'Updates', exact: true, level: 1 }).waitFor()
     await page.getByText('Version 0.1.0').waitFor()
     if (await page.getByText('An update is available.').count() > 0) problems.push('banner shown on the Updates page')
     await shot(page, name, viewport, scheme)

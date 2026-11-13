@@ -18,6 +18,7 @@ export const signedInRoutes: Record<string, FakeRoute> = {
   'GET /v1/owner/owners': () => ({ owners: [{ id: 'own-1', name: 'Alex Rivera', createdAt: '2026-07-01T00:00:00Z', lastLoginAt: '2026-10-09T09:00:00Z', setupPending: false, current: true }] }),
   'GET /v1/owner/audit': () => ({ entries: [], nextCursor: 0, chain: { ok: true, rows: 0, headSeq: 0, headHash: '', firstBreak: null } }),
   'GET /v1/owner/system': () => ({ version: '0.1.0', commit: 'unknown', schemaVersion: 3, databaseBytes: 2048, lastBackupAt: null, warnings: [], auditChainOk: true, updateAvailable: false }),
+  'GET /v1/owner/system/diagnostics': () => ({ schemaVersion: 1, generatedAt: '2026-11-08T10:00:00Z', overall: 'ok', checks: [{ id: 'origin', state: 'ok', code: 'origin_local', summary: 'The public address is a loopback HTTP origin.', next: null }], limitations: [] }),
   'GET /v1/owner/updates': () => upToDate,
 }
 

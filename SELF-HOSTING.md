@@ -146,6 +146,12 @@ docker compose run --rm --no-deps -T sesame doctor --json
 
 Linux is the only runtime tested for this command. Windows and macOS compile, but permission and filesystem checks that depend on POSIX mode bits remain unknown there. The command does not inspect an access control list and does not test ownership or write access on any platform.
 
+### Check the running server in the console
+
+The candidate console's System page shows the running server's configured public address and proxy trust, incremental audit result, recorded backup age and observed forwarding problems. Each finding states what the server observed and gives a next step when one is needed. The page keeps its version, database and backup facts if these checks are unavailable, including when it connects to an older server.
+
+These checks use the settings the server already loaded and the existing owner session. They do not run the host's doctor, execute a command or make a network probe. A configured HTTPS address does not prove that its certificate works, and a recorded backup does not prove an encrypted off-host copy or a successful restore. Use the offline doctor for host metadata and check external reachability from the device that needs access. The console leaves these uninspected facts unknown.
+
 ## First run and pairing
 
 The first start creates the instance secrets, the database and a setup link, and writes the link to the log. The link works once and expires after 24 hours. If it expires before you use it, restart the server and it prints a new one. Once the first owner exists the server stops printing first-run links.
@@ -224,7 +230,7 @@ If you do not want Docker, run the static program directly. Copy it out of the r
 SESAME_IMAGE_TAG=$(sed -n 's/^SESAME_IMAGE_TAG=//p' .env)
 docker create --name sesame-extract "ghcr.io/usesesame/sesame-server-selfhost:${SESAME_IMAGE_TAG}"
 docker cp sesame-extract:/sesame-server ./sesame-server
-docker rm sesame-extract
+docker rm --volumes sesame-extract
 sudo install -m 0755 sesame-server /usr/local/bin/sesame-server
 ```
 

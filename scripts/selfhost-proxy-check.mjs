@@ -16,17 +16,18 @@ import {
 } from './selfhost-client.mjs'
 import { containerLogs, docker, dockerAllowFailure, mustRun, waitUntil } from './selfhost-docker.mjs'
 import { repositoryRoot, replaceOnce } from './selfhost-doc.mjs'
+import { redactSensitiveLog } from './selfhost-recovery.mjs'
 
 const imageRepository = 'ghcr.io/usesesame/sesame-server-selfhost'
 const localVersion = '0.0.0-ci'
 const ownerName = 'proxy-owner'
 const ownerPassword = 'correct horse battery staple proxy'
-const publicUrl = 'https://localhost'
 const composeNetwork = '172.31.88.0/24'
 const traefikNetworkName = 'sesame-traefik-check'
 const traefikNetwork = '172.31.90.0/24'
 const deployDirectory = join(repositoryRoot, 'deploy', 'selfhost')
 const options = parseArguments(process.argv.slice(2))
+const publicUrl = options.httpsPort === 443 ? 'https://localhost' : `https://localhost:${options.httpsPort}`
 const workDir = mkdtempSync(join(options.tempRoot ?? tmpdir(), 'sesame-proxy-'))
 const project = `sesame-proxy-${options.proxy}`
 const proxyContainer = `sesame-proxy-${options.proxy}-front`
@@ -37,23 +38,30 @@ try {
   await main()
   console.log(`Proxy check passed for ${options.proxy}: ${passed} checks.`)
 } catch (error) {
-  console.error(`Proxy check failed for ${options.proxy}: ${error.stack ?? error}`)
-  console.error(`\n--- server log ---\n${composeLogs().slice(-3000)}`)
-  console.error(`\n--- ${options.proxy} log ---\n${containerLogs(proxyContainer).slice(-3000)}`)
+  console.error(`Proxy check failed for ${options.proxy}: ${redactSensitiveLog(error.stack ?? error)}`)
+  console.error(`\n--- server log ---\n${redactSensitiveLog(composeLogs()).slice(-3000)}`)
+  console.error(`\n--- ${options.proxy} log ---\n${redactSensitiveLog(containerLogs(proxyContainer)).slice(-3000)}`)
   process.exitCode = 1
 } finally {
   cleanUp()
 }
 
 function parseArguments(args) {
-  const parsed = { image: '', proxy: '', tempRoot: null }
+  const parsed = { image: '', proxy: '', tempRoot: null, httpsPort: 443 }
+  let portSet = false
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (arg === '--image' || arg === '--proxy') parsed[arg.slice(2)] = args[++index] ?? ''
     else if (arg === '--temp-root') parsed.tempRoot = resolve(args[++index] ?? '')
-    else throw new Error(`Unknown argument ${arg}. Use --image <ref> --proxy <caddy|nginx|traefik>.`)
+    else if (arg === '--https-port') {
+      const value = args[++index] ?? ''
+      assert.ok(!portSet && /^[1-9]\d{0,4}$/.test(value) && Number(value) <= 65535, '--https-port must appear once with a port from 1 to 65535.')
+      parsed.httpsPort = Number(value)
+      portSet = true
+    } else throw new Error(`Unknown argument ${arg}. Use --image <ref> --proxy <caddy|nginx|traefik> [--https-port <port> with traefik].`)
   }
   if (!parsed.image || !['caddy', 'nginx', 'traefik'].includes(parsed.proxy)) throw new Error('--image and --proxy caddy, nginx or traefik are required.')
+  if (parsed.httpsPort !== 443 && parsed.proxy !== 'traefik') throw new Error('--https-port only applies to --proxy traefik, because the Caddy and nginx recipes listen on port 443.')
   return parsed
 }
 
@@ -113,7 +121,7 @@ function makeCertificate() {
   const certs = join(workDir, 'certs')
   mkdirSync(certs, { recursive: true })
   mustRun('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-keyout', join(certs, 'key.pem'), '-out', join(certs, 'cert.pem'), '-days', '2', '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost'])
-  mustRun('chmod', ['0644', join(certs, 'key.pem')])
+  mustRun('chmod', ['0600', join(certs, 'key.pem')])
   return certs
 }
 
@@ -163,8 +171,12 @@ function startProxy() {
     '',
   ].join('\n'))
   writeFileSync(join(dynamicDirectory, 'tls.yml'), ['tls:', '  certificates:', '    - certFile: /certs/cert.pem', '      keyFile: /certs/key.pem', ''].join('\n'))
-  docker(['run', '--detach', '--name', proxyContainer, '--network', traefikNetworkName, '--publish', '127.0.0.1:443:443',
-    '--volume', '/var/run/docker.sock:/var/run/docker.sock:ro', '--volume', `${staticFile}:/etc/traefik/traefik.yml:ro`,
+  const socketURL = new URL(process.env.DOCKER_HOST || 'unix:///var/run/docker.sock')
+  assert.ok(socketURL.protocol === 'unix:' && socketURL.hostname === '' && !socketURL.search && !socketURL.hash, 'The Traefik fixture needs a local Unix Docker socket.')
+  const socket = decodeURIComponent(socketURL.pathname)
+  assert.ok(socket.startsWith('/') && !socket.includes(',') && !socket.includes('\0'), 'The Docker socket path is invalid.')
+  docker(['run', '--detach', '--name', proxyContainer, '--network', traefikNetworkName, '--publish', `127.0.0.1:${options.httpsPort}:443`,
+    '--mount', `type=bind,source=${socket},target=/var/run/docker.sock,readonly`, '--volume', `${staticFile}:/etc/traefik/traefik.yml:ro`,
     '--volume', `${dynamicDirectory}:/etc/traefik/dynamic:ro`, '--volume', `${certs}:/certs:ro`, proxyImages.traefik])
 }
 
@@ -216,6 +228,11 @@ async function main() {
     expectStatus(await desktopStatus(instance, device.token), 200, 'desktop status through the proxy')
     const system = await ownerSystem(setup.session)
     assert.equal(system.auditChainOk, true)
+    const diagnostics = expectStatus(await setup.session.call('GET', '/v1/owner/system/diagnostics'), 200, 'owner diagnostics through the proxy').json
+    assert.equal(diagnostics.schemaVersion, 1)
+    assert.equal(diagnostics.checks.find((finding) => finding.id === 'origin').code, 'origin_https')
+    assert.equal(diagnostics.checks.find((finding) => finding.id === 'proxy').code, 'proxy_configured')
+    assert.equal(diagnostics.checks.find((finding) => finding.id === 'external').state, 'unknown')
     return setup
   })
 

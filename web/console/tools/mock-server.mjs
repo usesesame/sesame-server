@@ -41,6 +41,55 @@ function updateView(scenario) {
   }
 }
 
+const DIAGNOSTICS = {
+  checks: {
+    schemaVersion: 1,
+    generatedAt: minutes(-1),
+    overall: 'action',
+    checks: [
+      { id: 'origin', state: 'ok', code: 'origin_local', summary: 'The configured public address is a loopback HTTP origin, so links work only on this computer.', next: 'Set an HTTPS public address before pairing from another computer.' },
+      { id: 'proxy', state: 'ok', code: 'proxy_not_configured', summary: 'No trusted proxy ranges are configured, and the public address uses loopback HTTP.', next: null },
+      { id: 'audit', state: 'ok', code: 'audit_incremental_ok', summary: 'The incremental audit verification found no break in the rows it covers, which are the last checked row and rows added since the last successful check.', next: null },
+      { id: 'backup', state: 'action', code: 'backup_stale', summary: 'The last recorded backup is older than twice the configured interval.', next: 'Run a backup now and check that the scheduled backup can write one.' },
+      { id: 'forwarding', state: 'ok', code: 'forwarding_not_observed', summary: 'The server has not observed a forwarded request from an untrusted proxy, and that says nothing about traffic it has not seen.', next: null },
+      { id: 'external', state: 'unknown', code: 'external_not_inspected', summary: 'This report does not inspect certificates, network reachability or host configuration.', next: 'Check the public address and its certificate from another network with your own tools.' },
+    ],
+    limitations: ['certificate_validity_not_checked', 'network_reachability_not_probed', 'host_configuration_not_inspected', 'audit_uses_incremental_verification', 'backup_off_host_copy_not_verified', 'recovery_drill_not_verified', 'unseen_traffic_not_evaluated'],
+  },
+  future: {
+    schemaVersion: 1,
+    generatedAt: minutes(-1),
+    overall: 'ok',
+    checks: [
+      { id: 'origin', state: 'ok', code: 'origin_local', summary: 'The configured public address is a loopback HTTP origin, so links work only on this computer.', next: null },
+      { id: 'capacity', state: 'ok', code: 'capacity_ok', summary: 'A future check reported success.', next: null },
+      { id: 'audit', state: 'review', code: 'audit_future', summary: 'A future audit state was reported.', next: null },
+    ],
+    limitations: ['A limitation from a later server.'],
+  },
+  broken: {
+    schemaVersion: 1,
+    generatedAt: minutes(-1),
+    overall: 'action',
+    checks: [
+      { id: 'origin', state: 'ok', code: 'origin_local', summary: 'The configured public address is a loopback HTTP origin, so links work only on this computer.', next: 'Set an HTTPS public address before pairing from another computer.' },
+      { id: 'proxy', state: 'ok', code: 'proxy_not_configured', summary: 'No trusted proxy ranges are configured, and the public address uses loopback HTTP.', next: null },
+      { id: 'audit', state: 'action', code: 'audit_incremental_break', summary: 'The incremental audit verification found a break in the audit chain.', next: 'Run a full audit check to find the affected entry and keep the database for review.' },
+      { id: 'backup', state: 'action', code: 'backup_missing', summary: 'No backup is recorded while scheduled backups are configured.', next: 'Run a backup now or wait for the next scheduled one, and keep an encrypted copy off this host.' },
+      { id: 'forwarding', state: 'ok', code: 'forwarding_not_observed', summary: 'The server has not observed a forwarded request from an untrusted proxy, and that says nothing about traffic it has not seen.', next: null },
+      { id: 'external', state: 'unknown', code: 'external_not_inspected', summary: 'This report does not inspect certificates, network reachability or host configuration.', next: 'Check the public address and its certificate from another network with your own tools.' },
+    ],
+    limitations: ['certificate_validity_not_checked', 'network_reachability_not_probed', 'host_configuration_not_inspected', 'audit_uses_incremental_verification', 'backup_off_host_copy_not_verified', 'recovery_drill_not_verified', 'unseen_traffic_not_evaluated'],
+  },
+  malformed: {
+    schemaVersion: 2,
+    generatedAt: 'not-a-date',
+    overall: 'ok',
+    checks: [],
+    limitations: [],
+  },
+}
+
 function seed(options) {
   const members = [
     { id: 'mem-1', name: 'Priya Raman', createdAt: minutes(-60 * 24 * 40), deviceCount: 2 },
@@ -69,7 +118,9 @@ function seed(options) {
     instance: { instanceId: 'inst-1', name: 'Rivera household', publicUrl: options.origin, publicUrlSet: true, createdAt: minutes(-60 * 24 * 90), fingerprint: FINGERPRINT },
     members, devices, owners, audit, pairings: [], sessions: new Map(),
     chainBroken: options.chainBroken ?? false,
-    warnings: options.warnings ?? ['No backup has been made yet.'],
+    warnings: options.warnings ?? [],
+    warningCodes: options.warningCodes === undefined ? (options.warnings ?? []).map(() => 'configuration') : options.warningCodes,
+    diagnostics: options.diagnostics ?? 'checks',
     lastBackupAt: options.lastBackupAt === undefined ? minutes(-60 * 14) : options.lastBackupAt,
     updates: { ...UPDATE_SCENARIOS[options.updates ?? 'current'] },
     recentUntil: 0,
@@ -236,7 +287,14 @@ export async function startMock(options = {}) {
       return send(response, 200, { ...state.instance, publicUrl: origin })
     }
     if (path === '/v1/owner/system' && method === 'GET') {
-      return send(response, 200, { version: '0.1.0', commit: '3f9a1c2d8e4b', schemaVersion: 3, databaseBytes: 1_482_752, lastBackupAt: state.lastBackupAt, warnings: state.warnings, auditChainOk: !state.chainBroken, activeOwners: 2, members: state.members.length, activeDevices: state.devices.length, pendingPairings: state.pairings.length, metricsEnabled: false, updateAvailable: state.updates.available })
+      const system = { version: '0.1.0', commit: '3f9a1c2d8e4b', schemaVersion: 3, databaseBytes: 1_482_752, lastBackupAt: state.lastBackupAt, warnings: state.warnings, auditChainOk: !state.chainBroken, activeOwners: 2, members: state.members.length, activeDevices: state.devices.length, pendingPairings: state.pairings.length, metricsEnabled: false, updateAvailable: state.updates.available }
+      if (state.warningCodes !== null && state.warningCodes !== undefined) system.warningCodes = state.warningCodes
+      return send(response, 200, system)
+    }
+    if (path === '/v1/owner/system/diagnostics' && method === 'GET') {
+      if (state.diagnostics === 'old') return fail(response, 404, 'not_found', 'The requested API endpoint does not exist.')
+      if (state.diagnostics === 'failure') return fail(response, 503, 'unavailable', 'The server could not complete that action and no change was committed.')
+      return send(response, 200, DIAGNOSTICS[state.diagnostics] ?? DIAGNOSTICS.checks)
     }
     if (path === '/v1/owner/updates' && method === 'GET') return send(response, 200, updateView(state.updates))
     if (path === '/v1/owner/updates' && method === 'PATCH') {

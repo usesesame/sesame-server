@@ -36,6 +36,7 @@ export type SystemInfo = {
   databaseBytes: number
   lastBackupAt?: string | null
   warnings: string[]
+  warningCodes?: string[]
   auditChainOk: boolean
   updateAvailable?: boolean
 }

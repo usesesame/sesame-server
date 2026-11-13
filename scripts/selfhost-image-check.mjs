@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import net from 'node:net'
+import { redactSensitiveLog } from './selfhost-recovery.mjs'
 
 const options = parseArguments(process.argv.slice(2))
 const container = `sesame-selfhost-check-${process.pid}`
@@ -10,7 +11,7 @@ try {
   if (options.run) await runContainer()
   console.log(`Self-host image check passed for ${options.image}${options.run ? ' including a running container' : ''}.`)
 } catch (error) {
-  console.error(`Self-host image check failed: ${error.stack ?? error}`)
+  console.error(`Self-host image check failed: ${redactSensitiveLog(error.stack ?? error)}`)
   process.exitCode = 1
 }
 
@@ -84,10 +85,10 @@ async function runContainer() {
     assert.match(docker(['exec', container, '/sesame-server', 'check', backup]).stdout, /is intact/)
   } catch (error) {
     const logs = docker(['logs', container], { allowFailure: true })
-    console.error(`--- container log ---\n${logs.stdout}${logs.stderr}`)
+    console.error(`--- container log ---\n${redactSensitiveLog(logs.stdout + logs.stderr)}`)
     throw error
   } finally {
-    docker(['rm', '--force', container], { allowFailure: true })
+    docker(['rm', '--force', '--volumes', container], { allowFailure: true })
   }
 }
 

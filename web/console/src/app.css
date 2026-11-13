@@ -141,6 +141,26 @@ label small { color: var(--text-muted); font-size: var(--type-2); font-weight: v
 .facts dd { margin: 0; color: var(--text-heading); text-align: right; overflow-wrap: anywhere; }
 .facts dd.bad { color: var(--danger); }
 
+.diagnostics-overall { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-4); border-left: 3px solid var(--text-faint); padding: var(--space-1) 0 var(--space-1) var(--space-3); }
+.diagnostics-overall strong { color: var(--text-heading); font-size: var(--type-3); }
+.diagnostics-overall small { color: var(--text-muted); font-size: var(--type-2); }
+.diagnostics-overall[data-state="ok"] { border-color: var(--accent-link); }
+.diagnostics-overall[data-state="action"] { border-color: var(--gold); }
+.diagnostics-overall[data-state="unknown"] { border-color: var(--text-faint); }
+.diagnostics-overall[data-state="ok"] strong { color: var(--ok-text); }
+.diagnostics-overall[data-state="action"] strong { color: var(--warn-text); }
+.diagnostics-overall[data-state="unknown"] strong { color: var(--text-2); }
+.diagnostic-state { color: var(--text-muted); font-size: var(--type-2); font-weight: var(--weight-bold); }
+.diagnostic-state[data-state="ok"] { color: var(--ok-text); }
+.diagnostic-state[data-state="action"] { color: var(--warn-text); }
+.diagnostic-state[data-state="unknown"] { color: var(--text-muted); }
+.diagnostic-next { color: var(--text-2); }
+.diagnostic-limits { margin-top: var(--space-4); }
+.diagnostic-limits h3 { margin-bottom: var(--space-1); color: var(--text-heading); font-size: var(--type-2); font-weight: var(--weight-bold); }
+.diagnostic-limits ul { margin: 0; padding-left: var(--space-5); color: var(--text-muted); font-size: var(--type-2); }
+.diagnostic-note, .diagnostic-command { color: var(--text-muted); font-size: var(--type-2); }
+.diagnostic-command code { overflow-wrap: anywhere; }
+
 .chain { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: 0 0 var(--space-4); border-left: 3px solid var(--accent-link); padding: var(--space-1) 0 var(--space-1) var(--space-3); color: var(--text-heading); font-size: var(--type-3); }
 .chain[data-ok="false"] { border-color: var(--danger); color: var(--danger); }
 .chain small { flex-basis: 100%; color: var(--text-muted); font-size: var(--type-2); }

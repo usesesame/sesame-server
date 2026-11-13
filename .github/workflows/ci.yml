@@ -228,6 +228,9 @@ jobs:
 
       - run: docker load --input selfhost-image.tar
 
+      - name: Generate installation profiles and run them with Compose
+        run: node scripts/selfhost-install-compose-check.mjs --image sesame-selfhost:ci-amd64
+
       - name: Follow the quick start, backup, restore and encrypted export sections of SELF-HOSTING.md
         run: node scripts/selfhost-export-check.mjs --mode docker --image sesame-selfhost:ci-amd64
 

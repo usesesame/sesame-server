@@ -114,7 +114,22 @@ The session object is `{owner:{id,name}, csrfToken, recentAuthUntil, expiresAt}`
 
 `PATCH /v1/owner/flags/{key}` with `{enabled}` returns the flag. An unknown key returns 404 `not_found`.
 
-`GET /v1/owner/system` takes the same `full` parameter for `auditChainOk` and returns `{version, commit, schemaVersion, databaseBytes, lastBackupAt, warnings, auditChainOk, activeOwners, members, activeDevices, pendingPairings, metricsEnabled, updateAvailable}`. `warnings` is a list of sentences for the owner to read. `updateAvailable` is true when update checks are on and the last good feed offers a newer version on the owner's channel, so the console can show a banner without a second call. `GET /v1/instance` does not change.
+`GET /v1/owner/system` takes the same `full` parameter for `auditChainOk` and returns `{version, commit, schemaVersion, databaseBytes, lastBackupAt, warnings, warningCodes, auditChainOk, activeOwners, members, activeDevices, pendingPairings, metricsEnabled, updateAvailable}`. `warnings` is a list of sentences for the owner to read. `warningCodes` has one value per warning in the same order: `audit`, `backup`, `forwarding`, `origin` or `configuration`. Existing warning text and order are unchanged. `updateAvailable` is true when update checks are on and the last good feed offers a newer version on the owner's channel, so the console can show a banner without a second call. `GET /v1/instance` does not change.
+
+`GET /v1/owner/system/diagnostics` takes no query parameters and no body. It uses the owner session, Host and Origin rules and returns `{schemaVersion, generatedAt, overall, checks, limitations}`. `schemaVersion` is 1 and `generatedAt` is an RFC 3339 UTC time. `overall` and every `state` are `ok`, `action` or `unknown`, and `action` takes precedence over `unknown`, which takes precedence over `ok`. `checks` always has six entries in this order: `origin`, `proxy`, `audit`, `backup`, `forwarding` and `external`. Each entry is `{id, state, code, summary, next}`, and `next` is a sentence or null. `limitations` lists what the report cannot establish.
+
+The report uses only the validated server configuration, `Store.System` and the incremental audit verification. The route does not run commands, inspect Docker, reload configuration, read key files or make network requests. The checks describe observed configuration or recorded history. They do not prove certificate validity, off-host backup protection or that a restore works. A query or a body returns 400 `invalid_request`, and the route does not accept `full`. `limitations` is a fixed ordered list of `certificate_validity_not_checked`, `network_reachability_not_probed`, `host_configuration_not_inspected`, `audit_uses_incremental_verification`, `backup_off_host_copy_not_verified`, `recovery_drill_not_verified` and `unseen_traffic_not_evaluated`.
+
+The stable check codes are:
+
+- `origin`: `origin_https` or `origin_local`.
+- `proxy`: `proxy_not_configured`, `proxy_configured` or `proxy_wide`.
+- `audit`: `audit_incremental_ok` or `audit_incremental_break`.
+- `backup`: `backup_missing`, `backup_missing_schedule_off`, `backup_recorded`, `backup_recorded_schedule_off`, `backup_stale` or `backup_future`.
+- `forwarding`: `forwarding_not_observed` or `forwarding_untrusted_observed`.
+- `external`: `external_not_inspected`.
+
+The audit check covers the last checked row and rows added since the last successful check. It does not read every older row again, and a full check remains the way to see an edit to an old row. A missing or stale backup is an action. A backup time in the future is unknown. A recorded backup with scheduled backups off is unknown because no interval is configured to judge freshness.
 
 `POST /v1/owner/export` needs step-up and takes no body. It returns a JSON download with `Content-Disposition: attachment`. The document has `format` set to `sesame-selfhost-export-v1`, `exportedAt`, `instance`, `members`, `devices` including inactive ones, and `audit` with `chain`, `entries` oldest first and `truncated`. It holds no tokens, secrets or password data.
 
