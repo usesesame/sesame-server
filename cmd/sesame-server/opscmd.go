@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +23,26 @@ func opsOptions(invocation Invocation) []ops.Option {
 
 func runBackup(ctx context.Context, invocation Invocation) error {
 	cfg := invocation.Config
+	if invocation.Flags.Stdout {
+		if len(invocation.Args) != 0 {
+			return errors.New("backup --stdout accepts no output file")
+		}
+		if invocation.Stdout == nil {
+			return errors.New("backup --stdout needs standard output")
+		}
+		suppressSIGPIPE()
+		output, finish := interruptibleStdout(ctx, invocation.Stdout)
+		manifest, backupErr := ops.BackupTo(ctx, cfg.DataDir, output, opsOptions(invocation)...)
+		finishErr := finish()
+		if backupErr != nil {
+			return backupErr
+		}
+		if finishErr != nil {
+			return fmt.Errorf("the backup stream could not be written: %w", finishErr)
+		}
+		_, err := fmt.Fprintf(invocation.Stderr, "Backup streamed to standard output with the database at schema %d and the instance secrets. Keep it private, because it holds the keys that unlock owner sign-in.\n", manifest.SchemaVersion)
+		return err
+	}
 	var path string
 	if len(invocation.Args) == 1 {
 		path = invocation.Args[0]
@@ -69,8 +90,25 @@ func runRestore(ctx context.Context, invocation Invocation) error {
 }
 
 func runCheck(ctx context.Context, invocation Invocation) error {
+	if invocation.Flags.Stdin {
+		if invocation.Stdin == nil {
+			return errors.New("check --stdin needs standard input")
+		}
+		options := append(opsOptions(invocation), ops.WithWorkDir(invocation.Config.DataDir))
+		report, err := ops.CheckReader(ctx, invocation.Stdin, options...)
+		if err != nil {
+			return fmt.Errorf("the backup from standard input did not pass: %w", err)
+		}
+		if invocation.Flags.JSON {
+			return writeCheckReportJSON(invocation.Stdout, report)
+		}
+		return writeArchiveReport(invocation.Stdout, "The backup from standard input", report)
+	}
 	if len(invocation.Args) == 1 {
 		return checkBackup(ctx, invocation)
+	}
+	if invocation.Flags.JSON {
+		return errors.New("check --json needs a backup file or --stdin")
 	}
 	return checkLive(ctx, invocation)
 }
@@ -81,13 +119,44 @@ func checkBackup(ctx context.Context, invocation Invocation) error {
 	if err != nil {
 		return fmt.Errorf("%s did not pass: %w", file, err)
 	}
+	if invocation.Flags.JSON {
+		return writeCheckReportJSON(invocation.Stdout, report)
+	}
+	return writeArchiveReport(invocation.Stdout, file, report)
+}
+
+func writeArchiveReport(w io.Writer, label string, report ops.Report) error {
 	migration := ""
 	if report.NeedsMigration {
 		migration = " and needs a migration before use"
 	}
-	_, err = fmt.Fprintf(invocation.Stdout, "%s is intact. It was made by server %s at %s with schema %d of %d supported%s. It holds %d audit rows, %d verified owners, and the secrets match the database: %t.\n",
-		file, report.Manifest.ServerVersion, report.Manifest.CreatedAt.UTC().Format(time.RFC3339), report.SchemaVersion, report.Supported, migration, report.AuditRows, report.OwnersVerified, report.SecretsVerified)
+	_, err := fmt.Fprintf(w, "%s is intact. It was made by server %s at %s with schema %d of %d supported%s. It holds %d audit rows, %d verified owners, and the secrets match the database: %t.\n",
+		label, report.Manifest.ServerVersion, report.Manifest.CreatedAt.UTC().Format(time.RFC3339), report.SchemaVersion, report.Supported, migration, report.AuditRows, report.OwnersVerified, report.SecretsVerified)
 	return err
+}
+
+type checkReportJSON struct {
+	SchemaVersion   int    `json:"schemaVersion"`
+	Supported       int    `json:"supported"`
+	NeedsMigration  bool   `json:"needsMigration"`
+	AuditRows       int64  `json:"auditRows"`
+	AuditHeadHash   string `json:"auditHeadHash"`
+	OwnersVerified  int    `json:"ownersVerified"`
+	SecretsVerified bool   `json:"secretsVerified"`
+	HasConfig       bool   `json:"hasConfig"`
+}
+
+func writeCheckReportJSON(w io.Writer, report ops.Report) error {
+	return json.NewEncoder(w).Encode(checkReportJSON{
+		SchemaVersion:   report.SchemaVersion,
+		Supported:       report.Supported,
+		NeedsMigration:  report.NeedsMigration,
+		AuditRows:       report.AuditRows,
+		AuditHeadHash:   report.AuditHeadHash,
+		OwnersVerified:  report.OwnersVerified,
+		SecretsVerified: report.SecretsVerified,
+		HasConfig:       report.HasConfig,
+	})
 }
 
 func checkLive(ctx context.Context, invocation Invocation) error {

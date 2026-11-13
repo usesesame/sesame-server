@@ -172,9 +172,17 @@ func restoreLocked(ctx context.Context, file, dataDir string, cfg config, result
 }
 
 func stageRestoreInput(ctx context.Context, dataDir string, input io.Reader, limits Limits) (string, error) {
+	return stageArchiveInput(ctx, dataDir, input, limits, "restore archive from standard input")
+}
+
+func stageBackupInput(ctx context.Context, dataDir string, input io.Reader, limits Limits) (string, error) {
+	return stageArchiveInput(ctx, dataDir, input, limits, "backup archive from standard input")
+}
+
+func stageArchiveInput(ctx context.Context, dataDir string, input io.Reader, limits Limits, source string) (string, error) {
 	file, err := os.CreateTemp(dataDir, restoreInputPrefix)
 	if err != nil {
-		return "", fmt.Errorf("temporary input for the restore cannot be created: %w", err)
+		return "", fmt.Errorf("temporary input for the %s cannot be created: %w", source, err)
 	}
 	path := file.Name()
 	cleanup := func() { _ = os.Remove(path) }
@@ -188,12 +196,12 @@ func stageRestoreInput(ctx context.Context, dataDir string, input io.Reader, lim
 	if err != nil {
 		_ = file.Close()
 		cleanup()
-		return "", fmt.Errorf("the restore archive from standard input cannot be stored: %w", err)
+		return "", fmt.Errorf("the %s cannot be stored: %w", source, err)
 	}
 	if written > max {
 		_ = file.Close()
 		cleanup()
-		return "", invalid("the archive from standard input is over the limit of %d bytes", max)
+		return "", invalid("the %s is over the limit of %d bytes", source, max)
 	}
 	if err := file.Sync(); err != nil {
 		_ = file.Close()

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import {
   connect,
   createMember,
@@ -19,6 +20,7 @@ import {
 import { dockerAllowFailure, docker, mustRun, run, runBlock, waitUntil } from './selfhost-docker.mjs'
 import { readSelfHostingDocument, repositoryRoot, replaceOnce, sectionBlocks } from './selfhost-doc.mjs'
 import { approvalEnvironment, assertApprovalResult, assertRecoveryStatus, parseRecoveryJson, redactSensitiveLog } from './selfhost-recovery.mjs'
+import { resolveAgeTools, runEncryptedJourney } from './selfhost-export-check.mjs'
 
 const options = parseArguments(process.argv.slice(2))
 const imageRepository = 'ghcr.io/usesesame/sesame-server-selfhost'
@@ -48,18 +50,26 @@ try {
 }
 
 function parseArguments(args) {
-  const parsed = { mode: '', image: '', expectVersion: '', verifyAttestations: false, tempRoot: null }
+  const parsed = { mode: '', image: '', expectVersion: '', verifyAttestations: false, encryptedBackup: false, age: '', ageKeygen: '', tempRoot: null }
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]
     if (['--mode', '--image', '--expect-version'].includes(arg)) parsed[arg === '--expect-version' ? 'expectVersion' : arg.slice(2)] = args[++index] ?? ''
+    else if (arg === '--age') parsed.age = executable(args[++index] ?? '')
+    else if (arg === '--age-keygen') parsed.ageKeygen = executable(args[++index] ?? '')
     else if (arg === '--verify-attestations') parsed.verifyAttestations = true
+    else if (arg === '--encrypted-backup') parsed.encryptedBackup = true
     else if (arg === '--temp-root') parsed.tempRoot = resolve(args[++index] ?? '')
-    else throw new Error(`Unknown argument ${arg}. Use --mode local --image <ref> or --mode published [--expect-version <v>] [--verify-attestations].`)
+    else throw new Error(`Unknown argument ${arg}. Use --mode local --image <ref>, --mode published, --encrypted-backup, --age <path>, --age-keygen <path>, --expect-version <v>, --verify-attestations or --temp-root <dir>.`)
   }
   if (!['local', 'published'].includes(parsed.mode)) throw new Error('--mode must be local or published.')
   if (parsed.mode === 'local' && !parsed.image) throw new Error('--mode local needs --image <ref>.')
   if (parsed.verifyAttestations && parsed.mode !== 'published') throw new Error('--verify-attestations needs --mode published.')
+  if (parsed.encryptedBackup && parsed.mode !== 'local') throw new Error('--encrypted-backup needs --mode local.')
   return parsed
+}
+
+function executable(value) {
+  return existsSync(value) ? resolve(value) : value
 }
 
 async function check(name, run) {
@@ -85,6 +95,28 @@ function composeEnvironment(project) {
 function composeLogs(cwd, project) {
   const result = dockerAllowFailure(project ? ['compose', '-p', project, 'logs', '--no-color'] : ['compose', 'logs', '--no-color'], { cwd })
   return `${result.stdout}${result.stderr}`
+}
+
+function composeDataDigest({ cwd, project }) {
+  const container = compose(['ps', '-q', 'sesame'], { cwd, project }).stdout.trim()
+  assert.ok(container, 'the live service container is missing')
+  const directory = mkdtempSync(join(tmpdir(), 'sesame-live-digest-'))
+  try {
+    const hash = createHash('sha256')
+    for (const path of ['/data/sesame.db', '/data/secrets/admin-encryption.key', '/data/secrets/signing.key', '/data/secrets/ip-pepper.key']) {
+      const copy = join(directory, basename(path))
+      docker(['cp', `${container}:${path}`, copy])
+      hash.update(path)
+      hash.update(readFileSync(copy))
+    }
+    return hash.digest('hex')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+function volumeSet() {
+  return docker(['volume', 'ls', '--format', '{{.Name}}']).stdout.split('\n').filter(Boolean).sort()
 }
 
 function cleanUp() {
@@ -268,6 +300,32 @@ async function main() {
     assert.match(checked.output, /is intact/)
     return 'before-trip.tar'
   })
+
+  if (options.encryptedBackup) {
+    const tools = await check('the private age tools are v1.3.2', async () => resolveAgeTools(options))
+    await check('an encrypted export verifies offline and drills into a fresh volume with real age', async () => {
+      const before = composeDataDigest({ cwd: projectDir })
+      const volumesBefore = volumeSet()
+      const result = await runEncryptedJourney({
+        label: 'the Docker encrypted backup check',
+        age: tools.age,
+        ageKeygen: tools.ageKeygen,
+        source: { kind: 'compose', service: 'sesame', cwd: projectDir },
+        target: { kind: 'image', image: options.image },
+        destination: join(workDir, 'encrypted-exports'),
+        recoveryDir: join(workDir, 'recovery'),
+        workParent: join(workDir, 'offline-work'),
+        stateDir: join(workDir, 'encrypted-state'),
+        negative: false,
+        expectedSchema: 6,
+        secrets: [ownerPassword],
+      })
+      assert.equal(composeDataDigest({ cwd: projectDir }), before, 'the encrypted backup operations changed the live volume')
+      assert.deepEqual(volumeSet(), volumesBefore, 'the disposable Docker drill left a volume behind')
+      assert.equal((await livez()).status, 'ok', 'the live server stopped answering after the encrypted backup check')
+      return result
+    })
+  }
 
   await check('changes after the backup are gone and the restore waits for approval', async () => {
     const afterwards = await ownerLogin(instance, { name: ownerName, password: ownerPassword, codes: setup.codes })

@@ -16,6 +16,7 @@ import {
   schemaFromMigrationNames,
   skipAllowedWithoutUpgrade,
 } from './selfhost-recovery.mjs'
+import { assertArchiveCheckReport, assertDrillRecord, assertExportRecord, assertVerifyRecord, resolveAgeTools } from './selfhost-export-check.mjs'
 
 const read = (...parts) => readFileSync(join(repositoryRoot, ...parts), 'utf8')
 const document = readSelfHostingDocument()
@@ -276,7 +277,7 @@ test('pull requests build and run the release image, the quick start, the upgrad
   assert.match(image, /docker\/setup-qemu-action@[0-9a-f]{40}/)
   assert.match(image, /--arch arm64 .* --run\n/)
   for (const [job, command] of [
-    ['selfhost-quickstart', 'node scripts/selfhost-quickstart.mjs --mode local'],
+    ['selfhost-quickstart', 'node scripts/selfhost-export-check.mjs --mode docker --image sesame-selfhost:ci-amd64'],
     ['selfhost-upgrade', 'node scripts/selfhost-upgrade-check.mjs --from-published'],
     ['selfhost-proxy', 'node scripts/selfhost-proxy-check.mjs'],
   ]) {
@@ -291,7 +292,7 @@ test('pull requests build and run the release image, the quick start, the upgrad
 test('candidate CI tests recovery from the current checkout and image without skipping it', () => {
   const workflow = read('.github', 'workflows', 'ci.yml')
   const quickstart = jobBlock(workflow, 'selfhost-quickstart')
-  assert.match(quickstart, /node scripts\/selfhost-quickstart\.mjs --mode local --image sesame-selfhost:ci-amd64/)
+  assert.match(quickstart, /node scripts\/selfhost-export-check\.mjs --mode docker --image sesame-selfhost:ci-amd64/)
   assert.doesNotMatch(quickstart, /\.selfhost-release/)
   const upgrade = jobBlock(workflow, 'selfhost-upgrade')
   assert.match(upgrade, /node scripts\/selfhost-upgrade-check\.mjs --from-published --to sesame-selfhost:ci-amd64/)
@@ -336,4 +337,161 @@ test('a release is not finished until the published image source passes its own 
   const published = jobBlock(release, 'published')
   assert.match(published, /needs: \[verify, publish, selfhost\]\n/)
   assert.match(published, /uses: \.\/\.github\/workflows\/selfhost-published\.yml\n/)
+})
+
+const archiveCheckReport = Object.freeze({
+  schemaVersion: 6,
+  supported: 6,
+  needsMigration: false,
+  auditRows: 4,
+  auditHeadHash: 'c'.repeat(64),
+  ownersVerified: 1,
+  secretsVerified: true,
+  hasConfig: false,
+})
+
+const archiveDigest = 'b'.repeat(64)
+const commonRecord = (operation) => ({
+  operation,
+  startedAt: '2026-01-02T03:04:05Z',
+  completedAt: '2026-01-02T03:05:05Z',
+  success: true,
+  errorCode: null,
+  snapshot: null,
+  encryption: null,
+  publication: null,
+  verification: null,
+  drill: null,
+})
+const exportRecord = {
+  ...commonRecord('export'),
+  snapshot: { completedAt: '2026-01-02T03:04:30Z', bytes: 4096, sha256: 'a'.repeat(64) },
+  encryption: { completedAt: '2026-01-02T03:04:45Z', bytes: 4200, sha256: archiveDigest },
+  publication: { path: '/mnt/sesame-exports/sesame-example.tar.age', readbackConfirmed: true, sameFilesystemAsSource: true },
+}
+const verifyRecord = {
+  ...commonRecord('verify'),
+  verification: { archiveSha256: archiveDigest, checkedAt: '2026-01-02T03:06:05Z', report: { ...archiveCheckReport } },
+}
+const drillRecord = {
+  ...commonRecord('drill'),
+  drill: { restoredAt: '2026-01-02T03:07:05Z', recoveryPending: true, serviceProbed: false },
+}
+
+test('the encrypted backup records hold the facts the operator decisions require', () => {
+  assert.equal(assertExportRecord(exportRecord).publication.readbackConfirmed, true)
+  assert.equal(assertExportRecord({ ...exportRecord, publication: { ...exportRecord.publication, sameFilesystemAsSource: null } }).publication.sameFilesystemAsSource, null)
+  assert.equal(assertVerifyRecord(verifyRecord, { archiveDigest, expectedSchema: 6 }).verification.report.schemaVersion, 6)
+  assert.equal(assertDrillRecord(drillRecord).drill.recoveryPending, true)
+  assert.equal(assertArchiveCheckReport(archiveCheckReport, { expectedSchema: 6 }).ownersVerified, 1)
+})
+
+test('an encrypted backup record refuses missing facts, failed operations and leaked values', () => {
+  assert.throws(() => assertExportRecord({ ...exportRecord, success: false }), /failure record|success/)
+  assert.throws(() => assertExportRecord({ ...exportRecord, snapshot: null }), /snapshot/)
+  assert.throws(() => assertExportRecord({ ...exportRecord, publication: { ...exportRecord.publication, readbackConfirmed: false } }), /read back/)
+  assert.throws(() => assertExportRecord({ ...exportRecord, publication: { ...exportRecord.publication, path: 'relative.tar.age' } }), /absolute/)
+  assert.throws(() => assertExportRecord(exportRecord, { secrets: ['/mnt/sesame-exports'] }), /private identity, recipient or credential/)
+  assert.throws(() => assertExportRecord({ ...exportRecord, success: true, errorCode: 'history_failed' }), /error code/)
+  assert.throws(() => assertVerifyRecord({ ...verifyRecord, verification: { ...verifyRecord.verification, report: { ...archiveCheckReport, extra: true } } }), /exactly the expected fields/)
+  const missingReport = { ...archiveCheckReport }
+  delete missingReport.secretsVerified
+  assert.throws(() => assertVerifyRecord({ ...verifyRecord, verification: { ...verifyRecord.verification, report: missingReport } }), /exactly the expected fields/)
+  assert.throws(() => assertVerifyRecord(verifyRecord, { archiveDigest: 'd'.repeat(64) }), /another archive digest/)
+  assert.throws(() => assertDrillRecord({ ...drillRecord, drill: { ...drillRecord.drill, recoveryPending: false } }), /pending recovery/)
+  assert.throws(() => assertDrillRecord({ ...drillRecord, drill: { ...drillRecord.drill, serviceProbed: true } }), /network service/)
+  assert.throws(() => assertArchiveCheckReport({ ...archiveCheckReport, schemaVersion: 5 }), /another schema/)
+  assert.throws(() => assertArchiveCheckReport({ ...archiveCheckReport, auditRows: -1 }), /auditRows/)
+  const emptyAudit = { ...archiveCheckReport, auditRows: 0, auditHeadHash: '0'.repeat(64) }
+  assert.equal(assertArchiveCheckReport(emptyAudit).auditRows, 0)
+  assert.throws(() => assertArchiveCheckReport({ ...emptyAudit, auditHeadHash: '' }), /SHA-256/)
+  assert.throws(() => assertArchiveCheckReport({ ...emptyAudit, auditHeadHash: 'a'.repeat(64) }), /genesis/)
+})
+
+test('the real-age runner fails when the required age tools are absent or the wrong version', () => {
+  assert.throws(() => resolveAgeTools({ age: '/nonexistent/sesame-age', ageKeygen: '/nonexistent/sesame-age-keygen' }), /age v1\.3\.2 is required/)
+  assert.throws(() => resolveAgeTools({ age: '/bin/echo', ageKeygen: '/bin/echo' }), /instead of v1\.3\.2/)
+})
+
+test('the guide documents encrypted export, offline identity checks and a disposable drill', () => {
+  const section = sectionBlocks(document, '### Encrypted backup export')
+  assert.equal(section.length, 6, 'the encrypted export section must hold the identity, native export, Compose export, native verify, image verify and drill blocks')
+  assert.match(section[0], /age-keygen -o \/media\/recovery\/identity\.txt/)
+  assert.match(section[0], /age-keygen -y \/media\/recovery\/identity\.txt > \/etc\/sesame\/recipients\.txt/)
+  assert.match(section[1], /export-backup\.mjs export \\/)
+  assert.match(section[1], /--native \/usr\/local\/bin\/sesame-server --data-dir \/var\/lib\/sesame/)
+  assert.match(section[1], /--destination \/mnt\/sesame-exports --recipients-file \/etc\/sesame\/recipients\.txt/)
+  assert.doesNotMatch(section[1], /--identity-file|AGE-SECRET-KEY/)
+  assert.match(section[2], /--compose-service sesame/)
+  assert.doesNotMatch(section[2], /--identity-file|AGE-SECRET-KEY/)
+  assert.match(section[3], /export-backup\.mjs verify \\/)
+  assert.match(section[3], /--archive \/mnt\/sesame-exports\/sesame-example\.tar\.age/)
+  assert.match(section[3], /--identity-file \/media\/recovery\/identity\.txt --native \/usr\/local\/bin\/sesame-server/)
+  assert.match(section[4], /export-backup\.mjs verify \\/)
+  assert.match(section[4], /--image "ghcr\.io\/usesesame\/sesame-server-selfhost:\$\{SESAME_IMAGE_TAG:\?/)
+  assert.match(section[5], /export-backup\.mjs drill \\/)
+  assert.match(section[5], /--identity-file \/media\/recovery\/identity\.txt --native \/usr\/local\/bin\/sesame-server/)
+  const sectionText = document.slice(document.indexOf('### Encrypted backup export'), document.indexOf('### Restore'))
+  assert.match(sectionText, /4 GiB/)
+  assert.match(sectionText, /1 MiB/)
+  assert.match(sectionText, /scheduled local backups still run unchanged/)
+  assert.match(sectionText, /recovery point objective/)
+  assert.match(sectionText, /restoration time/)
+  assert.match(sectionText, /not off-host protection/)
+  assert.match(sectionText, /source checkout of the release tag/)
+  assert.match(sectionText, /predates the encrypted export flags/)
+  assert.match(sectionText, /never accepts or asks for a private identity/)
+  assert.match(sectionText, /restored state is left pending/)
+  assert.match(sectionText, /does not approve recovery, retain a device, start a network service/)
+  assert.match(sectionText, /fresh volume/)
+  assert.match(sectionText, /--state-dir/)
+  assert.match(sectionText, /--age/)
+  assert.match(sectionText, /--work-dir/)
+  assert.doesNotMatch(sectionText, /[—–]/)
+})
+
+test('the encrypted backup scripts and package scripts run the operator contract and the real-age journey', () => {
+  const packageJson = JSON.parse(read('package.json'))
+  assert.equal(packageJson.scripts['backup:contract'], 'node --test scripts/export-backup.test.mjs')
+  assert.match(packageJson.scripts['backup:contract:age'], /selfhost-export-check\.mjs --mode native --skip-console-build/)
+  for (const gate of ['release:contract', 'deploy:contract', 'sync:contract', 'sync:wire', 'audit:contract', 'governance:contract', 'setup:contract', 'selfhost:contract', 'backup:contract', 'openapi:check', 'lint', 'build', 'test', 'test:fuzz']) {
+    assert.ok(packageJson.scripts.ci.includes(`npm run ${gate}`), `the ordinary CI command lost ${gate}`)
+  }
+  assert.equal(packageJson.dependencies, undefined)
+  assert.equal(packageJson.devDependencies, undefined)
+
+  const runner = read('scripts', 'selfhost-export-check.mjs')
+  for (const token of ['--mode', '--image', '--age', '--age-keygen', '--skip-console-build', '--identity-file', '--compose-service', '--work-dir', '--state-dir', 'runEncryptedJourney', 'corrupt-final', 'not-an-archive', 'recoveryPending', 'serviceProbed', '--encrypted-backup']) {
+    assert.ok(runner.includes(token), `the encrypted backup runner does not exercise ${token}`)
+  }
+  assert.match(runner, /resolveAgeTools/)
+  assert.match(runner, /assert\.notEqual\(.*status, 0, 'the export accepted a private identity'\)/s)
+
+  const quickstart = read('scripts', 'selfhost-quickstart.mjs')
+  assert.match(quickstart, /--encrypted-backup/)
+  assert.match(quickstart, /runEncryptedJourney/)
+  assert.match(quickstart, /resolveAgeTools/)
+  assert.match(quickstart, /composeDataDigest/)
+  assert.match(quickstart, /volumeSet/)
+})
+
+test('required candidate CI builds pinned age outside the image and runs real-age encryption checks', () => {
+  const workflow = read('.github', 'workflows', 'ci.yml')
+  assert.match(workflow, /^permissions:\n  contents: read$/m)
+  assert.match(workflow, /image: postgres:18-alpine@sha256:[0-9a-f]{64}/)
+  const selfhost = jobBlock(workflow, 'selfhost')
+  assert.match(selfhost, /actions\/setup-go@[0-9a-f]{40}/)
+  assert.match(selfhost, /go install filippo\.io\/age\/cmd\/age@v1\.3\.2 filippo\.io\/age\/cmd\/age-keygen@v1\.3\.2/)
+  assert.match(selfhost, /npm run selfhost:smoke -- --skip-console-build/)
+  assert.match(selfhost, /npm run backup:contract:age/)
+  assert.match(selfhost, /run: npm run backup:contract$/m)
+  assert.match(selfhost, /SESAME_REQUIRE_AGE: ['"]?1['"]?/)
+  assert.doesNotMatch(selfhost, /continue-on-error|if: .*age/)
+  const quickstart = jobBlock(workflow, 'selfhost-quickstart')
+  assert.match(quickstart, /needs: selfhost-image\n/)
+  assert.match(quickstart, /actions\/setup-go@[0-9a-f]{40}/)
+  assert.match(quickstart, /go install filippo\.io\/age\/cmd\/age@v1\.3\.2 filippo\.io\/age\/cmd\/age-keygen@v1\.3\.2/)
+  assert.match(quickstart, /node scripts\/selfhost-export-check\.mjs --mode docker --image sesame-selfhost:ci-amd64/)
+  assert.doesNotMatch(quickstart, /continue-on-error|if: .*age/)
+  assert.doesNotMatch(read('Dockerfile.selfhost'), /filippo|age-keygen|age\s/)
 })

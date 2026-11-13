@@ -4,9 +4,13 @@ const usage = `Usage: sesame-server [command] [arguments]
 
 Commands:
   serve                 Run the server. This is the default.
-  backup [path]         Write a backup of the database and secrets.
+  backup [--stdout] [path]
+                        Write a backup of the database and secrets. With --stdout, write the archive to standard output.
   restore <file|->      Restore a backup into the data directory. Use - to read it from standard input.
-  check [file]          Verify the database, or a backup file, opens and is intact.
+  check [--json] [file]
+                        Verify the database, or a backup file, opens and is intact.
+  check --stdin [--json]
+                        Verify a backup archive from standard input.
   recover [--status] [--json]
                         Show the recovery state after a restore.
   recover --confirm <generation> [--retain-owner <id>] [--retain-device <id>] [--json]
