@@ -13,6 +13,7 @@ Commands:
                         Verify the database, or a backup file, opens and is intact.
   check --stdin [--json]
                         Verify a backup archive from standard input.
+  doctor [--json]       Inspect configuration and local data metadata without starting the server.
   recover [--status] [--json]
                         Show the recovery state after a restore.
   recover --confirm <generation> [--retain-owner <id>] [--retain-device <id>] [--json]

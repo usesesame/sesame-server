@@ -102,7 +102,49 @@ sudo tailscale serve status
 
 Use `tailscale serve` and not `tailscale funnel`. Both Tailscale prerequisites remain operator work, and the generated host must match the address that `tailscale serve status` prints. Read [Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve) for the service and certificate requirements.
 
-The [Quick start](#quick-start) above remains the manual recipe for a current release that predates this command. Nginx and Traefik remain the manual recipes in [Network and HTTPS](#network-and-https). This command has no doctor or console diagnostics, and it does not validate the network.
+The [Quick start](#quick-start) above remains the manual recipe for a current release that predates this command. Nginx and Traefik remain the manual recipes in [Network and HTTPS](#network-and-https). The install command does not run the doctor, and it does not validate the network. The offline doctor also makes no network request.
+
+## Diagnose an installation
+
+A server binary built from this checkout also includes `doctor`, an offline inspection command. A release that predates this command has no `doctor` command. Use the candidate build for the diagnosis, and follow the chosen release's own guide for its service commands. The command helps you find invalid settings, unexpected file types, missing instance material and overly broad permissions without starting or changing the service.
+
+Run it as the same account that runs the service and with the same settings:
+
+```sh
+SESAME_DATA_DIR=/var/lib/sesame \
+SESAME_CONFIG_FILE=/var/lib/sesame/config.json \
+/usr/local/bin/sesame-server doctor --json
+```
+
+The two settings above locate the installation. Add the other settings your unit sets, such as `SESAME_PUBLIC_URL`, `SESAME_ADDR` and `SESAME_TRUSTED_PROXIES`, as `NAME=value` entries on the same command. Do not source or evaluate a systemd `EnvironmentFile` or a generated `.env` as a shell program. Systemd file syntax is not shell syntax, and a bare shell can read defaults or a different data directory. A new process cannot prove that its environment matches the running service, and an edited config file can differ from the settings the server already loaded.
+
+The command accepts `--json` and the help flags. It rejects unknown and repeated options, positional arguments and a value attached to `--json`. `doctor --help` exits 0 and prints usage. All other arguments are validated before help is returned. It is a local command, not an HTTP endpoint or a host command service.
+
+The command reads the configuration through the existing parser and reads file metadata. The parser can follow a symbolic link to read the configuration, while the metadata check leaves the linked target's permissions unknown. It does not open SQLite, read the contents of the secrets files, dial a socket, execute a program, inspect Docker, take a lock or create a file or directory. It does not repair, migrate, seed, checkpoint or recover anything. Keep the report as private as the settings, because it names the public address and trusted proxy ranges.
+
+Without `--json`, the command prints a short human summary. With `--json`, it prints one JSON object and a final newline. The object holds a schema version, the tool version, the generation time, the `offline` mode, an overall state, a sanitized configuration summary, the checks and the limitations. It holds no absolute path, mail setting, key value, database content or raw error.
+
+The overall state is `ok` when every check that ran is ok, `action` when a check needs a change, and `unknown` when evidence is missing. The exit is 0 for `ok`, 1 for `action`, 3 for `unknown` and 2 for a usage error such as `--network`. A handled failure to write the report also exits 1. `--network` is not available and makes no hidden request. An unknown report can describe a working installation and is not a pass. With this offline check set, a report with no actionable issue still exits 3 because the database check remains unknown. A signal during startup or report output can leave the JSON incomplete. Discard incomplete output.
+
+The checks cover configuration loading, the public origin, the listen address, trusted proxies, the config file, the data directory, the secrets metadata, the database file metadata and free space. An `ok` result means only that those checks found no problem. The command does not prove the database schema, integrity, audit chain or recovery state, the secret contents or their match to the database, network reachability, DNS, certificates, proxy mapping, ACLs, write access, clock accuracy or the settings cached by a running service. A report is not a statement that the service is healthy or secure.
+
+Space requirements stay unknown when the database size cannot be observed. A confirmed missing database uses zero for the estimate.
+
+The config file can hold an old mail password that the environment overrides, so the command does not claim that the file holds no credentials. Any group or other permission bit on the file is an action even when the effective mail password comes from the environment.
+
+For a running container, use the candidate image and run the command inside the service:
+
+```sh
+docker compose exec -T sesame /sesame-server doctor --json
+```
+
+This process shares the container environment and the mounted data with the running server. It rereads `config.json`, so an edited file can differ from the settings cached by the running server. A one-off run uses the current resolved service settings and can create Docker resources, so it is not a zero-mutation observation of the running service.
+
+```sh
+docker compose run --rm --no-deps -T sesame doctor --json
+```
+
+Linux is the only runtime tested for this command. Windows and macOS compile, but permission and filesystem checks that depend on POSIX mode bits remain unknown there. The command does not inspect an access control list and does not test ownership or write access on any platform.
 
 ## First run and pairing
 

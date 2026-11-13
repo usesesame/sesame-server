@@ -17,6 +17,7 @@ const (
 	exitOK      = 0
 	exitFailure = 1
 	exitUsage   = 2
+	exitUnknown = 3
 )
 
 type Environment struct {
@@ -73,6 +74,9 @@ func run(ctx context.Context, args []string, env Environment) int {
 			return exitFailure
 		}
 		return exitOK
+	}
+	if command.name == "doctor" {
+		return runDoctor(ctx, env, command.flags.JSON)
 	}
 	cfg, err := config.Load(env.Lookup)
 	if err != nil {
@@ -161,6 +165,13 @@ func parseCommand(args []string) (parsed, error) {
 			return parsed{}, err
 		}
 		return parsed{name: name, flags: flags, install: request}, nil
+	}
+	if name == "doctor" {
+		flags, err := parseDoctorArgs(rest)
+		if err != nil {
+			return parsed{}, err
+		}
+		return parsed{name: name, flags: flags}, nil
 	}
 	var minArgs, maxArgs int
 	switch name {
