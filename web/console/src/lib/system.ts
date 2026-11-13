@@ -133,7 +133,7 @@ export function parseDiagnosticsReport(value: unknown): DiagnosticsReport | null
     const known = Object.hasOwn(CHECK_LABELS, id)
     const reportedState = normalizeState(entry.state)
     const codes = known ? CHECK_CODES[id] : undefined
-    const valid = codes !== undefined && Object.hasOwn(codes, code) && codes[code].includes(reportedState)
+    const valid = codes !== undefined && Object.hasOwn(codes, code) && (codes[code] as readonly string[]).includes(entry.state)
     const state: DiagnosticsState = valid || reportedState === 'action' ? reportedState : 'unknown'
     checks.push({
       id,
@@ -171,12 +171,16 @@ export function parseSystemInfo(value: unknown): SystemInfo {
   let aligned = warningEntries.length <= MAX_WARNINGS && Array.isArray(raw.warningCodes)
 
   for (const entry of warningEntries.slice(0, MAX_WARNINGS)) {
-    const warning = boundedText(entry, MAX_WARNING_LENGTH)
-    if (!warning) {
+    if (typeof entry !== 'string' || entry.length === 0) {
       aligned = false
       continue
     }
-    warnings.push(warning)
+    if (entry.length > MAX_WARNING_LENGTH) {
+      aligned = false
+      warnings.push(`${entry.slice(0, MAX_WARNING_LENGTH - 1)}…`)
+      continue
+    }
+    warnings.push(entry)
   }
 
   let warningCodes: string[] | undefined

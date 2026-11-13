@@ -58,9 +58,10 @@ function parseArguments(args) {
       assert.ok(!portSet && /^[1-9]\d{0,4}$/.test(value) && Number(value) <= 65535, '--https-port must appear once with a port from 1 to 65535.')
       parsed.httpsPort = Number(value)
       portSet = true
-    } else throw new Error(`Unknown argument ${arg}. Use --image <ref> --proxy <caddy|nginx|traefik> [--https-port <port>].`)
+    } else throw new Error(`Unknown argument ${arg}. Use --image <ref> --proxy <caddy|nginx|traefik> [--https-port <port> with traefik].`)
   }
   if (!parsed.image || !['caddy', 'nginx', 'traefik'].includes(parsed.proxy)) throw new Error('--image and --proxy caddy, nginx or traefik are required.')
+  if (parsed.httpsPort !== 443 && parsed.proxy !== 'traefik') throw new Error('--https-port only applies to --proxy traefik, because the Caddy and nginx recipes listen on port 443.')
   return parsed
 }
 

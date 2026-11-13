@@ -149,6 +149,15 @@ test('drops warning codes when the arrays do not align', () => {
   expect(info.warnings).toEqual(['One.', 'Two.'])
 })
 
+test('shortens a long warning instead of dropping it', () => {
+  const long = `A configuration warning about ${'/srv/sesame/'.repeat(60)}`
+  const info = parseSystemInfo({ warnings: ['One.', long], warningCodes: ['backup', 'configuration'] })
+  expect(info.warnings).toHaveLength(2)
+  expect(info.warnings[1]).toHaveLength(500)
+  expect(info.warnings[1]).toBe(`${long.slice(0, 499)}…`)
+  expect(info.warningCodes).toBeUndefined()
+})
+
 test('drops warning codes when a warning cannot be read', () => {
   const info = parseSystemInfo({ warnings: ['One.', 7], warningCodes: ['backup', 'audit'] })
   expect(info.warnings).toEqual(['One.'])
@@ -199,6 +208,10 @@ test('keeps a notice when its report check is missing or the arrays do not align
 
   const contradicted = parseDiagnosticsReport(report({ checks: [check({ id: 'backup', state: 'ok', code: 'backup_missing', summary: 'No backup is recorded.' })] }))
   expect(visibleWarnings(info, contradicted)).toEqual(['Backup notice.', 'Audit notice.'])
+
+  const unsupported = parseDiagnosticsReport(report({ checks: [check({ id: 'backup', state: 'unsupported', code: 'backup_future', summary: 'The last recorded backup time is in the future.' })] }))
+  expect(unsupported?.checks.find((entry) => entry.id === 'backup')).toMatchObject({ state: 'unknown', valid: false })
+  expect(visibleWarnings(info, unsupported)).toEqual(['Backup notice.', 'Audit notice.'])
 
   const misaligned = parseSystemInfo({ warnings: ['Backup notice.', 'Audit notice.'], warningCodes: ['backup'] })
   expect(visibleWarnings(misaligned, parsed)).toEqual(['Backup notice.', 'Audit notice.'])
