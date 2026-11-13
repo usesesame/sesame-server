@@ -50,6 +50,60 @@ You need a machine with Docker and the Compose plugin, and about five minutes. T
 
 The compose file publishes the port on `127.0.0.1` only and keeps the data in a Docker volume named `sesame-selfhost_sesame-data`. The version stays in `.env` next to the compose file between restarts. [deploy/selfhost/.env.example](deploy/selfhost/.env.example) lists the other settings.
 
+## Guided installation
+
+A server binary that includes the `install` command can write the files for one of three deployment profiles. Use the candidate binary built from this checkout. The `--version` value is only the container image tag. Replace the example tag 0.4.1 with the release you intend to run, because the command does not look up the latest tag. An older binary, such as the 0.4.1 release, does not gain the command even if the tag 0.4.1 is valid.
+
+The command only generates files. It does not pull an image, start a container, configure Caddy or Tailscale, open the data directory, contact the network or test the host. On POSIX systems it creates the target directory with mode 0700 and each file with mode 0600. On Windows it does not set an access control list. The directory inherits its parent's permissions, so restrict that parent's access before generation. The plan's `0600` value describes intended POSIX permissions and does not enforce them on Windows. Directory sync is skipped there. See [Windows directory permissions](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createdirectoryw).
+
+Linux is the only runtime tested for this command. Windows and macOS runtime support remains unvalidated, including macOS directory syncing.
+
+Choose one profile. The target must be a new path whose parent directory already exists, and the command refuses an existing file, directory or symbolic link. The parent path cannot contain symbolic links. If your chosen parent uses one, resolve its actual path before running the command. It does not create missing parent directories. A hard kill can leave an incomplete private directory that the command cannot remove, so inspect it yourself and remove it before using that path again.
+
+```sh
+SESAME_IMAGE_TAG=0.4.1
+sesame-server install --profile local --version "$SESAME_IMAGE_TAG" --dir ./sesame-local
+sesame-server install --profile caddy --host vault.example.com --version "$SESAME_IMAGE_TAG" --dir ./sesame-caddy
+sesame-server install --profile tailscale --host sesame.example-tailnet.ts.net --version "$SESAME_IMAGE_TAG" --dir ./sesame-tailscale
+```
+
+The `local` profile uses `http://localhost:8787` and trusts no proxy. The `caddy` profile uses `https://vault.example.com` and trusts only `172.31.88.0/24`, the fixed range of the Compose network. Its files include the canonical [Caddyfile](deploy/selfhost/Caddyfile) and a `caddy.env` that holds only `SESAME_HOST`. The `tailscale` profile uses `https://sesame.example-tailnet.ts.net` and the same fixed proxy range.
+
+The guided `caddy` profile accepts lowercase ASCII names whose final suffix contains only letters. Names with an internationalized suffix beginning `xn--` need the [manual HTTPS recipe](#network-and-https).
+
+Inspect every generated file and render the Compose configuration with [docker compose config](https://docs.docker.com/reference/cli/docker/compose/config/) before you start anything:
+
+```sh
+cd sesame-local
+sed -n '1,200p' compose.yaml .env plan.json
+docker compose config
+```
+
+The generated `compose.yaml` and `Caddyfile` are the exact files in [deploy/selfhost](deploy/selfhost). `plan.json` records the selected profile, image tag, public address, trusted ranges, relative file paths, SHA-256 hashes, modes and the prerequisites that the command did not test. The plan is published last, so treat a directory without `plan.json` as incomplete. Add `--json` to print the same plan as one JSON object after generation. A prerequisite is `unknown` when no check ran. The plan is not proof that an image exists, Docker can start, port 8787 is free, the subnet is free, DNS resolves, a certificate can be issued or a tailnet address works.
+
+For the `caddy` profile, start the server from `sesame-caddy` and run Caddy on the host with the generated environment file:
+
+```sh
+cd sesame-caddy
+docker compose up -d
+sudo caddy run --config ./Caddyfile --envfile ./caddy.env
+```
+
+If Caddy already runs as a host service, review the generated Caddyfile and install it at the configuration path that service uses, with access for its service account. Add `EnvironmentFile=/absolute/path/to/sesame-caddy/caddy.env` to that service unit. With systemd, run `sudo systemctl daemon-reload` before restarting the unit. The [Caddy command line](https://caddyserver.com/docs/command-line) documents `--envfile`. The Caddyfile passes the original `Host` header.
+
+For the `tailscale` profile, enable MagicDNS and HTTPS certificates in the Tailscale admin console, start the server from `sesame-tailscale`, and serve only inside your tailnet:
+
+```sh
+cd sesame-tailscale
+docker compose up -d
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8787
+sudo tailscale serve status
+```
+
+Use `tailscale serve` and not `tailscale funnel`. Both Tailscale prerequisites remain operator work, and the generated host must match the address that `tailscale serve status` prints. Read [Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve) for the service and certificate requirements.
+
+The [Quick start](#quick-start) above remains the manual recipe for a current release that predates this command. Nginx and Traefik remain the manual recipes in [Network and HTTPS](#network-and-https). This command has no doctor or console diagnostics, and it does not validate the network.
+
 ## First run and pairing
 
 The first start creates the instance secrets, the database and a setup link, and writes the link to the log. The link works once and expires after 24 hours. If it expires before you use it, restart the server and it prints a new one. Once the first owner exists the server stops printing first-run links.

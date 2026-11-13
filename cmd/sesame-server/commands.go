@@ -18,6 +18,7 @@ type CommandFlags struct {
 
 type Invocation struct {
 	Config  config.Config
+	Install InstallRequest
 	Args    []string
 	Flags   CommandFlags
 	Stdin   io.Reader
@@ -63,6 +64,7 @@ func (f ApplicationBuilderFunc) Build(ctx context.Context, input BuildInput) (*A
 
 type Commands struct {
 	Serve        ApplicationBuilder
+	Install      Runner
 	Backup       Runner
 	Restore      Runner
 	Check        Runner

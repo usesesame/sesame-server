@@ -10,6 +10,7 @@ import (
 func wireCommands() Commands {
 	return Commands{
 		Serve:   ApplicationBuilderFunc(buildApplication),
+		Install: RunnerFunc(runInstall),
 		Backup:  RunnerFunc(runBackup),
 		Restore: RunnerFunc(runRestore),
 		Check:   RunnerFunc(runCheck),
