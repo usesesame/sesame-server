@@ -1,26 +1,20 @@
 # Self-hosting Sesame
 
-This page covers the self-hosted Sesame server, `sesame-server`. It is a separate program from the hosted service that the rest of this repository builds, and it shares no data with it. The hosted stack is described in [DEPLOYMENT.md](DEPLOYMENT.md).
+You can run your own Sesame server and pair your Sesame desktop apps to it instead of the hosted service. You manage it from a console in your browser, where you add the people who use it, create one-time pairing links and see or revoke every paired desktop. Sync of encrypted vaults is available too, and it stays off until you turn it on.
 
-## What a self-hosted Sesame does today
+The server is one program with a SQLite database in a single data directory. It needs no database server, no mail server and no other service. It shares no data with the hosted service, which is described in [DEPLOYMENT.md](DEPLOYMENT.md).
 
-A self-hosted Sesame pairs your Sesame desktop apps to a server you run. You sign in to a console in your browser, add the people who use the server, and create one-time pairing links. A desktop app that redeems a link receives a device token, and from then on the console lists that desktop, shows when it last connected and lets you revoke it.
+## Before you start
 
-Sync is off until you turn it on. When you do, each person's desktops can sync an encrypted vault through this server, and their devices check signed history before accepting changes. Read [Sync](#sync) before you turn it on.
+You need a machine with Docker and the Compose plugin. Pairing needs a Sesame desktop newer than 0.3.0, which shows Your own server in Settings.
 
-The server is one static program with a SQLite database in a single data directory. It needs no database server, no mail server and no other service.
-
-It can also tell you when a newer release exists, but only if you allow it. Read [Update notices](#update-notices) for exactly what that sends.
-
-Pairing needs a Sesame desktop newer than 0.3.0, because 0.3.0 has no setting for connecting to your own server. A build that has it shows Your own server in Settings.
-
-It does not offer accounts for the people you add. Read [What you give up without accounts](#what-you-give-up-without-accounts) before you decide who gets a device.
+A self-hosted server has no accounts for the people you add. Only owners sign in, and they do everything for the members. Read [What you give up without accounts](#what-you-give-up-without-accounts) before you decide who gets a device.
 
 ## Quick start
 
-You need a machine with Docker and the Compose plugin, and about five minutes. This starts the server on the same machine, reachable only from that machine, which is enough to try it. The section on [network and HTTPS](#network-and-https) covers reaching it from other computers.
+This starts the server on one machine, reachable only from that machine, which is enough to try it. [Network and HTTPS](#network-and-https) explains how to reach it from other computers afterwards.
 
-1. Download the compose file for the latest release. The version goes into a `.env` file, so the later commands need nothing more.
+1. Download the compose file for the latest release and store its version in a `.env` file next to it.
 
    ```sh
    mkdir sesame && cd sesame
@@ -30,9 +24,9 @@ You need a machine with Docker and the Compose plugin, and about five minutes. T
    cat .env
    ```
 
-   `cat .env` should print a version such as `SESAME_IMAGE_TAG=0.3.2`. To run another release, put its version on that line instead and follow that release's own `SELF-HOSTING.md`, because commands can differ between releases.
+   `cat .env` should print a line such as `SESAME_IMAGE_TAG=0.5.0`. To run another release, put its version there and follow that release's own `SELF-HOSTING.md`, because commands can differ between releases.
 
-2. Start the server, check that it is healthy and read the setup link from its log.
+2. Start the server, wait until it answers and read the setup link from its log.
 
    ```sh
    docker compose up -d
@@ -40,163 +34,66 @@ You need a machine with Docker and the Compose plugin, and about five minutes. T
    docker compose logs sesame | grep 'setup#token'
    ```
 
-   The `curl` line keeps trying for up to a minute while the server starts and prints `{"status":"ok", ...}` with the version. If it fails, run `docker compose logs sesame` and read [When something goes wrong](#when-something-goes-wrong).
+   The `curl` line retries for up to a minute and then prints `{"status":"ok", ...}`. If it fails, run `docker compose logs sesame` and look in [When something goes wrong](#when-something-goes-wrong).
 
-3. Open the link in a browser on the same machine. It looks like `http://localhost:8787/setup#token=...`. Use `localhost` and not `127.0.0.1`, because the server answers sign-in requests only at the address in `SESAME_PUBLIC_URL`.
+3. Open the link, which looks like `http://localhost:8787/setup#token=...`, in a browser on the same machine. Use `localhost` and not `127.0.0.1`, because the server only answers at the address in `SESAME_PUBLIC_URL`. If the server runs on another machine, forward the port with `ssh -L 8787:127.0.0.1:8787 your-server` and open the link on your own computer.
 
-   If the server is on another machine, forward the port first with `ssh -L 8787:127.0.0.1:8787 your-server` and open the same link on your own computer.
+4. Choose an owner name and a password of at least 12 characters, add the shown key to an authenticator app and enter its current six digit code. You are now signed in.
 
-4. Choose an owner name and a password of at least 12 characters, add the shown key to an authenticator app, and enter the current six digit code. You are signed in.
-
-The compose file publishes the port on `127.0.0.1` only and keeps the data in a Docker volume named `sesame-selfhost_sesame-data`. The version stays in `.env` next to the compose file between restarts. [deploy/selfhost/.env.example](deploy/selfhost/.env.example) lists the other settings.
-
-## Guided installation
-
-A server binary that includes the `install` command can write the files for one of three deployment profiles. Use the candidate binary built from this checkout. The `--version` value is only the container image tag. Replace the example tag 0.4.1 with the release you intend to run, because the command does not look up the latest tag. An older binary, such as the 0.4.1 release, does not gain the command even if the tag 0.4.1 is valid.
-
-The command only generates files. It does not pull an image, start a container, configure Caddy or Tailscale, open the data directory, contact the network or test the host. On POSIX systems it creates the target directory with mode 0700 and each file with mode 0600. On Windows it does not set an access control list. The directory inherits its parent's permissions, so restrict that parent's access before generation. The plan's `0600` value describes intended POSIX permissions and does not enforce them on Windows. Directory sync is skipped there. See [Windows directory permissions](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createdirectoryw).
-
-Linux is the only runtime tested for this command. Windows and macOS runtime support remains unvalidated, including macOS directory syncing.
-
-Choose one profile. The target must be a new path whose parent directory already exists, and the command refuses an existing file, directory or symbolic link. The parent path cannot contain symbolic links. If your chosen parent uses one, resolve its actual path before running the command. It does not create missing parent directories. A hard kill can leave an incomplete private directory that the command cannot remove, so inspect it yourself and remove it before using that path again.
-
-```sh
-SESAME_IMAGE_TAG=0.4.1
-sesame-server install --profile local --version "$SESAME_IMAGE_TAG" --dir ./sesame-local
-sesame-server install --profile caddy --host vault.example.com --version "$SESAME_IMAGE_TAG" --dir ./sesame-caddy
-sesame-server install --profile tailscale --host sesame.example-tailnet.ts.net --version "$SESAME_IMAGE_TAG" --dir ./sesame-tailscale
-```
-
-The `local` profile uses `http://localhost:8787` and trusts no proxy. The `caddy` profile uses `https://vault.example.com` and trusts only `172.31.88.0/24`, the fixed range of the Compose network. Its files include the canonical [Caddyfile](deploy/selfhost/Caddyfile) and a `caddy.env` that holds only `SESAME_HOST`. The `tailscale` profile uses `https://sesame.example-tailnet.ts.net` and the same fixed proxy range.
-
-The guided `caddy` profile accepts lowercase ASCII names whose final suffix contains only letters. Names with an internationalized suffix beginning `xn--` need the [manual HTTPS recipe](#network-and-https).
-
-Inspect every generated file and render the Compose configuration with [docker compose config](https://docs.docker.com/reference/cli/docker/compose/config/) before you start anything:
-
-```sh
-cd sesame-local
-sed -n '1,200p' compose.yaml .env plan.json
-docker compose config
-```
-
-The generated `compose.yaml` and `Caddyfile` are the exact files in [deploy/selfhost](deploy/selfhost). `plan.json` records the selected profile, image tag, public address, trusted ranges, relative file paths, SHA-256 hashes, modes and the prerequisites that the command did not test. The plan is published last, so treat a directory without `plan.json` as incomplete. Add `--json` to print the same plan as one JSON object after generation. A prerequisite is `unknown` when no check ran. The plan is not proof that an image exists, Docker can start, port 8787 is free, the subnet is free, DNS resolves, a certificate can be issued or a tailnet address works.
-
-For the `caddy` profile, start the server from `sesame-caddy` and run Caddy on the host with the generated environment file:
-
-```sh
-cd sesame-caddy
-docker compose up -d
-sudo caddy run --config ./Caddyfile --envfile ./caddy.env
-```
-
-If Caddy already runs as a host service, review the generated Caddyfile and install it at the configuration path that service uses, with access for its service account. Add `EnvironmentFile=/absolute/path/to/sesame-caddy/caddy.env` to that service unit. With systemd, run `sudo systemctl daemon-reload` before restarting the unit. The [Caddy command line](https://caddyserver.com/docs/command-line) documents `--envfile`. The Caddyfile passes the original `Host` header.
-
-For the `tailscale` profile, enable MagicDNS and HTTPS certificates in the Tailscale admin console, start the server from `sesame-tailscale`, and serve only inside your tailnet:
-
-```sh
-cd sesame-tailscale
-docker compose up -d
-sudo tailscale serve --bg --https=443 http://127.0.0.1:8787
-sudo tailscale serve status
-```
-
-Use `tailscale serve` and not `tailscale funnel`. Both Tailscale prerequisites remain operator work, and the generated host must match the address that `tailscale serve status` prints. Read [Tailscale Serve](https://tailscale.com/kb/1242/tailscale-serve) for the service and certificate requirements.
-
-The [Quick start](#quick-start) above remains the manual recipe for a current release that predates this command. Nginx and Traefik remain the manual recipes in [Network and HTTPS](#network-and-https). The install command does not run the doctor, and it does not validate the network. The offline doctor also makes no network request.
-
-## Diagnose an installation
-
-A server binary built from this checkout also includes `doctor`, an offline inspection command. A release that predates this command has no `doctor` command. Use the candidate build for the diagnosis, and follow the chosen release's own guide for its service commands. The command helps you find invalid settings, unexpected file types, missing instance material and overly broad permissions without starting or changing the service.
-
-Run it as the same account that runs the service and with the same settings:
-
-```sh
-SESAME_DATA_DIR=/var/lib/sesame \
-SESAME_CONFIG_FILE=/var/lib/sesame/config.json \
-/usr/local/bin/sesame-server doctor --json
-```
-
-The two settings above locate the installation. Add the other settings your unit sets, such as `SESAME_PUBLIC_URL`, `SESAME_ADDR` and `SESAME_TRUSTED_PROXIES`, as `NAME=value` entries on the same command. Do not source or evaluate a systemd `EnvironmentFile` or a generated `.env` as a shell program. Systemd file syntax is not shell syntax, and a bare shell can read defaults or a different data directory. A new process cannot prove that its environment matches the running service, and an edited config file can differ from the settings the server already loaded.
-
-The command accepts `--json` and the help flags. It rejects unknown and repeated options, positional arguments and a value attached to `--json`. `doctor --help` exits 0 and prints usage. All other arguments are validated before help is returned. It is a local command, not an HTTP endpoint or a host command service.
-
-The command reads the configuration through the existing parser and reads file metadata. The parser can follow a symbolic link to read the configuration, while the metadata check leaves the linked target's permissions unknown. It does not open SQLite, read the contents of the secrets files, dial a socket, execute a program, inspect Docker, take a lock or create a file or directory. It does not repair, migrate, seed, checkpoint or recover anything. Keep the report as private as the settings, because it names the public address and trusted proxy ranges.
-
-Without `--json`, the command prints a short human summary. With `--json`, it prints one JSON object and a final newline. The object holds a schema version, the tool version, the generation time, the `offline` mode, an overall state, a sanitized configuration summary, the checks and the limitations. It holds no absolute path, mail setting, key value, database content or raw error.
-
-The overall state is `ok` when every check that ran is ok, `action` when a check needs a change, and `unknown` when evidence is missing. The exit is 0 for `ok`, 1 for `action`, 3 for `unknown` and 2 for a usage error such as `--network`. A handled failure to write the report also exits 1. `--network` is not available and makes no hidden request. An unknown report can describe a working installation and is not a pass. With this offline check set, a report with no actionable issue still exits 3 because the database check remains unknown. A signal during startup or report output can leave the JSON incomplete. Discard incomplete output.
-
-The checks cover configuration loading, the public origin, the listen address, trusted proxies, the config file, the data directory, the secrets metadata, the database file metadata and free space. An `ok` result means only that those checks found no problem. The command does not prove the database schema, integrity, audit chain or recovery state, the secret contents or their match to the database, network reachability, DNS, certificates, proxy mapping, ACLs, write access, clock accuracy or the settings cached by a running service. A report is not a statement that the service is healthy or secure.
-
-Space requirements stay unknown when the database size cannot be observed. A confirmed missing database uses zero for the estimate.
-
-The config file can hold an old mail password that the environment overrides, so the command does not claim that the file holds no credentials. Any group or other permission bit on the file is an action even when the effective mail password comes from the environment.
-
-For a running container, use the candidate image and run the command inside the service:
-
-```sh
-docker compose exec -T sesame /sesame-server doctor --json
-```
-
-This process shares the container environment and the mounted data with the running server. It rereads `config.json`, so an edited file can differ from the settings cached by the running server. A one-off run uses the current resolved service settings and can create Docker resources, so it is not a zero-mutation observation of the running service.
-
-```sh
-docker compose run --rm --no-deps -T sesame doctor --json
-```
-
-Linux is the only runtime tested for this command. Windows and macOS compile, but permission and filesystem checks that depend on POSIX mode bits remain unknown there. The command does not inspect an access control list and does not test ownership or write access on any platform.
-
-### Check the running server in the console
-
-The candidate console's System page shows the running server's configured public address and proxy trust, incremental audit result, recorded backup age and observed forwarding problems. Each finding states what the server observed and gives a next step when one is needed. The page keeps its version, database and backup facts if these checks are unavailable, including when it connects to an older server.
-
-These checks use the settings the server already loaded and the existing owner session. They do not run the host's doctor, execute a command or make a network probe. A configured HTTPS address does not prove that its certificate works, and a recorded backup does not prove an encrypted off-host copy or a successful restore. Use the offline doctor for host metadata and check external reachability from the device that needs access. The console leaves these uninspected facts unknown.
+The compose file publishes the port on `127.0.0.1` only and keeps the data in a Docker volume named `sesame-selfhost_sesame-data`. [deploy/selfhost/.env.example](deploy/selfhost/.env.example) lists the other settings you can put in `.env`.
 
 ## First run and pairing
 
-The first start creates the instance secrets, the database and a setup link, and writes the link to the log. The link works once and expires after 24 hours. If it expires before you use it, restart the server and it prints a new one. Once the first owner exists the server stops printing first-run links.
+The setup link from the first start works once and expires after 24 hours. If it expires, restart the server and it prints a new one. Once an owner exists, the server stops printing setup links.
 
-Sign-in always takes the password and a current code from the authenticator app. A code works once, so after a sign-in you wait for the next code before you sign in again.
+Signing in always takes the password and a current code from the authenticator app. Each code works once, so wait for the next code before you sign in again.
 
-The console has these pages: Devices, Members, Pairing, Audit log, Owners, Settings and System.
-
-Members are the people who use the server, such as family members or colleagues. A member has a name and holds devices, and cannot sign in anywhere. Owners are the people who can sign in to the console. You can invite more owners on the Owners page, and each invited owner gets a setup link that works once for 24 hours.
+Members are the people who use the server, such as family or colleagues. A member has a name and devices but cannot sign in. Owners sign in to the console, and you can invite more of them on the Owners page.
 
 To connect a desktop:
 
-1. Open Pairing, choose yourself or a member, and optionally name the device.
+1. Open Pairing, choose yourself or a member and optionally name the device.
 2. Copy the link. It is shown once, works once and expires after 10 minutes.
-3. In the desktop app, open Settings, choose to connect to your own server, and paste the whole link.
+3. In the desktop app, open Settings, choose to connect to your own server and paste the whole link.
 
-A link has the form `https://your-server/pair#code=...&fp=...`. Opening it in a browser only shows an explanation, because the address is meant for the desktop app. The `fp` part is the fingerprint of the server's signing key. The Settings page shows the same fingerprint, so you can compare the two.
+A pairing link looks like `https://your-server/pair#code=...&fp=...`. The `fp` part is the fingerprint of the server's signing key, and the Settings page in the console shows the same fingerprint so you can compare them.
 
-Pairing any device asks for your password and a code again unless you signed in within the last 10 minutes. Revoking a device or removing a member does the same. A revoked device is refused at its next request.
-
-Each device token lasts 90 days from pairing. The server does not extend it when the desktop is used, so a desktop that reaches 90 days must be paired again.
+Pairing a device, revoking one or removing a member asks for your password and a code again unless you signed in within the last 10 minutes. A revoked device is refused at its next request. A device token lasts 90 days from pairing and is not extended by use, so after 90 days the desktop has to be paired again.
 
 ## Network and HTTPS
 
-Passwords, one-time codes and device tokens cross the network between the browser or desktop and the server. For that reason the server refuses to start with an `http://` address in `SESAME_PUBLIC_URL` unless the host is `localhost`, `127.0.0.1` or `::1`. Plain HTTP is for the same machine only. Anything reachable from another computer needs HTTPS in front of the server.
+Passwords, codes and device tokens travel between the browser or desktop and the server, so anything reachable from another computer needs HTTPS. The server refuses to start with an `http://` address in `SESAME_PUBLIC_URL` unless the host is `localhost`, `127.0.0.1` or `::1`.
 
-The server does not terminate TLS itself. It listens on a local port, and a reverse proxy or Tailscale presents the HTTPS address. Three settings have to match the proxy.
+The server does not handle TLS itself. It listens on a local port, and a reverse proxy or Tailscale provides the HTTPS address. Three settings have to match that setup.
 
-`SESAME_PUBLIC_URL` is the exact address people type, such as `https://sesame.example.net`. Pairing links are built from it. Every owner and desktop request must also arrive with a `Host` header equal to its host, and every owner request that changes something must carry an `Origin` header equal to it. A request with another host gets 421 `host_mismatch`. The server never reads `X-Forwarded-Host`, so the proxy must pass the original `Host` header. All the recipes below do.
+`SESAME_PUBLIC_URL` is the exact address people open, such as `https://sesame.example.net`. Pairing links are built from it. Every request must arrive with a `Host` header for that host, or it gets 421 `host_mismatch`, so the proxy has to pass the original `Host` header. The server never reads `X-Forwarded-Host`. All the recipes below pass `Host` correctly.
 
-`SESAME_TRUSTED_PROXIES` lists the addresses of the proxy as comma separated CIDR ranges inside loopback, private or link-local space. The server reads the visitor address from `X-Forwarded-For` only when the connection comes from one of these ranges, and it uses the visitor address for rate limits. Leave it empty if nothing sits in front of the server. If it is missing behind a proxy, the log warns that every visitor shares one rate limit.
+`SESAME_TRUSTED_PROXIES` lists the proxy's addresses as comma separated CIDR ranges in loopback, private or link-local space. The server takes the visitor address from `X-Forwarded-For` only on connections from these ranges and uses it for rate limits. Leave it empty when nothing sits in front of the server. If it is missing behind a proxy, the log warns that every visitor shares one rate limit.
 
-`SESAME_ADDR` is where the server listens. The default is `127.0.0.1:8787`, and the image sets `0.0.0.0:8787` inside the container, which the compose file publishes on the host loopback only. Keep the published port on loopback so that only the proxy can reach it.
+`SESAME_ADDR` is where the server listens. The default is `127.0.0.1:8787`. The image listens on `0.0.0.0:8787` inside the container, and the compose file publishes that on the host loopback only, so only a proxy on the same host can reach it. Keep it that way.
 
-The files in [deploy/selfhost](deploy/selfhost) hold each recipe as plain configuration.
+Each recipe below has its configuration file in [deploy/selfhost](deploy/selfhost).
+
+### Tailscale
+
+Tailscale is the simplest choice when every device that pairs is on your tailnet. It gives the server an HTTPS address with no domain and no open port. Turn on MagicDNS and HTTPS certificates in the Tailscale admin console first, then run:
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:8787
+tailscale serve status
+```
+
+Set `SESAME_PUBLIC_URL` in `.env` to the address that `tailscale serve status` prints, such as `https://sesame.tailnet-name.ts.net`, set `SESAME_TRUSTED_PROXIES=172.31.88.0/24` and run `docker compose up -d` again. Use `tailscale serve` and not `tailscale funnel`, because funnel opens the server to the whole internet.
 
 ### Caddy on a domain
 
-Point the domain at the machine, run the server with `SESAME_PUBLIC_URL=https://sesame.example.net`, and use [Caddyfile](deploy/selfhost/Caddyfile) with `SESAME_HOST=sesame.example.net` set in the environment of the Caddy service, for example with `systemctl edit caddy`. Caddy obtains the certificate and passes the `Host` header on its own.
+Point the domain at the machine and set `SESAME_PUBLIC_URL=https://sesame.example.net` in `.env`. Use the [Caddyfile](deploy/selfhost/Caddyfile) and set `SESAME_HOST=sesame.example.net` in the environment of the Caddy service, for example with `systemctl edit caddy`. Caddy gets the certificate and passes the `Host` header by itself.
 
-If Caddy runs on the host and the server runs from the compose file, set `SESAME_TRUSTED_PROXIES=172.31.88.0/24` in `.env`. The compose file fixes its network to that range, and Docker normally presents traffic from the host to the container as coming from the network's gateway. If the log still warns about `X-Forwarded-For`, the proxy arrives from another range, and `docker network inspect sesame-selfhost_default` shows which.
+When Caddy runs on the host and the server runs from the compose file, also set `SESAME_TRUSTED_PROXIES=172.31.88.0/24`. The compose file fixes its network to that range, and Docker normally shows traffic from the host as coming from that network's gateway. If the log still warns about `X-Forwarded-For`, run `docker network inspect sesame-selfhost_default` to see which range the proxy really uses.
 
 ### nginx on a domain
 
-Copy [nginx.conf](deploy/selfhost/nginx.conf), replace `sesame.example.net` with your name, and point the two certificate paths at your certificate. The file passes `Host` with `$http_host` so that a port in the address survives, appends to `X-Forwarded-For`, and limits request bodies to 64 KiB, which is above the 16 KiB the server accepts. Set `SESAME_TRUSTED_PROXIES` the same way as for Caddy.
+Copy [nginx.conf](deploy/selfhost/nginx.conf), replace `sesame.example.net` with your name and point the two certificate paths at your certificate. The file passes `Host` with `$http_host` so a port in the address survives, adds the visitor to `X-Forwarded-For` and limits request bodies to 64 KiB. Set `SESAME_TRUSTED_PROXIES` the same way as for Caddy.
 
 ### Traefik on a domain
 
@@ -209,22 +106,11 @@ export SESAME_TRUSTED_PROXIES=172.18.0.0/16
 docker compose -f compose.yaml -f compose.traefik.yaml up -d
 ```
 
-Replace the trusted range with the subnet of your Traefik network, which `docker network inspect traefik` prints. Set `TRAEFIK_NETWORK` and `TRAEFIK_CERT_RESOLVER` if yours are not named `traefik` and `letsencrypt`. Traefik passes the `Host` header unchanged unless a router turns that off, and the labels set it on explicitly.
-
-### Tailscale
-
-Tailscale gives the server an HTTPS address that only your tailnet can reach, with no domain and no open port. Turn on MagicDNS and HTTPS certificates in the Tailscale admin console first.
-
-```sh
-tailscale serve --bg --https=443 http://127.0.0.1:8787
-tailscale serve status
-```
-
-Set `SESAME_PUBLIC_URL` to the address that `tailscale serve status` prints, for example `https://sesame.tailnet-name.ts.net`, and set `SESAME_TRUSTED_PROXIES=172.31.88.0/24` when you use the compose file. Use `tailscale serve` and not `tailscale funnel`, because funnel opens the server to the whole internet. Desktops that pair to this address must be on the tailnet.
+Replace the trusted range with your Traefik network's subnet, which `docker network inspect traefik` prints. Set `TRAEFIK_NETWORK` and `TRAEFIK_CERT_RESOLVER` if yours are not called `traefik` and `letsencrypt`.
 
 ### Binary under systemd
 
-If you do not want Docker, run the static program directly. Copy it out of the release image, which is the same file the image runs. Run this in the directory that holds your `.env` file, or set `SESAME_IMAGE_TAG` to the release you want:
+To run without Docker, copy the program out of the release image. It is the same static file the image runs. Run this in the directory that holds your `.env`, or set `SESAME_IMAGE_TAG` to the release you want:
 
 ```sh
 SESAME_IMAGE_TAG=$(sed -n 's/^SESAME_IMAGE_TAG=//p' .env)
@@ -234,7 +120,7 @@ docker rm --volumes sesame-extract
 sudo install -m 0755 sesame-server /usr/local/bin/sesame-server
 ```
 
-Then create the user and the settings file, and install the unit:
+Then create the service user and the settings file and install the unit:
 
 ```sh
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin sesame
@@ -246,17 +132,111 @@ sudo systemctl enable --now sesame-server
 sudo journalctl -u sesame-server | grep 'setup#token'
 ```
 
-The unit runs as the `sesame` user with a private state directory at `/var/lib/sesame`, no capabilities, a read-only view of the rest of the system and a system call filter. `systemd-analyze security` rates it 1.2 on the offline check. The example settings file expects a proxy on the same machine, so it trusts `127.0.0.1/32`.
+The unit runs as the `sesame` user with its data in `/var/lib/sesame`, no capabilities, a read-only view of the rest of the system and a system call filter. The example settings expect a proxy on the same machine, so they trust `127.0.0.1/32`.
 
-To run a command such as a backup against this install, load the same settings:
+To run a host command such as a backup against this install, load the same settings:
 
 ```sh
 sudo -u sesame sh -c 'set -a; . /etc/sesame/sesame-server.env; exec /usr/local/bin/sesame-server backup'
 ```
 
+The commands on the rest of this page are written for the compose install. For a binary install, run `/usr/local/bin/sesame-server` with the same arguments in the way shown above.
+
+## Guided installation
+
+Release 0.5.0 and later have an `install` command that writes a complete compose setup for one of three profiles, as an alternative to the quick start and the recipes above. An older binary, such as the 0.4.1 release, does not gain the command even if you give it a newer tag. Get the program as described in [Binary under systemd](#binary-under-systemd).
+
+The command only generates files. It does not pull an image, start a container, configure Caddy or Tailscale, open the data directory, contact the network or test the host. `--version` is the image tag it writes into the files, and it does not look up the latest release, so set it to the release you want.
+
+```sh
+SESAME_IMAGE_TAG=0.5.0
+sesame-server install --profile local --version "$SESAME_IMAGE_TAG" --dir ./sesame-local
+sesame-server install --profile caddy --host vault.example.com --version "$SESAME_IMAGE_TAG" --dir ./sesame-caddy
+sesame-server install --profile tailscale --host sesame.example-tailnet.ts.net --version "$SESAME_IMAGE_TAG" --dir ./sesame-tailscale
+```
+
+Run one of the three. The `local` profile serves `http://localhost:8787` and trusts no proxy. The `caddy` and `tailscale` profiles serve the HTTPS address you pass with `--host` and trust only `172.31.88.0/24`, the fixed range of the compose network. The `caddy` profile also writes the [Caddyfile](deploy/selfhost/Caddyfile) and a `caddy.env` that holds only `SESAME_HOST`. It accepts lowercase ASCII names whose final suffix contains only letters, so a name with an internationalized suffix beginning `xn--` needs the [manual Caddy recipe](#caddy-on-a-domain).
+
+The target must be a new path whose parent directory already exists. The command refuses an existing file, directory or symbolic link, refuses a parent path that contains a symbolic link and does not create missing parent directories. On Linux and macOS it creates the directory with mode 0700 and each file with mode 0600. On Windows it does not set an access control list, so the directory inherits its parent's permissions. The plan records the intended modes, but Sesame does not enforce them on Windows, so restrict the parent directory first. Linux is the only runtime tested for this command, and Windows and macOS runtime support remains unvalidated.
+
+The file `plan.json` is written last, so a directory without it is incomplete. A hard kill can leave an incomplete private directory behind that the command cannot remove, so remove it yourself before you use that path again.
+
+Read the generated files and check the compose configuration with `docker compose config` before you start anything:
+
+```sh
+cd sesame-local
+sed -n '1,200p' compose.yaml .env plan.json
+docker compose config
+```
+
+`plan.json` lists the profile, image tag, public address, trusted ranges, file hashes and modes, and the prerequisites the command could not check. Add `--json` to the install command to print the same plan. The plan does not prove that the image exists, that port 8787 or the subnet is free, that DNS resolves or that a certificate can be issued.
+
+For the `caddy` profile, start the server and run Caddy on the host with the generated environment file:
+
+```sh
+cd sesame-caddy
+docker compose up -d
+sudo caddy run --config ./Caddyfile --envfile ./caddy.env
+```
+
+If Caddy already runs as a service, install the generated Caddyfile where that service reads its configuration and add `EnvironmentFile=/absolute/path/to/sesame-caddy/caddy.env` to its unit. With systemd, run `sudo systemctl daemon-reload` before you restart it.
+
+For the `tailscale` profile, turn on MagicDNS and HTTPS certificates in the Tailscale admin console first. These prerequisites remain operator work, because the command cannot check them. Then start the server and serve it inside your tailnet:
+
+```sh
+cd sesame-tailscale
+docker compose up -d
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8787
+sudo tailscale serve status
+```
+
+Use `tailscale serve` and not `tailscale funnel`, and make sure the `--host` you passed matches the address that `tailscale serve status` prints.
+
+The install command does not run the doctor below and does not validate the network.
+
+## Diagnose an installation
+
+Release 0.5.0 and later include `doctor`, which inspects an installation offline and reports invalid settings, unexpected file types, missing instance files and permissions that are too broad. It does not start or change the service. To check an older release, use a 0.5.0 or later program as the candidate build and keep following your release's own guide for everything else.
+
+Run it as the same account that runs the service, with the same settings:
+
+```sh
+SESAME_DATA_DIR=/var/lib/sesame \
+SESAME_CONFIG_FILE=/var/lib/sesame/config.json \
+/usr/local/bin/sesame-server doctor --json
+```
+
+Put any other settings your service uses, such as `SESAME_PUBLIC_URL`, `SESAME_ADDR` and `SESAME_TRUSTED_PROXIES`, in front of the command as `NAME=value`. Do not source or evaluate a systemd `EnvironmentFile` or a generated `.env` as a shell script, because their syntax is not shell syntax and a shell can read the wrong values. A new process also cannot prove that its environment matches the running service.
+
+For a running container, run it inside the service:
+
+```sh
+docker compose exec -T sesame /sesame-server doctor --json
+```
+
+This shares the container environment and the mounted data with the running server. It rereads `config.json`, though, so an edited file can differ from the settings cached by the running server. When the service is stopped, use a one-off run instead. A one-off run can create Docker resources, so it is not a zero-mutation observation.
+
+```sh
+docker compose run --rm --no-deps -T sesame doctor --json
+```
+
+The doctor checks configuration loading, the public address, the listen address, trusted proxies, the config file, the data directory, the secrets files, the database file and free space. It reads file metadata only. It does not open SQLite or read the contents of the secrets files, it makes no network request and it creates nothing. It does not repair, migrate, seed, checkpoint or recover anything. The report names your public address and trusted proxy ranges, so keep it as private as your settings.
+
+The result is one of three states. `ok` means every check that ran found no problem, `action` means something needs a change and `unknown` means evidence is missing. The exit is 0 for `ok`, 1 for `action`, 3 for `unknown` and 2 for a usage error. An `unknown` result is not a pass. The offline checks always leave the database unknown, so a report with nothing to fix still exits 3. `--network` is not available.
+
+Even `ok` covers only those checks. The doctor does not prove the database schema, integrity, audit chain or recovery state, the secret contents or their match to the database, or network reachability, DNS, certificates, proxy mapping, ACLs, write access, clock accuracy or the settings a running service has cached. A report is not a statement that the service is healthy or secure.
+
+Any group or other permission bit on `config.json` counts as an action, because the file can still hold an old mail password that the environment overrides. Without `--json` the doctor prints a short summary, and with it one JSON object that holds no absolute path, key or database content.
+
+Linux is the only runtime tested. Windows and macOS compile, but checks that depend on POSIX permission bits stay unknown there, and the doctor does not inspect an access control list on any platform.
+
+### Check the running server in the console
+
+The System page in the console shows how the running server sees its public address, proxy trust, audit log, latest backup and forwarded requests, with a next step for anything that needs one. It uses the settings the server already loaded and makes no network probe, so a configured HTTPS address does not prove that the certificate works, and a recorded backup does not prove that an off-host copy exists or that a restore works.
+
 ## Settings
 
-Each setting comes from an environment variable, then from the config file, then from the default. The config file is `config.json` inside the data directory, or the file named by `SESAME_CONFIG_FILE`. It takes the keys in the last column and nothing else.
+Each setting comes from an environment variable, then from the config file, then from the default. The config file is `config.json` in the data directory, or the file named by `SESAME_CONFIG_FILE`, and it accepts only the keys in the last column.
 
 | Variable | Default | Config key |
 | --- | --- | --- |
@@ -271,30 +251,28 @@ Each setting comes from an environment variable, then from the config file, then
 | `SESAME_UPDATE_PUBLIC_KEYS` | the keys compiled into the build, if any | not available |
 | `SESAME_INSTALL_KIND` | detected | not available |
 
-`SESAME_METRICS=true` adds a Prometheus endpoint at `/metrics` that answers only direct requests from loopback or private addresses. `SESAME_BACKUP_INTERVAL=0` turns off scheduled backups, and the smallest interval is one minute. The server logs every effective setting and where it came from when it starts. It exits with a message when a setting is invalid, for example when `SESAME_PUBLIC_URL` is plain HTTP on a public name.
+`SESAME_METRICS=true` adds a Prometheus endpoint at `/metrics` that answers only direct requests from loopback or private addresses. `SESAME_BACKUP_INTERVAL=0` turns off scheduled backups, and the shortest interval is one minute. The update settings are explained in [Update notices](#update-notices). The server logs every effective setting and where it came from when it starts, and it exits with a message when a setting is invalid.
 
-`SESAME_UPDATE_FEED_URL`, `SESAME_UPDATE_PUBLIC_KEYS` and `SESAME_INSTALL_KIND` belong to [Update notices](#update-notices). The server exits with a message when `SESAME_UPDATE_FEED_URL` is not an https address, holds a user name or password, or has a query or a fragment.
-
-The server also accepts `SESAME_SMTP_*` settings and checks them, but nothing in the server sends email yet.
+The server also accepts and checks `SESAME_SMTP_*` settings, but it does not send any email yet.
 
 ## Backup, restore, upgrade and reset
 
-All state is in the data directory: the database `sesame.db`, the directory `secrets` and the optional `config.json`.
+All state is in the data directory: the database `sesame.db`, the `secrets` directory and the optional `config.json`.
 
-Keep your backup files in `backups/` or outside the data directory. Files named `.restore-input-` followed only by digits and directories named `.restore-new-` followed by exactly 12 lowercase hexadecimal characters are reserved for temporary restore data. Startup or the next restore removes abandoned temporary data under the instance lock and leaves symlinks alone.
+Keep your backup files in `backups/` or outside the data directory. Files named `.restore-input-` followed only by digits and directories named `.restore-new-` followed by exactly 12 lowercase hexadecimal characters are reserved for temporary restore data, and the server removes abandoned ones.
 
 ### Back up
 
-The server writes a backup to `backups/` in the data directory every 24 hours and keeps the newest seven scheduled ones. Each backup is one tar file with a consistent copy of the database, the three secret files and a checksum for each. You can take one at any time, also while the server runs:
+The server writes a backup to `backups/` in the data directory every 24 hours and keeps the newest seven. Each backup is one tar file with a consistent copy of the database, the three secret files and their checksums. You can also take one at any time while the server runs:
 
 ```sh
 docker compose exec sesame /sesame-server backup
 docker compose exec sesame /sesame-server backup /data/backups/before-trip.tar
 ```
 
-Copy backups to another machine. The scheduled ones sit on the same volume as the data, so they do not help when the disk is lost. A backup holds the keys that unlock owner sign-in, so keep it as private as the server.
+Copy backups to another machine, because the scheduled ones sit on the same disk as the data. A backup holds the keys that unlock owner sign-in, so keep it as private as the server itself.
 
-Check a backup without restoring it:
+To check a backup without restoring it:
 
 ```sh
 docker compose exec sesame /sesame-server check /data/backups/before-trip.tar
@@ -304,9 +282,7 @@ docker compose exec sesame /sesame-server check /data/backups/before-trip.tar
 
 ### Encrypted backup export
 
-The scheduled and manual backups stay local and unchanged. They hold the keys that unlock owner sign-in, so a copy of one is as sensitive as the server. An encrypted export writes a copy that protects the archive with a public recipient. The server needs only that recipient, and the private identity stays on the recovery device.
-
-Install [age 1.3.2](https://github.com/FiloSottile/age/releases/tag/v1.3.2) on the machine that runs the commands. It is an operator tool and is not in the server image or the server build. Run `scripts/export-backup.mjs` from the source checkout of the release tag that matches the server. A server that predates the encrypted export flags exits with a usage error instead of treating `--stdout` or `--stdin` as a file name. Follow that release's own `SELF-HOSTING.md`, or upgrade the server before using this section.
+An encrypted export makes a copy of a backup that only your recovery device can open, which is safer to store elsewhere. It uses [age 1.3.2](https://github.com/FiloSottile/age/releases/tag/v1.3.2). The server only needs your public recipient, and the private identity stays on the recovery device. Install age on the machine that runs the commands, and run `scripts/export-backup.mjs` from a source checkout of the release tag that matches your server. A server that predates the encrypted export flags stops with a usage error, so upgrade it first. The scheduled local backups still run unchanged next to the exports.
 
 Create the identity on the recovery device and copy only its public recipient to the server:
 
@@ -316,7 +292,7 @@ age-keygen -y /media/recovery/identity.txt > /etc/sesame/recipients.txt
 chmod 0600 /etc/sesame/recipients.txt
 ```
 
-For a binary install, run the export against the release checkout and data directory:
+For a binary install, run the export against the program and its data directory:
 
 ```sh
 node scripts/export-backup.mjs export \
@@ -324,7 +300,7 @@ node scripts/export-backup.mjs export \
   --destination /mnt/sesame-exports --recipients-file /etc/sesame/recipients.txt
 ```
 
-For the Compose install, run the export from the release checkout that holds your Compose file and name the service:
+For the compose install, run it next to your compose file and name the service:
 
 ```sh
 node /opt/sesame/scripts/export-backup.mjs export \
@@ -332,15 +308,13 @@ node /opt/sesame/scripts/export-backup.mjs export \
   --recipients-file /etc/sesame/recipients.txt
 ```
 
-The tool uses `docker compose exec` and never starts a service for an export. If the service is already stopped, add `--stopped` so it uses a one-off container instead. Use `--compose-file` when your Compose file is not `compose.yaml` in the current directory.
+The export reads only the recipient file and never accepts or asks for a private identity. It uses `docker compose exec`. If the service is stopped, add `--stopped` so it uses a one-off container, and add `--compose-file` when your file is not `compose.yaml` in the current directory.
 
-The export takes a complete private archive through the same post-write check as a manual backup, then encrypts that archive. The database limit is still 4 GiB and the config limit is still 1 MiB. Plan for the database size plus the completed archive while the export runs, and keep the destination and the data directory on filesystems with room to spare. The private snapshot and archive are removed when the command returns. A hard kill can leave private work behind, as a manual backup can. The command publishes a new `sesame-...tar.age` file with mode 0600 and never overwrites or deletes an earlier export.
+Each export writes a new `sesame-...tar.age` file with mode 0600 and never overwrites an earlier one. The database can be up to 4 GiB and the config up to 1 MiB, and the export temporarily needs room for the database and the finished archive. It prints the sizes, digests and path of the file it wrote.
 
-The printed JSON records the source and ciphertext byte counts and digests and the published path. A separate private history keeps one mode-0600 record per operation. A successful export shows that the ciphertext was written and read back. It does not show that this identity can decrypt it, and it does not prove that a copy exists anywhere else.
+An export on the same machine or disk is not off-host protection, so copy the file somewhere else with the tools you already use. Sesame does not schedule exports and promises no recovery point objective or restoration time.
 
-Copy the complete encrypted file to a separately held destination with the tools you already use. An export on the same machine or disk is not off-host protection. Sesame does not refresh exports on a schedule and promises neither a recovery point objective nor a restoration time. A daily export is one operator schedule, not a one-day guarantee. The scheduled local backups still run unchanged and do not refresh exports.
-
-Verify the copy on the recovery device, which holds the identity:
+Check the copy on the recovery device, which holds the identity:
 
 ```sh
 node scripts/export-backup.mjs verify \
@@ -348,7 +322,7 @@ node scripts/export-backup.mjs verify \
   --identity-file /media/recovery/identity.txt --native /usr/local/bin/sesame-server
 ```
 
-Verification succeeds only when age and the archive check both succeed. Streaming decryption can release authenticated data before the final chunk fails, so a valid prefix is not a passing result. To use a candidate image instead of a local binary:
+Verification passes only when age decrypts the whole file and the archive check succeeds. To use a release image instead of a local program:
 
 ```sh
 node scripts/export-backup.mjs verify \
@@ -357,7 +331,7 @@ node scripts/export-backup.mjs verify \
   --image "ghcr.io/usesesame/sesame-server-selfhost:${SESAME_IMAGE_TAG:?set a compatible server version}"
 ```
 
-Drill the archive into a fresh disposable target without touching the live data:
+To practise a recovery without touching the live data, drill the archive into a throwaway target:
 
 ```sh
 node scripts/export-backup.mjs drill \
@@ -365,44 +339,36 @@ node scripts/export-backup.mjs drill \
   --identity-file /media/recovery/identity.txt --native /usr/local/bin/sesame-server
 ```
 
-The drill decrypts and restores into a new target, checks the restored database and reads the recovery status. It succeeds only if age, the restore and the check all succeed. The restored state is left pending. The drill does not approve recovery, retain a device, start a network service or request a device token, and it removes its disposable target afterwards. The `--image` form uses a fresh volume and never attaches the live data volume. To keep a restored copy, use the restore and approval commands below instead.
+The drill decrypts, restores into a new target, checks the database and reads the recovery status, then deletes the target. The restored state is left pending, because the drill does not approve recovery, retain a device, start a network service or ask for a device token. With `--image` it uses a fresh volume and never touches the live one. To keep a restored copy, use the restore steps below.
 
-Export reads only the recipient file and never accepts or asks for a private identity. Verification and drilling need the identity and run offline. Do not put the identity in the data directory, the export destination or the server image. Operation history is private and holds no identity path, recipient value, private key, owner credential or device token. Use `--state-dir` to choose that directory, `--age` to name the age executable, and `--work-dir` to choose the parent of a fresh verification or drill workspace.
-
-For an image target, set `SESAME_IMAGE_TAG` to a release that supports these commands and the archive's schema. If the tool reports `cleanup_failed`, temporary data may remain because a child process has not stopped. A cleanup warning can also accompany a failed verification or restore, and its history record has `cleanupFailed: true`. Confirm that the process has exited before removing its temporary files or volumes.
+Never put the identity in the data directory, the export destination or the server image. Use `--state-dir` to choose where the tool keeps its private history, `--age` to name the age program and `--work-dir` to choose where verification and drills work. If the tool reports `cleanup_failed`, a child process may still hold temporary files, so make sure it has exited before you remove them.
 
 ### Restore
 
-Restore needs the server stopped, and it refuses to run while the server uses the data directory. The command moves the old contents aside into a `restore-previous-` directory and installs the backup. It refuses an archive whose checksums fail or whose secrets do not match its database.
-
-A restored database is left in recovery approval. The server refuses to start, so the console and every device are unreachable, until you confirm the restore on the host and choose the owners and devices that keep access. This stops a device that was revoked after the backup, or an owner who was removed, from coming back. Read [Approve a restore](#approve-a-restore) before you start the server.
+Stop the server before you restore. The restore moves the current data aside into a `restore-previous-` directory and installs the backup, and it refuses an archive whose checksums fail or whose secrets do not match its database.
 
 ```sh
 docker compose stop sesame
 docker compose run --rm --no-deps sesame restore /data/backups/before-trip.tar
 ```
 
-The restore prints the archive schema and the installed schema. A restore interrupted by a crash finishes itself the next time the server or a restore starts.
+After a restore, the server refuses to start until you approve the restore on the host and choose which owners and devices keep access. This stops a device revoked after the backup, or an owner removed after it, from coming back. Continue with [Approve a restore](#approve-a-restore). A restore interrupted by a crash finishes by itself the next time the server or a restore starts.
 
 ### Approve a restore
 
-Run status after a restore. It first finishes any interrupted restore and removes abandoned temporary restore data, then reads the recovery state without approving it. It does not create a missing database or migrate an older one. For a restored database it prints the pending generation, the active owners and the devices in the archive, including devices that were already revoked. Devices held by removed owners cannot be retained.
+First look at what the backup contains. Status lists the pending generation, the active owners and every device in the archive, including devices that were already revoked:
 
 ```sh
 docker compose run --rm --no-deps sesame recover --status
 ```
 
-The JSON form gives the exact values for a script. It uses lower camel-case fields named `pending`, `generation`, `startedAt`, `completedAt`, `owners` and `devices`. Each owner has `id`, `name`, `setupPending` and `lastLoginAt`. Each device has `id`, `name`, `holder` with `kind`, `id` and `name`, `expiresAt`, `lastSeenAt` and `revokedAt`. It holds no device tokens, pairing codes, passwords or authenticator secrets.
+The JSON form gives exact `id` values for each owner and device, and it holds no tokens, codes, passwords or authenticator secrets:
 
 ```sh
 docker compose run --rm --no-deps sesame recover --status --json
 ```
 
-Approve the restore with the generation and the owner and device `id` values from status. Repeat `--retain-owner` and `--retain-device` to keep more than one, and leave out `--retain-device` when no device should keep access. A device you do not name is revoked, including a device that was active in the archive, and every owner you do not name is removed. There is no option that keeps everything. A retained owner's device must belong to an owner you retain. A member's device can be retained if the member has not been removed. A device that is already revoked or expired cannot be retained. At least one complete owner must be retained when the archive holds one.
-
-Retention is a security decision. A retained device keeps the token from the backup, so select only devices you still hold. A retained owner signs in with the credentials that were in the backup, which may predate a password or authenticator change. If those credentials are suspect, reset the owner after approval and before you start the server with `docker compose run --rm --no-deps sesame owner reset "owner name"`. The reset also revokes every device paired to that owner, so pair those devices again afterwards.
-
-Set `SESAME_RECOVERY_GENERATION`, `SESAME_RETAIN_OWNER_ID` and `SESAME_RETAIN_DEVICE_ID` from the status output, then run the approval block.
+Set `SESAME_RECOVERY_GENERATION`, `SESAME_RETAIN_OWNER_ID` and `SESAME_RETAIN_DEVICE_ID` from the status output and approve. Repeat `--retain-owner` and `--retain-device` to keep more than one, and leave out `--retain-device` when no device should keep access.
 
 ```sh
 docker compose run --rm --no-deps sesame recover --json \
@@ -411,19 +377,21 @@ docker compose run --rm --no-deps sesame recover --json \
   --retain-device "$SESAME_RETAIN_DEVICE_ID"
 ```
 
-The approval prints JSON with `pending`, `generation`, `alreadyComplete`, `retainedOwners`, `removedOwners`, `retainedDevices` and `revokedDevices`. A repeated approval names the same generation, reports `alreadyComplete: true` and applies no selection.
+Every owner you do not name is removed and every device you do not name is revoked, and there is no option that keeps everything. You must keep at least one complete owner when the backup has one. A kept device must belong to a kept owner or to a member, and an expired or already revoked device cannot be kept.
 
-Start the server after the approval.
+Keep only devices you still hold, because a kept device goes on using its token from the backup. A kept owner signs in with the password and authenticator from the backup. If those may be compromised, reset that owner with `docker compose run --rm --no-deps sesame owner reset "owner name"` before you start the server, and pair that owner's devices again afterwards.
+
+Then start the server:
 
 ```sh
 docker compose up -d
 ```
 
-The approval belongs to the generation from the restore that created it. If you restore again, status shows a new generation and a command with the old one is refused. Approving the same completed generation again changes nothing. A retained owner signs in again after the restore. Every owner session, setup token and unused pairing from before the restore is gone.
+Every owner session, setup link and unused pairing from before the restore is gone. If you restore again, status shows a new generation and the old one is refused. A release that predates recovery approval installs a backup directly and has no `recover` command, so follow that release's own `SELF-HOSTING.md`.
 
 ### Restore a backup outside the data volume
 
-For a backup file that lives outside the volume, such as one copied from another machine, keep it at mode 0600 and pipe it into the one-off container on standard input. The container runs as user 65532 with the same data volume as the server, so the backup needs no mount and its host permissions stay private. The `-` argument tells `restore` to read standard input, and `-T` turns off terminal allocation so the archive arrives unchanged. The server needs room in its data volume for a temporary archive as well as the extracted database. An interrupted input copy is discarded on the next startup or restore.
+For a backup that is not in the data volume, such as one copied from another machine, pipe it into the restore on standard input. Keep the file at mode 0600. The `-` tells `restore` to read standard input and `-T` makes sure the archive arrives unchanged. The server needs room in its data volume for a temporary copy as well as the extracted database.
 
 ```sh
 chmod 0600 before-trip.tar
@@ -431,119 +399,88 @@ docker compose stop sesame
 docker compose run --rm --no-deps -T sesame restore - < before-trip.tar
 ```
 
-The restore leaves the same pending state as a restore from the volume. Approve it with [Approve a restore](#approve-a-restore) before you start the server.
-
-A device that was revoked after the backup appears in the archive as active. It keeps access only when you name it during approval. Every device you do not name is revoked.
-
-A release that predates recovery approval installs a backup directly and has no `recover` command. Follow the `SELF-HOSTING.md` in that release's tag for its exact commands, because this page describes the current release.
+Then approve it as described in [Approve a restore](#approve-a-restore) before you start the server.
 
 ### Upgrade
 
-Change `SESAME_IMAGE_TAG` and restart.
+Take a manual backup and read the release notes. Then change `SESAME_IMAGE_TAG` in `.env` and run:
 
 ```sh
 docker compose pull
 docker compose up -d
 ```
 
-When a release changes the database schema, the server first writes a backup named `sesame-premigration-` in `backups/` and then migrates. A server refuses a database that a newer version wrote, so you cannot run an older release over migrated data. To go back, restore the pre-migration backup with the older image. An image that predates recovery approval does not ask for it, so a rollback with that image skips the review. Use it only after you have decided that the restored access is acceptable.
-
-Before you upgrade, read the release notes and take a manual backup. Verify the image first if you want to, as described at the end of this page.
-
-The Updates page in the console can tell you when a newer release exists and shows these commands for your install. See [Update notices](#update-notices).
+When a release changes the database schema, the server first writes a backup named `sesame-premigration-` in `backups/` and then migrates. An older release refuses a database that a newer one has migrated, so to go back, restore the pre-migration backup with the older image. An image that predates recovery approval does not ask for approval after that restore.
 
 ### Reset an owner
 
-If an owner loses the password or the authenticator, run this on the host:
+If an owner loses their password or authenticator, run this on the host:
 
 ```sh
 docker compose exec sesame /sesame-server owner reset "owner name"
 ```
 
-It prints a setup link for that owner, ends every session of that owner, revokes every device paired to that owner and cancels their unused pairing codes. The owner cannot sign in with the old credentials until the link is used, and must pair those devices again afterwards. Devices that belong to members stay linked. The link works once and expires after 24 hours. Running it needs access to the data directory and the original secrets, so it is a host operation and no one can request it over the network.
+It prints a new setup link for that owner, which works once for 24 hours. It also ends their sessions, revokes the devices paired to them and cancels their unused pairing links, so they have to pair those devices again. Members' devices stay linked. This only works on the host, because it needs the data directory and its secrets.
 
 ## Sync
 
-Sync has not had an independent security review. Keep backups while you try it.
+Sync has not had an independent security review, so keep backups while you use it.
 
-To turn it on, sign in to the console, open the settings, confirm your password and code when asked, and switch on the Sync flag. A desktop then offers Sync in its settings. Each person decides for themselves whether to use it. With the flag off, every Sync request is refused.
+To turn it on, open Settings in the console, confirm your password and code and switch on Sync. Each person then decides on their own desktop whether to use it. While Sync is off, the server refuses every Sync request.
 
-What the server learns: how many devices a person has, when they sync, and how large their encrypted vault is. It never sees a vault key, a password, a recovery kit or a device name. Device names are encrypted with the vault key.
+The server learns how many devices a person has, when they sync and how large their encrypted vault is. It never sees a vault key, a password, a recovery kit or a device name, because device names are encrypted with the vault key.
 
-What the server can do: refuse or delay service, and serve an older copy. A desktop notices an older copy because it remembers the newest version it applied. It also notices two different histories, because every version names the one before it and every device list change is signed by a device already on the list.
+The server can refuse or delay service, or serve an older copy. A desktop notices an older copy because it remembers the newest version it applied, and it notices a split history because every version names the one before it and every change to the device list is signed by a device already on it.
 
-How a new device joins: a device that already syncs shows a one-time code, and the new device types it. The two run a password-based key exchange through the server, and the approving device adds the new one to the signed device list only after the new device proves it holds the code. The server never learns the code, and an owner who mints pairing links for a member cannot add a device to that member's vault.
+A new device joins with a one-time code shown on a device that already syncs. The two devices run a password-based key exchange through the server, which never learns the code. So an owner who creates pairing links for a member still cannot add a device to that member's vault.
 
-What the console shows: for each person, whether a synced vault exists, how many devices it has, its latest version number and how much space it uses. The console can reset a person's synced vault, which deletes the stored ciphertext and history. Resetting needs your password and code and is written to the audit log. The console cannot approve a device, read a name or open a vault.
+The console shows, for each person, whether a synced vault exists, how many devices it has, its latest version and its size. An owner can reset a person's synced vault, which deletes the stored ciphertext and history and is written to the audit log. The console cannot approve a device, read a name or open a vault.
 
-Backups contain the Sync data, which is ciphertext. A retained device keeps its stable Sync ID and the signed history in the backup. If a retained synced desktop has applied a version newer than the backup, it refuses the older history and shows a warning. Reset that person's vault and start Sync again from the desktop that has the newest copy.
+Backups include the encrypted Sync data. If a kept desktop has already applied a version newer than the restored backup, it refuses the older history and shows a warning. In that case reset that person's vault and start Sync again from the desktop with the newest copy.
 
 ## Update notices
 
-The console has an Updates page. When you allow it, the server checks a signed list of releases and shows you whether a newer version exists, what changed and which commands to run. It only notifies. It never downloads a release, installs one, restarts itself or touches the Docker socket, so you run the commands yourself.
+If you allow it, the server checks a signed list of releases about once a day and the Updates page tells you when a newer version exists, what changed and which commands to run. It never downloads or installs anything itself.
 
-You choose at setup whether the server checks. If you skip the question, the choice stays unset, the server makes no request and the Updates page asks you. You can change the choice on that page at any time, and the change needs a sign-in or a password and code confirmation from the last 10 minutes, like other sensitive changes. The audit log records each change.
+You choose at setup whether it checks, and you can change that on the Updates page at any time. Until you choose, it makes no request.
 
-### What a check sends
+A check is one plain `GET` to `https://api.usesesame.app/v1/updates/selfhost.json`, or to `SESAME_UPDATE_FEED_URL` if you set it. It sends no instance ID, cookie or version, and its `User-Agent` is the same for every server. Like any web request, it shows the feed host your server's IP address and the time, and if the server's environment sets `HTTPS_PROXY`, that proxy sees the request too. The code that builds the request is in `internal/selfhost/updates/fetch.go`.
 
-A check is one plain `GET` request to a fixed address, `https://api.usesesame.app/v1/updates/selfhost.json` unless you set `SESAME_UPDATE_FEED_URL`. The request has no query string, no instance id, no cookie and no version. Its only headers are `Accept`, `Accept-Encoding` and a `User-Agent` of `sesame-server-update-check` that is the same for every server. The feed host can see the IP address your server connects from and the time of the request, as with any web request. If the server's environment sets `HTTPS_PROXY`, the request goes through that proxy and the proxy sees it too. The code that builds the request is `internal/selfhost/updates/fetch.go`, and a test inspects the request it sends.
-
-The server checks about once a day, and when you press the check button on the Updates page, which allows 3 presses per hour. It waits up to an hour longer than a day so that many servers do not call at the same moment. When it starts and the last good result is less than a day old it does not check again, and otherwise it waits up to 10 minutes first. After a failed fetch it tries again in about an hour. It follows redirects only within the same address, reads at most 256 KiB and gives up after 10 seconds.
-
-### What the server checks and what it does not
-
-The feed is a JSON document signed with an Ed25519 key. The server accepts it only when the signature verifies against a public key pinned in the build or in `SESAME_UPDATE_PUBLIC_KEYS`, the document has not expired, and its sequence number is not lower than the highest one the server has accepted before. A lower number looks like someone replaying an old feed, so the server refuses it, keeps the last good result and shows `feed_rollback`. The server keeps the highest number separately for each signing key, so a newly pinned key starts fresh. If a maintainer published a number that was too high by mistake, `docker compose exec sesame /sesame-server updates reset-sequence` makes the server forget every key's highest number and writes an entry to the audit log. A feed that has expired is no longer offered: the page keeps the last release it saw, shows `feed_expired` and hides the commands until a fresh feed arrives. Every address in the feed must be https and every hash must have the exact shape of a SHA-256.
-
-That signature is the only thing the server verifies. It does not download the image or the program and does not check them. The page shows the image digest or the SHA-256 that the signed feed names, and the commands compare against it, so you can see whether what you pulled or downloaded matches what the feed said. A signature from the Sesame key shows the feed came from whoever holds that key. It does not show that a release is free of faults, so read the release notes first.
-
-If the server cannot use a feed it keeps the last good result and shows a short code on the Updates page:
+The server accepts the list only when its Ed25519 signature matches a pinned public key, it has not expired and its sequence number is not lower than one it has accepted before. That signature is the only thing it verifies. It does not download or check the image itself, but the Updates page shows the digest from the signed list so you can compare it with what you pulled. If the list cannot be used, the page keeps the last good result and shows one of these codes:
 
 | Code | Meaning |
 | --- | --- |
-| `feed_unreachable` | The request failed, the answer was not 200, or it redirected to another address. |
-| `feed_invalid` | The signature, the key, the shape of the document or its size was wrong. |
-| `feed_rollback` | The feed is older than one the server already accepted. |
-| `feed_expired` | The feed's expiry time has passed. |
+| `feed_unreachable` | The request failed, did not answer 200 or redirected to another address. |
+| `feed_invalid` | The signature, the key, the document's shape or its size was wrong. |
+| `feed_rollback` | The list is older than one the server already accepted. |
+| `feed_expired` | The list has expired, so the page hides the upgrade commands until a fresh one arrives. |
 | `not_configured` | This build has no public key, so the server makes no request. |
 
-### The commands
+If a maintainer published a sequence number that was too high by mistake, `docker compose exec sesame /sesame-server updates reset-sequence` makes the server forget the numbers it has seen and writes that to the audit log.
 
-The server detects how it is installed. It treats `SESAME_INSTALL_KIND=container` as a container, which the image and `deploy/selfhost/compose.yaml` both set, and falls back to the presence of `/.dockerenv`. Anything else counts as a binary install. Set `SESAME_INSTALL_KIND` to `container` or `binary` yourself if the detection is wrong for you.
-
-For a container install the page shows the new `SESAME_IMAGE_TAG` value, `docker compose pull`, a command that prints the digest of the image you pulled, the image reference with its digest from the feed to compare it with, and `docker compose up -d`, to run in the directory that holds your compose file. Compare the two digests before you run the last command. Take a manual backup first, as the [upgrade](#upgrade) section says.
-
-For a binary install the page shows a `curl` command that downloads the program for your operating system and architecture over https only, also after redirects, a command that compares its SHA-256 with the one in the feed, an `install` command that replaces the running program and `sudo systemctl restart sesame-server`. It shows nothing for a platform the feed does not list.
-
-### Keys and the build
-
-The public key comes from the `SESAME_UPDATE_PUBLIC_KEYS` build argument of `Dockerfile.selfhost`, or from the same variable at run time. The value is a comma separated list of `keyId:key` entries, where the key is an unpadded base64url Ed25519 public key. A variable set at run time replaces the keys compiled into the build. A build that has neither reports update checks as not configured and makes no request. The release workflow passes the repository variable `SESAME_UPDATE_PUBLIC_KEYS` to the image build, and an empty variable is allowed. So the official image checks for updates only once Sesame has published a signing key and put it in that variable for the release you run. Until then the Updates page says `not_configured`, whatever choice you made. To turn checks off for good, leave the choice unset or choose Off.
-
-Maintainers who publish the feed read [deploy/selfhost/UPDATES.md](deploy/selfhost/UPDATES.md).
+The server detects whether it runs in a container or as a binary and shows the matching upgrade commands. Set `SESAME_INSTALL_KIND` to `container` or `binary` if it guesses wrong. The official image checks for updates only once Sesame has published a signing key for the release you run, and until then the page shows `not_configured`. Maintainers who publish the list should read [deploy/selfhost/UPDATES.md](deploy/selfhost/UPDATES.md).
 
 ## What you give up without accounts
 
-The hosted Sesame service has accounts with email addresses. A self-hosted server has owners and members instead, and the difference has consequences.
+The hosted service has accounts with email addresses. A self-hosted server has owners and members instead, and that has consequences.
 
-- Members cannot sign in. Only owners sign in, so a member cannot see their own devices, revoke a lost laptop or change anything. An owner does all of it for them.
-- There is no new-device email. Nothing tells a member or an owner when a device is paired. The Audit log and the Devices page record it, but someone has to look.
-- There is no per-person login history. The audit log records owner sign-ins and device events. A member has no sign-ins to record, and the Devices page shows when each device last connected and not where from.
-- Whoever holds a signed-in owner session can read the console. For the first 10 minutes after sign-in, that session can also pair a device without asking again. After that, pairing any device, revoking a device or removing a member asks for the password and a current code, so a stolen session alone is not enough. A session lasts up to 12 hours.
-- Whoever controls the host controls the server. Anyone who can run commands as the server's user or read the data directory can run `owner reset` and sign in as an owner, approve a restored backup retaining any owner or device, or copy the secrets and the database.
-- Device tokens are not bound to hardware. A token copied from a desktop works from any machine until the owner revokes it or it expires after 90 days.
+- Members cannot sign in, so they cannot see their own devices or revoke a lost laptop. An owner does that for them.
+- Nobody gets an email when a device is paired. The audit log and the Devices page record it, but someone has to look.
+- A signed-in owner session can read the console, and for the first 10 minutes it can also pair a device without asking again. After that, pairing, revoking and removing members ask for the password and a code. A session lasts up to 12 hours.
+- Whoever controls the host controls the server. Anyone who can run commands as the server's user or read the data directory can reset an owner, approve a restore that keeps any owner or device, or copy the secrets and the database.
+- Device tokens are not bound to hardware. A token copied from a desktop works from any machine until it is revoked or expires after 90 days.
 
-Keep the owner list short, and look at the Devices page now and then to check that every listed device is one you know.
+Keep the owner list short, and check the Devices page now and then for devices you do not recognise.
 
 ## The audit log
 
-Every action that changes the server is written to an audit log in the database. Each row holds a SHA-256 hash that covers the previous row, so a changed, removed or inserted row breaks the chain. The Audit log page and `sesame-server check` verify the chain and report the first row that fails.
+Every change to the server is written to an audit log in the database. Each row includes a SHA-256 hash of the previous row, so a changed, removed or inserted row breaks the chain. The Audit log page and `sesame-server check` verify the chain and report the first row that fails.
 
-The chain detects tampering and does not prevent it. The hash has no secret key. Anyone who can write the data directory can edit rows and then recompute every later hash, and the result passes the check. It also does not protect against the last rows being deleted, because a shorter chain is still a valid chain. To make tampering visible from the outside, copy the head hash from the System page or from an `export` to a place the server's host cannot write.
-
-This is a different chain from the one in the hosted service. The two use different formats and different storage, so one cannot verify or continue the other.
+The chain shows tampering but cannot prevent it. The hash uses no secret key, so anyone who can write the data directory can edit rows and recompute every later hash, and deleting the newest rows leaves a shorter chain that still checks out. To catch that, copy the head hash from the System page or from an `export` to a place the server's host cannot write.
 
 ## Secrets
 
-The `secrets` directory in the data directory holds three files that the server creates on first start with mode 0600 inside a directory of mode 0700.
+The `secrets` directory holds three files that the server creates on first start.
 
 | File | What it protects |
 | --- | --- |
@@ -551,13 +488,13 @@ The `secrets` directory in the data directory holds three files that the server 
 | `signing.key` | The server's identity, shown as the fingerprint in pairing links |
 | `ip-pepper.key` | Visitor addresses in the rate-limit records |
 
-Losing `admin-encryption.key` makes the owners' authenticator secrets in the database unreadable, so no owner can sign in, and `owner reset` cannot help because it needs the original key. The server will not generate a replacement for any missing secret while `sesame.db` exists. It exits and asks you to restore the `secrets` directory from a backup. Without a copy, the only way out is a new data directory, and every device must be paired again.
+Without `admin-encryption.key` no owner can sign in, and `owner reset` cannot help because it needs that key. The server will not create a new secret while `sesame.db` exists. It exits and asks you to restore the `secrets` directory from a backup. Without a copy, the only way out is a new data directory, and every device must be paired again.
 
-Back the secrets up together with the database. The scheduled backups already include all three files, so the usual failure is a copy of `sesame.db` made by hand without the `secrets` directory. A restore refuses a database whose secrets do not match.
+Scheduled backups already include all three files. The usual mistake is copying `sesame.db` by hand without the `secrets` directory, and a restore refuses a database whose secrets do not match.
 
 ## Verify and build the image
 
-Release images are published to `ghcr.io/usesesame/sesame-server-selfhost` for `linux/amd64` and `linux/arm64`, with a build provenance attestation on the image index and an SBOM attestation on each platform image. Each platform image also has its own tag, ending in `-linux-amd64` or `-linux-arm64`. Verify an image with the GitHub CLI before you run it, in the directory that holds your `.env` file:
+Release images are published to `ghcr.io/usesesame/sesame-server-selfhost` for `linux/amd64` and `linux/arm64`, with build provenance and SBOM attestations. To verify an image with the GitHub CLI before you run it, go to the directory that holds your `.env`:
 
 ```sh
 SESAME_IMAGE_TAG=$(sed -n 's/^SESAME_IMAGE_TAG=//p' .env)
@@ -567,30 +504,29 @@ gh attestation verify "oci://ghcr.io/usesesame/sesame-server-selfhost:${SESAME_I
   --source-ref "refs/tags/v${SESAME_IMAGE_TAG}"
 ```
 
-To build it yourself from a checkout of the release tag:
+To build the image yourself from a checkout of the release tag:
 
 ```sh
 docker build -f Dockerfile.selfhost -t sesame-selfhost:local .
 ```
 
-The build compiles the console and then a static program with `CGO_ENABLED=0`, and it runs as the unprivileged user 65532 with a `/data` volume owned by that user. If you mount a host directory at `/data` instead of the named volume, run `chown 65532:65532` on it first.
+The image runs as the unprivileged user 65532 with a `/data` volume owned by that user. If you mount a host directory at `/data` instead of the named volume, run `chown 65532:65532` on it first.
 
 ## When something goes wrong
 
-| What you see | What it means |
+| What you see | What to do |
 | --- | --- |
-| 421 `host_mismatch` | The `Host` header differs from `SESAME_PUBLIC_URL`. Use the exact address from `SESAME_PUBLIC_URL` and make the proxy pass `Host` unchanged. |
-| 403 `origin_not_allowed` | The browser sent an `Origin` other than the public address. Open the console at the address in `SESAME_PUBLIC_URL`. |
-| 429 `too_many_attempts` | Sign-in allows 5 tries per minute for a name. Wait for the number of seconds in `Retry-After`. |
+| 421 `host_mismatch` | Open the exact address in `SESAME_PUBLIC_URL` and make the proxy pass the `Host` header unchanged. |
+| 403 `origin_not_allowed` | Open the console at the address in `SESAME_PUBLIC_URL`. |
+| 429 `too_many_attempts` | Sign-in allows 5 tries per minute for a name. Wait the number of seconds in `Retry-After`. |
 | The server exits at start with a message about `SESAME_PUBLIC_URL` | The address must start with `https://` unless the host is `localhost`, `127.0.0.1` or `::1`. |
-| `manifest unknown` or `not found` when the image is pulled | `SESAME_IMAGE_TAG` names a version that has no published image. Check `cat .env` against the repository's releases page. |
-| No `setup#token` line in the log | An owner already exists, so the server no longer prints first-run links. If you have not created one, the link may have expired, so run `docker compose restart sesame` and read the log again. |
-| `port is already allocated` | Another program uses port 8787 on the host. Change the left side of the `ports` line in the compose file, and set `SESAME_PUBLIC_URL` to the same port. |
-| The log says another server is using the data directory | A second process or a running restore holds the lock. Stop it first. |
-| The Updates page shows `feed_rollback` | The feed host served a feed older than one this server already accepted. The server keeps the last good result. If the host's own sequence numbers went backwards by mistake, it must publish a feed with a higher number. |
-| The server prints a usage error for `--stdout` or `--stdin` | The server predates encrypted backup export. Use the `export-backup.mjs` from the same release tag as that server, or upgrade before following the encrypted export section. |
-| The export or verify command cannot find a usable age program | Install age 1.3.2 on the machine that runs the operator command, or name the age program with `--age`. The server image does not include age. |
+| `manifest unknown` or `not found` when pulling the image | `SESAME_IMAGE_TAG` names a version with no published image. Compare `cat .env` with the releases page. |
+| No `setup#token` line in the log | An owner already exists. If you never created one, the link expired, so run `docker compose restart sesame` and read the log again. |
+| `port is already allocated` | Another program uses port 8787. Change the left side of the `ports` line in the compose file and use the same port in `SESAME_PUBLIC_URL`. |
+| The log says another server is using the data directory | Another process or a running restore holds the lock. Stop it first. |
 | The log says the database was written by a newer server | Run the newer release again, or restore a backup made by the older one. |
-| The log says the restored database is waiting for local recovery approval | Run `docker compose run --rm --no-deps sesame recover --status`, then approve the generation with the owners and devices to keep. The server refuses to start until you do. |
+| The log says the restored database is waiting for local recovery approval | Run `docker compose run --rm --no-deps sesame recover --status` and follow [Approve a restore](#approve-a-restore). |
+| A usage error for `--stdout` or `--stdin` | The server predates encrypted export. Use `export-backup.mjs` from the same release tag, or upgrade. |
+| The export cannot find age | Install age 1.3.2 on the machine that runs the command, or name it with `--age`. |
 
-The HTTP routes are listed in [internal/selfhost/server/API.md](internal/selfhost/server/API.md). Report a security problem as [SECURITY.md](SECURITY.md) describes.
+The HTTP routes are listed in [internal/selfhost/server/API.md](internal/selfhost/server/API.md). To report a security problem, follow [SECURITY.md](SECURITY.md).

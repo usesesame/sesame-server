@@ -233,7 +233,7 @@ function parseGuide(document) {
   const block = blocks.find((candidate) => candidate.includes('install --profile local'))
   assert.ok(block, 'the guided installation section has no local install command')
   const lines = block.split('\n').map((line) => line.trim()).filter((line) => line && !line.startsWith('#'))
-  assert.equal(lines[0], 'SESAME_IMAGE_TAG=0.4.1', 'the guided installation does not choose an explicit image tag')
+  assert.equal(lines[0], 'SESAME_IMAGE_TAG=0.5.0', 'the guided installation does not choose an explicit image tag')
   const commands = lines.slice(1)
   assert.equal(commands.length, 3, 'the guided installation must show one command for each profile')
   const targets = {}
@@ -248,8 +248,8 @@ function parseGuide(document) {
   assert.ok(blocks.some((candidate) => candidate.includes(dockerConfig)), 'the guided installation does not show docker compose config')
   assert.ok(blocks.some((candidate) => candidate.includes('caddy run --config ./Caddyfile --envfile ./caddy.env')), 'the guided installation has no Caddy envfile command')
   assert.ok(blocks.some((candidate) => candidate.includes('tailscale serve --bg --https=443 http://127.0.0.1:8787')), 'the guided installation has no private Tailscale Serve command')
-  assert.match(document.slice(document.indexOf('## Guided installation'), document.indexOf('## First run and pairing')), /EnvironmentFile=\/absolute\/path\/to\/sesame-caddy\/caddy\.env/)
-  return { block, imageTag: '0.4.1', targets }
+  assert.match(document.slice(document.indexOf('## Guided installation'), document.indexOf('## Diagnose an installation')), /EnvironmentFile=\/absolute\/path\/to\/sesame-caddy\/caddy\.env/)
+  return { block, imageTag: '0.5.0', targets }
 }
 
 function runGuideBlock(block, cwd, environment) {
@@ -352,7 +352,7 @@ function inspectTarget({ profile, target, version, expected: wanted }) {
   assert.equal(plan.schemaVersion, 1, `${profile} schemaVersion`)
   assert.equal(plan.toolVersion, version, `${profile} toolVersion`)
   assert.equal(plan.profile, profile, `${profile} profile`)
-  assert.equal(plan.imageVersion, '0.4.1', `${profile} imageVersion`)
+  assert.equal(plan.imageVersion, '0.5.0', `${profile} imageVersion`)
   assert.equal(plan.publicUrl, wanted.publicUrl, `${profile} publicUrl`)
   assert.deepEqual(plan.trustedProxies, wanted.trustedProxies, `${profile} trustedProxies`)
 
@@ -379,7 +379,7 @@ function inspectTarget({ profile, target, version, expected: wanted }) {
   assert.deepEqual(compose, readFileSync(join(repositoryRoot, 'deploy', 'selfhost', 'compose.yaml')), `${profile} compose.yaml is not the canonical file`)
   const environment = parseDotenv(readFileSync(join(target, '.env'), 'utf8'), `${profile} .env`)
   assert.deepEqual([...environment.keys()].sort(), ['SESAME_IMAGE_TAG', 'SESAME_PUBLIC_URL', 'SESAME_TRUSTED_PROXIES'], `${profile} .env keys are not exact`)
-  assert.equal(environment.get('SESAME_IMAGE_TAG'), '0.4.1', `${profile} .env image tag`)
+  assert.equal(environment.get('SESAME_IMAGE_TAG'), '0.5.0', `${profile} .env image tag`)
   assert.equal(environment.get('SESAME_PUBLIC_URL'), wanted.publicUrl, `${profile} .env public URL`)
   assert.equal(environment.get('SESAME_TRUSTED_PROXIES'), wanted.trustedProxies.join(','), `${profile} .env trusted proxies`)
   if (profile === 'caddy') {
@@ -436,13 +436,13 @@ async function assertExistingTargetsRefused(binary, workRoot, environment) {
   mkdirSync(directory, { mode: 0o700 })
   writeFileSync(join(directory, 'keep.txt'), 'existing directory\n', { mode: 0o600 })
   const directoryBefore = snapshotTree(directory)
-  assertRefused(run(binary, [...installArguments('local', '0.4.1', directory), '--json'], environment), 'the existing directory')
+  assertRefused(run(binary, [...installArguments('local', '0.5.0', directory), '--json'], environment), 'the existing directory')
   assert.deepEqual(snapshotTree(directory), directoryBefore, 'the existing directory changed')
 
   const file = join(parent, 'file')
   writeFileSync(file, 'existing file\n', { mode: 0o600 })
   const fileBefore = snapshotTree(file)
-  assertRefused(run(binary, installArguments('local', '0.4.1', file), environment), 'the existing file')
+  assertRefused(run(binary, installArguments('local', '0.5.0', file), environment), 'the existing file')
   assert.deepEqual(snapshotTree(file), fileBefore, 'the existing file changed')
 
   const destination = join(parent, 'symlink-destination')
@@ -452,13 +452,13 @@ async function assertExistingTargetsRefused(binary, workRoot, environment) {
   symlinkSync(destination, link)
   const destinationBefore = snapshotTree(destination)
   assert.equal(lstatSync(link).isSymbolicLink(), true, 'the test link is not a symlink')
-  assertRefused(run(binary, installArguments('local', '0.4.1', link), environment), 'the existing symlink')
+  assertRefused(run(binary, installArguments('local', '0.5.0', link), environment), 'the existing symlink')
   assert.equal(lstatSync(link).isSymbolicLink(), true, 'the refused run replaced the symlink')
   assert.deepEqual(snapshotTree(destination), destinationBefore, 'the symlink destination changed')
 
   const broken = join(parent, 'broken')
   symlinkSync(join(parent, 'missing-destination'), broken)
-  assertRefused(run(binary, installArguments('local', '0.4.1', broken), environment), 'the broken symlink')
+  assertRefused(run(binary, installArguments('local', '0.5.0', broken), environment), 'the broken symlink')
   assert.equal(lstatSync(broken).isSymbolicLink(), true, 'the refused run replaced the broken symlink')
 }
 
@@ -478,11 +478,11 @@ async function assertInvalidValuesRefused(binary, workRoot, imageTag, environmen
     ['host with a command substitution', ['--profile', 'caddy', '--host', 'vault.example.com$(id)', '--version', imageTag]],
     ['host with a newline', ['--profile', 'caddy', '--host', 'vault.example.com\nvault.example.net', '--version', imageTag]],
     ['host with a dotenv reference', ['--profile', 'caddy', '--host', 'vault.example.com${SESAME_HOST}', '--version', imageTag]],
-    ['version with a leading v', ['--profile', 'local', '--version', 'v0.4.1']],
+    ['version with a leading v', ['--profile', 'local', '--version', 'v0.5.0']],
     ['version with two components', ['--profile', 'local', '--version', '0.4']],
-    ['version with build metadata', ['--profile', 'local', '--version', '0.4.1+build']],
-    ['version with a shell separator', ['--profile', 'local', '--version', '0.4.1;id']],
-    ['version with a prerelease leading zero', ['--profile', 'local', '--version', '0.4.1-01']],
+    ['version with build metadata', ['--profile', 'local', '--version', '0.5.0+build']],
+    ['version with a shell separator', ['--profile', 'local', '--version', '0.5.0;id']],
+    ['version with a prerelease leading zero', ['--profile', 'local', '--version', '0.5.0-01']],
     ['unknown option', ['--profile', 'local', '--version', imageTag, '--bogus']],
     ['repeated profile', ['--profile', 'local', '--profile', 'caddy', '--version', imageTag]],
     ['repeated host', ['--profile', 'caddy', '--host', 'vault.example.com', '--host', 'vault.example.net', '--version', imageTag]],
