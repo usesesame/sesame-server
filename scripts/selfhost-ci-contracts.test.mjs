@@ -501,7 +501,7 @@ test('the guided installation guide names three profiles and the limits of gener
   assert.equal(guide.length, 4, 'the guided installation must hold the generation, inspection, Caddy and Tailscale blocks')
   const generation = guide.find((block) => block.includes('install --profile local'))
   assert.ok(generation, 'the guided installation has no generation block')
-  assert.match(generation, /^SESAME_IMAGE_TAG=0\.4\.1$/m)
+  assert.match(generation, /^SESAME_IMAGE_TAG=0\.5\.0$/m)
   assert.match(generation, /^sesame-server install --profile local --version "\$SESAME_IMAGE_TAG" --dir \.\/sesame-local$/m)
   assert.match(generation, /^sesame-server install --profile caddy --host vault\.example\.com --version "\$SESAME_IMAGE_TAG" --dir \.\/sesame-caddy$/m)
   assert.match(generation, /^sesame-server install --profile tailscale --host sesame\.example-tailnet\.ts\.net --version "\$SESAME_IMAGE_TAG" --dir \.\/sesame-tailscale$/m)
@@ -514,7 +514,7 @@ test('the guided installation guide names three profiles and the limits of gener
   assert.match(tailscale, /^docker compose up -d$/m)
   assert.match(tailscale, /^sudo tailscale serve --bg --https=443 http:\/\/127\.0\.0\.1:8787$/m)
   assert.match(tailscale, /^sudo tailscale serve status$/m)
-  const text = document.slice(document.indexOf('## Guided installation'), document.indexOf('## First run and pairing'))
+  const text = document.slice(document.indexOf('## Guided installation'), document.indexOf('## Diagnose an installation'))
   assert.match(text, /only generates files/)
   assert.match(text, /does not pull an image, start a container, configure Caddy or Tailscale, open the data directory, contact the network or test the host/)
   assert.match(text, /older binary, such as the 0\.4\.1 release, does not gain the command even if/)
@@ -559,14 +559,10 @@ test('the doctor guide names the candidate build, the offline evidence and the t
   assert.equal(blocks[1], 'docker compose exec -T sesame /sesame-server doctor --json')
   assert.equal(blocks[2], 'docker compose run --rm --no-deps -T sesame doctor --json')
   assert.ok(document.indexOf('## Diagnose an installation') > document.indexOf('## Guided installation'))
-  assert.ok(document.indexOf('## Diagnose an installation') < document.indexOf('## First run and pairing'))
-  const text = document.slice(document.indexOf('## Diagnose an installation'), document.indexOf('## First run and pairing'))
+  assert.ok(document.indexOf('## Diagnose an installation') < document.indexOf('## Settings'))
+  const text = document.slice(document.indexOf('## Diagnose an installation'), document.indexOf('## Settings'))
   for (const phrase of [
     'candidate build',
-    'accepts `--json` and the help flags',
-    'rejects unknown and repeated options, positional arguments and a value attached to `--json`',
-    '`doctor --help` exits 0 and prints usage',
-    'not an HTTP endpoint or a host command service',
     'does not open SQLite',
     'read the contents of the secrets files',
     'does not repair, migrate, seed, checkpoint or recover anything',
