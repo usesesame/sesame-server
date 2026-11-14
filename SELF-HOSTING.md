@@ -120,13 +120,15 @@ docker rm --volumes sesame-extract
 sudo install -m 0755 sesame-server /usr/local/bin/sesame-server
 ```
 
-Then create the service user and the settings file and install the unit:
+Then download the settings template and the unit from the same release, create the service user and install both:
 
 ```sh
+curl -fsSLO "https://raw.githubusercontent.com/usesesame/sesame-server/v${SESAME_IMAGE_TAG}/deploy/selfhost/sesame-server.env.example"
+curl -fsSLO "https://raw.githubusercontent.com/usesesame/sesame-server/v${SESAME_IMAGE_TAG}/deploy/selfhost/sesame-server.service"
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin sesame
 sudo install -d -m 0750 -o root -g sesame /etc/sesame
-sudo install -m 0640 -o root -g sesame deploy/selfhost/sesame-server.env.example /etc/sesame/sesame-server.env
-sudo install -m 0644 deploy/selfhost/sesame-server.service /etc/systemd/system/sesame-server.service
+sudo install -m 0640 -o root -g sesame sesame-server.env.example /etc/sesame/sesame-server.env
+sudo install -m 0644 sesame-server.service /etc/systemd/system/sesame-server.service
 sudoedit /etc/sesame/sesame-server.env
 sudo systemctl enable --now sesame-server
 sudo journalctl -u sesame-server | grep 'setup#token'
@@ -161,7 +163,7 @@ The target must be a new path whose parent directory already exists. The command
 
 The file `plan.json` is written last, so a directory without it is incomplete. A hard kill can leave an incomplete private directory behind that the command cannot remove, so remove it yourself before you use that path again.
 
-Read the generated files and check the compose configuration with `docker compose config` before you start anything:
+Go into the directory you generated, read the files and check the compose configuration with `docker compose config` before you start anything. For the `local` profile that is:
 
 ```sh
 cd sesame-local
@@ -169,9 +171,11 @@ sed -n '1,200p' compose.yaml .env plan.json
 docker compose config
 ```
 
+For the `local` profile, stay in that directory and continue at step 2 of the [Quick start](#quick-start).
+
 `plan.json` lists the profile, image tag, public address, trusted ranges, file hashes and modes, and the prerequisites the command could not check. Add `--json` to the install command to print the same plan. The plan does not prove that the image exists, that port 8787 or the subnet is free, that DNS resolves or that a certificate can be issued.
 
-For the `caddy` profile, start the server and run Caddy on the host with the generated environment file:
+For the `caddy` profile, start the server from its directory and run Caddy on the host with the generated environment file:
 
 ```sh
 cd sesame-caddy
@@ -181,7 +185,7 @@ sudo caddy run --config ./Caddyfile --envfile ./caddy.env
 
 If Caddy already runs as a service, install the generated Caddyfile where that service reads its configuration and add `EnvironmentFile=/absolute/path/to/sesame-caddy/caddy.env` to its unit. With systemd, run `sudo systemctl daemon-reload` before you restart it.
 
-For the `tailscale` profile, turn on MagicDNS and HTTPS certificates in the Tailscale admin console first. These prerequisites remain operator work, because the command cannot check them. Then start the server and serve it inside your tailnet:
+For the `tailscale` profile, turn on MagicDNS and HTTPS certificates in the Tailscale admin console first. These prerequisites remain operator work, because the command cannot check them. Then start the server from its directory and serve it inside your tailnet:
 
 ```sh
 cd sesame-tailscale

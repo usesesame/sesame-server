@@ -1,6 +1,6 @@
 # Sesame server
 
-This repository holds the server side of Sesame. The servers here never receive a vault password, an encryption key, a TOTP seed, a recovery kit or an unencrypted vault. When someone turns on Sync, they store only the encrypted vault.
+This repository holds the server side of Sesame. The servers here never receive a vault password, an encryption key, a TOTP seed, a recovery kit or an unencrypted vault. When someone turns on Sync, the server stores their vault encrypted, together with the signed version history and device list that their devices use to check it.
 
 It contains two separate servers that share no data:
 
@@ -34,11 +34,11 @@ npm run admin:bootstrap -- bootstrap you@example.com
 
 Registration is invite-only by default. You can change the registration mode or send invitations from the administration portal.
 
-The local stack runs over plain HTTP. Behind TLS, set `SESAME_SESSION_SECURE` and `SESAME_ADMIN_SESSION_SECURE` to `true` and give each origin its HTTPS address in `deploy/compose/.env`. The API refuses to start when an HTTPS origin has its flag off. Every API setting is listed in [.env.example](.env.example).
+This stack is for development and runs over plain HTTP. To run the hosted service publicly, follow [DEPLOYMENT.md](DEPLOYMENT.md) instead. If you put the local stack behind TLS anyway, give `SESAME_API_ORIGIN` and each portal origin its HTTPS address in `deploy/compose/.env`, set `SESAME_SESSION_SECURE` and `SESAME_ADMIN_SESSION_SECURE` to `true`, and run `npm run compose:up` again so the portals are rebuilt with the new API address. The API refuses to start when an HTTPS origin has its flag off. Every API setting is listed in [.env.example](.env.example).
 
 ## Database migrations
 
-The API does not migrate the database itself, and it exits when the schema is out of date, so several replicas never race to migrate. Compose runs the `migrate` job before it starts the API. In production, run `go run ./cmd/migrate` once per release before you start the API.
+The API does not migrate the database itself, and it exits when the schema is out of date, so several replicas never race to migrate. Compose runs the `migrate` service before it starts the API, and in production the release deploy tool uses the same service, as [DEPLOYMENT.md](DEPLOYMENT.md) describes.
 
 ## Tests
 
