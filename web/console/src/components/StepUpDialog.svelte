@@ -33,7 +33,7 @@
   <div class="stepup-backdrop" role="presentation" onkeydown={keydown}>
     <div class="stepup-panel" role="dialog" aria-modal="true" aria-labelledby="stepup-title">
       <h2 id="stepup-title">Confirm it is you</h2>
-      <p>This change needs a recent sign-in.</p>
+      <p>Enter your password and a current code to {stepUpDialog.action}.</p>
       <form onsubmit={submit}>
         <label>Password<input bind:this={passwordInput} type="password" bind:value={password} autocomplete="current-password" /></label>
         <label>Six-digit code<input bind:value={code} inputmode="numeric" maxlength="6" autocomplete="one-time-code" /></label>

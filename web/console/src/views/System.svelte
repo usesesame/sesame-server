@@ -4,7 +4,7 @@
   import { messageOf } from '../lib/errors'
   import { formatBytes, formatDateTime } from '../lib/format'
   import { exportData, loadDiagnostics, loadSystem } from '../lib/owner'
-  import { limitationLabel, parseDiagnosticsReport, STATE_LABELS, visibleWarnings, type DiagnosticsReport } from '../lib/system'
+  import { checksByUrgency, limitationLabel, overallLine, parseDiagnosticsReport, STATE_LABELS, visibleWarnings, type DiagnosticsReport } from '../lib/system'
   import type { SystemInfo } from '../lib/types'
 
   let info = $state<SystemInfo | null>(null)
@@ -100,11 +100,11 @@
       <p class="diagnostic-note" role="status">Checking the server diagnostics.</p>
     {:else if diagnostics}
       <p class="diagnostics-overall" data-state={diagnostics.overall} role="status">
-        <strong>Overall: {STATE_LABELS[diagnostics.overall]}</strong>
+        <strong>{overallLine(diagnostics)}</strong>
         <small>Generated {formatDateTime(diagnostics.generatedAt)}</small>
       </p>
       <ul class="rows diagnostics-list">
-        {#each diagnostics.checks as check (check.id)}
+        {#each checksByUrgency(diagnostics.checks) as check (check.id)}
           <li class="row diagnostics-row" data-state={check.state}>
             <div class="row-main">
               <strong>{check.label}</strong>

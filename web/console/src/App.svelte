@@ -44,6 +44,30 @@
   let pairingTarget = $state('self')
   let heading = $state<HTMLElement>()
   let unavailableMessage = $state('')
+  let navMore = $state<'none' | 'start' | 'end' | 'both'>('none')
+  let navNode = $state<HTMLElement>()
+
+  $effect(() => {
+    if (phase !== 'app' || !navNode) return
+    const link = navNode.querySelector<HTMLElement>(`a[href="#/${view}"]`)
+    if (!link || navNode.scrollWidth <= navNode.clientWidth) return
+    const bounds = navNode.getBoundingClientRect()
+    const place = link.getBoundingClientRect()
+    if (place.left < bounds.left || place.right > bounds.right) navNode.scrollLeft += place.left - bounds.left - 16
+  })
+
+  function navEdges(node: HTMLElement) {
+    const update = () => {
+      const max = node.scrollWidth - node.clientWidth
+      const before = node.scrollLeft > 4
+      const after = node.scrollLeft < max - 4
+      navMore = max <= 4 ? 'none' : before && after ? 'both' : before ? 'start' : 'end'
+    }
+    update()
+    node.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return { destroy: () => { node.removeEventListener('scroll', update); window.removeEventListener('resize', update) } }
+  }
 
   function readView(): ViewId {
     const id = window.location.hash.replace(/^#\/?/, '')
@@ -180,7 +204,7 @@
   <div class="app-shell">
     <aside class="sidebar">
       <Brand />
-      <nav aria-label="Console">
+      <nav aria-label="Console" use:navEdges bind:this={navNode} data-more={navMore}>
         {#each nav as item (item.id)}
           <a href="#/{item.id}" aria-current={view === item.id ? 'page' : undefined} onclick={() => { pairingTarget = 'self' }}>{item.label}</a>
         {/each}

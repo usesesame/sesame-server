@@ -143,3 +143,47 @@ test('turning Sync on goes through the step-up dialog and retries once', async (
   expect(patches[0].body).toEqual({ enabled: true })
   expect(calls.find((call) => call.path === '/v1/owner/step-up')!.body).toEqual({ password: PASSWORD, code: '123456' })
 })
+
+test('asks before turning Sync off and names how many devices stop', async () => {
+  const { calls } = openApp('/', { 'GET /v1/owner/sync': () => ({ available: true, enabled: true, holders: aliveHolders }) })
+  await openSync()
+  await fireEvent.click(await screen.findByRole('button', { name: 'Turn off Sync' }))
+  expect(screen.getByText('Turning off Sync stops 2 devices from syncing. The server refuses every Sync request until Sync is turned on again. Synced vaults stay stored, and every device keeps its local vault.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Stop syncing' })).toBeTruthy()
+  expect(calls.some((call) => call.method === 'PATCH')).toBe(false)
+})
+
+test('keeping Sync on sends nothing', async () => {
+  const { calls } = openApp('/', { 'GET /v1/owner/sync': () => ({ available: true, enabled: true, holders: aliveHolders }) })
+  await openSync()
+  await fireEvent.click(await screen.findByRole('button', { name: 'Turn off Sync' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Keep Sync on' }))
+  expect(screen.getByRole('button', { name: 'Turn off Sync' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Stop syncing' })).toBeNull()
+  expect(calls.some((call) => call.method === 'PATCH')).toBe(false)
+})
+
+test('turning Sync off sends the change once after confirming and names it in the step-up prompt', async () => {
+  let enabled = true
+  let attempts = 0
+  const { calls } = openApp('/', {
+    'GET /v1/owner/sync': () => ({ available: true, enabled, holders: aliveHolders }),
+    'PATCH /v1/owner/flags/sync_enabled': () => {
+      if (++attempts === 1) return stepUpNeeded()
+      enabled = false
+      return json({ key: 'sync_enabled', description: 'Sync between devices', enabled: false, updatedAt })
+    },
+    'POST /v1/owner/step-up': () => json({ ok: true }),
+  })
+  await openSync()
+  await fireEvent.click(await screen.findByRole('button', { name: 'Turn off Sync' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Stop syncing' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(within(dialog).getByText('Enter your password and a current code to turn off Sync for every device.')).toBeTruthy()
+  await confirmStepUp(dialog)
+  expect(await screen.findByText('Sync was turned off.')).toBeTruthy()
+  expect(await screen.findByText('Sync is off')).toBeTruthy()
+  const patches = calls.filter((call) => call.method === 'PATCH')
+  expect(patches).toHaveLength(2)
+  expect(patches[0].body).toEqual({ enabled: false })
+})

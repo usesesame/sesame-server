@@ -72,6 +72,20 @@ export const STATE_LABELS: Record<DiagnosticsState, string> = {
 
 const STATE_RANK: Record<DiagnosticsState, number> = { ok: 0, unknown: 1, action: 2 }
 
+export function checksByUrgency(checks: DiagnosticsCheck[]): DiagnosticsCheck[] {
+  return checks
+    .map((check, index) => ({ check, index }))
+    .sort((left, right) => STATE_RANK[right.check.state] - STATE_RANK[left.check.state] || left.index - right.index)
+    .map((entry) => entry.check)
+}
+
+export function overallLine(report: DiagnosticsReport): string {
+  const actions = report.checks.filter((check) => check.state === 'action').length
+  if (actions === 1) return '1 check needs action'
+  if (actions > 1) return `${actions} checks need action`
+  return `Overall: ${STATE_LABELS[report.overall]}`
+}
+
 const MAX_WARNINGS = 100
 const MAX_WARNING_LENGTH = 500
 const MAX_WARNING_CODE_LENGTH = 64

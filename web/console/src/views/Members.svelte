@@ -120,12 +120,12 @@
             <div class="row-side">
               {#if confirming === member.id}
                 <small>This revokes {pluralize(member.deviceCount, 'device')}.</small>
-                <button type="button" class="danger" onclick={() => remove(member)} disabled={busy === member.id}>Remove member</button>
+                <button type="button" class="destructive" onclick={() => remove(member)} disabled={busy === member.id}>Remove member</button>
                 <button type="button" onclick={() => { confirming = '' }} disabled={busy === member.id}>Keep</button>
               {:else}
                 <button type="button" class="quiet" onclick={() => onPair(member.id)}>Add a device</button>
                 <button type="button" class="quiet" onclick={() => { renaming = member.id; renameValue = member.name }}>Rename</button>
-                <button type="button" class="quiet" onclick={() => { confirming = member.id }}>Remove</button>
+                <button type="button" class="quiet danger" onclick={() => { confirming = member.id }}>Remove</button>
               {/if}
             </div>
           {/if}

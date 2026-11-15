@@ -30,6 +30,7 @@ test('opens the step-up prompt on step_up_required, confirms, and repeats the ac
   })
   const dialog = await startInvite()
   expect(within(dialog).getByText('Confirm it is you')).toBeTruthy()
+  expect(within(dialog).getByText('Enter your password and a current code to invite Sam Okafor as an owner.')).toBeTruthy()
   expect((within(dialog).getByRole('button', { name: 'Confirm' }) as HTMLButtonElement).disabled).toBe(true)
   await confirm(dialog)
   expect(await screen.findByText('Setup link for Sam Okafor')).toBeTruthy()

@@ -1,3 +1,5 @@
+import type { StepUpRequest } from './stepup-action'
+
 const REQUEST_TIMEOUT_MS = 8_000
 const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS']
 const STEP_UP_CODE = 'step_up_required'
@@ -14,7 +16,7 @@ export class APIError extends Error {
   }
 }
 
-type StepUpHandler = () => Promise<boolean>
+type StepUpHandler = (request: StepUpRequest) => Promise<boolean>
 
 let apiBase = ''
 let csrf = ''
@@ -98,7 +100,7 @@ async function perform<T>(path: string, init: RequestInit, options: RequestOptio
     if (retries.csrf) return perform<T>(path, init, options, { ...retries, csrf: false })
   }
   if (response.status === 403 && code === STEP_UP_CODE && retries.stepUp && stepUpHandler) {
-    if (await stepUpHandler()) return perform<T>(path, init, options, { ...retries, stepUp: false })
+    if (await stepUpHandler({ method, path, body: init.body })) return perform<T>(path, init, options, { ...retries, stepUp: false })
     throw new APIError('The action was cancelled.', response.status, 'step_up_cancelled')
   }
   if (response.status === 401 && SESSION_ENDED_CODES.includes(code)) {

@@ -116,10 +116,10 @@
           <div class="row-side">
             {#if confirming === owner.id}
               <small>{owner.current ? 'You will be signed out.' : 'They will be signed out.'}</small>
-              <button type="button" class="danger" onclick={() => remove(owner)} disabled={busy === owner.id}>Remove owner</button>
+              <button type="button" class="destructive" onclick={() => remove(owner)} disabled={busy === owner.id}>Remove owner</button>
               <button type="button" onclick={() => { confirming = '' }} disabled={busy === owner.id}>Keep</button>
             {:else}
-              <button type="button" class="quiet" onclick={() => { confirming = owner.id }} disabled={activeCount <= 1 && !owner.setupPending}>Remove</button>
+              <button type="button" class="quiet danger" onclick={() => { confirming = owner.id }} disabled={activeCount <= 1 && !owner.setupPending}>Remove</button>
             {/if}
           </div>
         </li>

@@ -12,6 +12,9 @@
   let notice = $state('')
   let confirming = $state('')
   let resetting = $state('')
+  let confirmingOff = $state(false)
+
+  const syncingDevices = $derived(overview ? overview.holders.filter((holder) => holder.hasVault).reduce((total, holder) => total + holder.devices, 0) : 0)
 
   async function load() {
     try {
@@ -33,6 +36,15 @@
     return `${pluralize(holder.devices, 'device')}, version ${holder.currentRevision}, uses ${formatBytes(holder.storedBytes)}, last changed ${formatDate(holder.updatedAt)}`
   }
 
+  function requestToggle() {
+    if (!overview || busy) return
+    if (overview.enabled) {
+      confirmingOff = true
+      return
+    }
+    void toggle()
+  }
+
   async function toggle() {
     if (!overview || busy) return
     const enabled = !overview.enabled
@@ -42,6 +54,7 @@
     try {
       await setSyncEnabled(enabled)
       notice = enabled ? 'Sync was turned on.' : 'Sync was turned off.'
+      confirmingOff = false
       await load()
     } catch (reason) {
       error = messageOf(reason)
@@ -84,11 +97,19 @@
       <li class="row">
         <div class="row-main">
           <strong>{overview.enabled ? 'Sync is on' : 'Sync is off'}</strong>
+          {#if confirmingOff && overview.enabled}
+            <small>{syncingDevices === 0 ? 'No device syncs through this server yet.' : `Turning off Sync stops ${pluralize(syncingDevices, 'device')} from syncing.`} The server refuses every Sync request until Sync is turned on again. Synced vaults stay stored, and every device keeps its local vault.</small>
+          {/if}
         </div>
         <div class="row-side">
-          <button type="button" class={overview.enabled ? undefined : 'primary'} onclick={toggle} disabled={busy}>
-            {overview.enabled ? 'Turn off Sync' : 'Turn on Sync'}
-          </button>
+          {#if confirmingOff && overview.enabled}
+            <button type="button" class="destructive" onclick={toggle} disabled={busy}>Stop syncing</button>
+            <button type="button" onclick={() => { confirmingOff = false }} disabled={busy}>Keep Sync on</button>
+          {:else}
+            <button type="button" class={overview.enabled ? undefined : 'primary'} onclick={requestToggle} disabled={busy}>
+              {overview.enabled ? 'Turn off Sync' : 'Turn on Sync'}
+            </button>
+          {/if}
         </div>
       </li>
     </ul>
@@ -112,10 +133,10 @@
             {#if holder.hasVault}
               <div class="row-side">
                 {#if confirming === keyOf(holder)}
-                  <button type="button" class="danger" onclick={() => reset(holder)} disabled={resetting === keyOf(holder)}>Reset synced vault</button>
+                  <button type="button" class="destructive" onclick={() => reset(holder)} disabled={resetting === keyOf(holder)}>Reset synced vault</button>
                   <button type="button" onclick={() => { confirming = '' }} disabled={resetting === keyOf(holder)}>Cancel</button>
                 {:else}
-                  <button type="button" class="quiet" onclick={() => { confirming = keyOf(holder) }}>Reset synced vault</button>
+                  <button type="button" class="quiet danger" onclick={() => { confirming = keyOf(holder) }}>Reset synced vault</button>
                 {/if}
               </div>
             {/if}
