@@ -1,6 +1,7 @@
 <script lang="ts">
   import { setupPassword } from './auth'
   import PasswordField from './PasswordField.svelte'
+  import Icon from './Icon.svelte'
 
   export let onComplete: () => void
 
@@ -40,8 +41,8 @@
 <form class="account-form" on:submit|preventDefault={submit}>
   <PasswordField id="setup-password" label="New password" bind:value={newPassword} bind:revealed={showPassword} autocomplete="new-password" minlength={12} describedby="setup-password-note" disabled={submitting} />
   <PasswordField id="setup-password-confirm" label="Confirm new password" bind:value={confirmPassword} revealed={showPassword} toggle={false} autocomplete="new-password" disabled={submitting} />
-  <small id="setup-password-note">12 characters or more.</small>
-  {#if error}<p class="auth-error" role="alert">{error}</p>{/if}
+  <p id="setup-password-note" class="inline-notice inline-info"><Icon name="info" size={15} />12 characters or more.</p>
+  {#if error}<p class="inline-notice inline-danger" role="alert"><Icon name="error" size={15} />{error}</p>{/if}
   {#if sessionTooOld}<p>You can <a href="/forgot-password">send yourself a recovery link</a> to choose a password instead.</p>{/if}
   <button class="button auth-submit" type="submit" disabled={submitting}>{submitting ? 'Working…' : 'Set password'}</button>
 </form>

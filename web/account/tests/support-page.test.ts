@@ -76,6 +76,7 @@ function mockEmailExpectations(receiptEmail = true, supportReplies = true) {
 }
 
 beforeEach(() => {
+  sessionStorage.clear()
   mockEmailExpectations()
 })
 
@@ -89,14 +90,14 @@ test('tells a signed-in requester that reply email is on and links to the settin
   mockEmailExpectations(true, true)
   render(SupportPage, { account })
   expect(await screen.findByText('We will email a receipt, and replies from support will be emailed to tester@example.invalid.', { exact: false })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Change your reply email setting' }).getAttribute('href')).toBe('/account#security')
+  expect(screen.getByRole('link', { name: 'Change your reply email setting' }).getAttribute('href')).toBe('/account/security')
 })
 
 test('tells a signed-in requester when reply email is turned off', async () => {
   mockEmailExpectations(true, false)
   render(SupportPage, { account })
   expect(await screen.findByText('We will email a receipt. Reply email is turned off for this account.', { exact: false })).toBeTruthy()
-  expect(screen.getByRole('link', { name: 'Change your reply email setting' }).getAttribute('href')).toBe('/account#security')
+  expect(screen.getByRole('link', { name: 'Change your reply email setting' }).getAttribute('href')).toBe('/account/security')
 })
 
 test('says email is unavailable when the deployment has no mail configured', async () => {
@@ -136,9 +137,7 @@ test('loads the account history and opens a conversation', async () => {
     ],
   }))
   render(SupportPage, { account })
-  expect(await screen.findByText('Signed in as tester@example.invalid')).toBeTruthy()
   expect(await screen.findByLabelText('2 unread support replies')).toBeTruthy()
-  await fireEvent.click(screen.getByRole('button', { name: /Cannot sign in/ }))
   expect(await screen.findByText('A fix is on the way.')).toBeTruthy()
   expect(screen.getByText('I cannot sign in after the update.')).toBeTruthy()
   expect(support.getSupportTicket).toHaveBeenCalledWith('ticket-test')
@@ -152,7 +151,6 @@ test('closes a request and offers the reopen path', async () => {
   support.getSupportTicket.mockResolvedValueOnce(open).mockResolvedValue(closed)
   support.closeSupportTicket.mockResolvedValue(closed)
   render(SupportPage, { account })
-  await fireEvent.click(await screen.findByRole('button', { name: /Cannot sign in/ }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Close request' }))
   expect(support.closeSupportTicket).toHaveBeenCalledWith('ticket-test')
   expect(await screen.findByText('This request is closed. You can reopen it for 30 days, then start a new request if the problem returned.')).toBeTruthy()
@@ -186,7 +184,6 @@ test('blocks secret-shaped replies and sends a clean follow-up', async () => {
   support.getSupportTicket.mockResolvedValueOnce(ticketDetail()).mockResolvedValue(replied)
   support.replyToSupportTicket.mockResolvedValue(replied)
   render(SupportPage, { account })
-  await fireEvent.click(await screen.findByRole('button', { name: /Cannot sign in/ }))
   const reply = await screen.findByLabelText('Add a follow-up')
   await fireEvent.input(reply, { target: { value: 'otpauth://totp/Sesame:tester?secret=JBSWY3DPEHPK3PXP' } })
   expect(screen.getByText('This looks like an authenticator setup link. Remove it before sending.')).toBeTruthy()
@@ -211,4 +208,49 @@ test('prefills category and technical details from the query string', async () =
   expect((screen.getByLabelText('Topic') as HTMLSelectElement).value).toBe('bug')
   expect((screen.getByLabelText('App version') as HTMLInputElement).value).toBe('0.1.0-beta.3')
   expect((screen.getByLabelText('Diagnostic code') as HTMLInputElement).value).toBe('UI-7F2A')
+})
+
+test('a person with requests sees them first with the unread one open, and New request opens the form', async () => {
+  support.getSupportTickets.mockResolvedValue([
+    ticketSummary({ id: 'ticket-older', subject: 'Import stops halfway', unreadCount: 0 }),
+    ticketSummary({ id: 'ticket-unread', subject: 'Desktop code expired', unreadCount: 1 }),
+  ])
+  support.getSupportTicket.mockImplementation(async (id: string) => ticketDetail({ id, subject: id === 'ticket-unread' ? 'Desktop code expired' : 'Import stops halfway' }))
+  render(SupportPage, { account })
+  expect(await screen.findByRole('heading', { level: 3, name: 'Desktop code expired' })).toBeTruthy()
+  expect(support.getSupportTicket).toHaveBeenCalledTimes(1)
+  expect(support.getSupportTicket).toHaveBeenCalledWith('ticket-unread')
+  expect(screen.getByRole('button', { name: /Desktop code expired/ }).getAttribute('aria-current')).toBe('true')
+  expect(screen.queryByRole('button', { name: 'Send request' })).toBeNull()
+  const requests = screen.getByRole('heading', { level: 2, name: 'Your requests' })
+  await fireEvent.click(screen.getByRole('button', { name: 'New request' }))
+  const form = await screen.findByRole('heading', { level: 2, name: 'New request' })
+  expect(requests.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Send request' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'New request' })).toBeNull()
+})
+
+test('a person without requests gets the form straight away', async () => {
+  render(SupportPage, { account })
+  expect(await screen.findByText('No requests from this account yet. Use the form below when you need help.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Send request' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'New request' })).toBeNull()
+  expect(support.getSupportTicket).not.toHaveBeenCalled()
+})
+
+test('the support page uses the page header with the request count', async () => {
+  support.getSupportTickets.mockResolvedValue([ticketSummary({ unreadCount: 1 })])
+  support.getSupportTicket.mockResolvedValue(ticketDetail())
+  render(SupportPage, { account })
+  const header = screen.getByRole('heading', { level: 1, name: 'Support' }).closest('.page-header') as HTMLElement
+  await vi.waitFor(() => expect(header.textContent).toContain('1 request'))
+  expect(header.textContent).toContain('1 unread')
+})
+
+test('a half written request opens the form even when the person has requests', async () => {
+  sessionStorage.setItem('sesame-support-draft-v1', JSON.stringify({ category: 'bug', subject: 'Draft title', message: 'Draft text' }))
+  support.getSupportTickets.mockResolvedValue([ticketSummary()])
+  support.getSupportTicket.mockResolvedValue(ticketDetail())
+  render(SupportPage, { account })
+  expect((await screen.findByLabelText('Short title') as HTMLInputElement).value).toBe('Draft title')
 })

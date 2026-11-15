@@ -1,7 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import { getNotificationPreferences, type Account } from '../lib/auth'
-import { siteOrigin } from '../lib/runtime-config'
+  import { siteOrigin } from '../lib/runtime-config'
+  import PageHeader from '../lib/PageHeader.svelte'
+  import Notice from '../lib/Notice.svelte'
+  import Icon from '../lib/Icon.svelte'
   import {
     findSecretShapedText,
     getSupportMetadata,
@@ -46,6 +49,10 @@ import { siteOrigin } from '../lib/runtime-config'
   let loadedAccountID = ''
   let supportMetadata: SupportMetadata | null = null
   let supportReplyEmail: boolean | null = null
+  let ticketsLoaded = false
+  let firstTicketOpened = false
+  let formOpen = false
+  let formFromLink = false
 
   let draftReady = false
   let dismissedHelp: string[] = []
@@ -58,6 +65,8 @@ import { siteOrigin } from '../lib/runtime-config'
   $: replySecretSignal = findSecretShapedText(reply)
   $: mailUnavailable = supportMetadata !== null && supportMetadata.receiptEmail === false
   $: showEmailSettingsLink = account !== null && supportMetadata?.receiptEmail === true
+  $: showForm = !account || formOpen || formFromLink || Boolean(receipt) || (ticketsLoaded && tickets.length === 0) || (Boolean(portalError) && !ticketsLoaded)
+  $: unreadTotal = tickets.reduce((total, ticket) => total + ticket.unreadCount, 0)
   $: if (account && loadedAccountID !== account.id) {
     loadedAccountID = account.id
     email = account.email
@@ -90,6 +99,7 @@ import { siteOrigin } from '../lib/runtime-config'
     const prefill = (name: string) => (query.get(name) || '').trim()
     const draft = loadSupportDraft()
     if (draft) {
+      formFromLink = Boolean(draft.subject || draft.message)
       category = draft.category
       subject = draft.subject
       message = draft.message
@@ -105,6 +115,7 @@ import { siteOrigin } from '../lib/runtime-config'
     diagnosticCode = prefill('diagnosticCode').slice(0, 64)
     browserIntegration = prefill('browserIntegration').slice(0, 64)
     requestId = prefill('requestId').slice(0, 64)
+    if (query.size > 0) formFromLink = true
     if (query.size > 0) window.history.replaceState({}, '', window.location.pathname + window.location.hash)
     draftReady = true
     void loadEmailExpectations()
@@ -115,6 +126,12 @@ import { siteOrigin } from '../lib/runtime-config'
     in_progress: 'In review',
     waiting: 'Reply sent',
     closed: 'Closed',
+  }
+  const statusKinds: Record<SupportTicketStatus, 'ok' | 'warn' | 'idle'> = {
+    open: 'ok',
+    in_progress: 'ok',
+    waiting: 'warn',
+    closed: 'idle',
   }
 
   function formatDate(value: string) {
@@ -127,7 +144,10 @@ import { siteOrigin } from '../lib/runtime-config'
     portalError = ''
     try {
       tickets = await getSupportTickets()
-      const nextID = selectID || selectedTicket?.id
+      ticketsLoaded = true
+      const firstID = firstTicketOpened ? '' : (tickets.find((ticket) => ticket.unreadCount > 0) ?? tickets[0])?.id ?? ''
+      firstTicketOpened = true
+      const nextID = selectID || selectedTicket?.id || firstID
       if (nextID && tickets.some((ticket) => ticket.id === nextID)) await selectTicket(nextID)
       else if (selectedTicket && !tickets.some((ticket) => ticket.id === selectedTicket?.id)) selectedTicket = null
     } catch (reason) {
@@ -176,6 +196,16 @@ import { siteOrigin } from '../lib/runtime-config'
     document.getElementById('support-requests-heading')?.scrollIntoView?.({ block: 'start' })
   }
 
+  function plural(count: number, word: string) {
+    return `${count} ${word}${count === 1 ? '' : 's'}`
+  }
+
+  async function openForm() {
+    formOpen = true
+    await tick()
+    document.getElementById('new-request-title')?.focus()
+  }
+
   function helpHref(link: { path: string; site?: boolean }) {
     return link.site ? `${siteOrigin}${link.path}` : link.path
   }
@@ -213,48 +243,43 @@ import { siteOrigin } from '../lib/runtime-config'
   }
 </script>
 
-<section class="page-hero compact-page-hero">
-  <h1>How can we help?</h1>
-  <p class="intro">Ask a question or report a bug. Never include passwords or vault files.</p>
-</section>
-
-<section class="section support-section safe-support">
-  <aside class="support-guide card">
-    <div><h2>Helpful</h2><ul>{#each guidance.include as item (item)}<li>{item}</li>{/each}</ul></div>
-    <div><h2>Never send</h2><ul><li>Passwords or codes</li><li>Vault or export files</li><li>Recovery kits or keys</li></ul></div>
-  </aside>
+<div class="page">
+  <PageHeader title="Support" fact={account && ticketsLoaded ? plural(tickets.length, 'request') : ''} detail={account && unreadTotal > 0 ? `${unreadTotal} unread` : ''} />
 
   {#if account}
-    <section class="support-portal card" aria-labelledby="support-requests-heading">
-      <div class="support-portal-head">
-        <div><h2 id="support-requests-heading">Your requests</h2><p>Signed in as {account.email}</p></div>
-        <button class="button button-soft button-sm" type="button" on:click={() => loadTickets()} disabled={ticketsLoading}>{ticketsLoading ? 'Refreshing…' : 'Refresh'}</button>
+    <section class="group" aria-labelledby="support-requests-heading">
+      <div class="group-head">
+        <h2 class="section-title" id="support-requests-heading" tabindex="-1">Your requests</h2>
+        <div class="button-row button-row-end">
+          <button class="button button-secondary button-sm" type="button" on:click={() => loadTickets()} disabled={ticketsLoading}>{ticketsLoading ? 'Refreshing…' : 'Refresh'}</button>
+          {#if !showForm}<button class="button button-sm" type="button" on:click={openForm}>New request</button>{/if}
+        </div>
       </div>
-      {#if portalError}<p class="auth-error" role="alert">{portalError}</p>{/if}
+      {#if portalError}<p class="inline-notice inline-danger group-alert" role="alert"><Icon name="error" size={15} />{portalError}</p>{/if}
       {#if ticketsLoading && tickets.length === 0}
-        <p class="support-empty" role="status">Loading your requests…</p>
+        <p class="rows-empty" role="status">Loading your requests…</p>
       {:else if tickets.length === 0}
-        <p class="support-empty">No requests from this account yet. Use the form below when you need help.</p>
+        <p class="rows-empty">No requests from this account yet. Use the form below when you need help.</p>
       {:else}
         <div class="support-workspace">
           <div class="support-ticket-list" aria-label="Your support requests">
             {#each tickets as ticket (ticket.id)}
-              <button type="button" class:active={selectedTicket?.id === ticket.id} on:click={() => selectTicket(ticket.id)}>
-                <span><strong>{ticket.subject}</strong><small>{supportCategoryLabel(ticket.category)} · {formatDate(ticket.updatedAt)}</small></span>
-                <span class="ticket-list-end"><span class={`ticket-status ${ticket.status}`}>{statusLabels[ticket.status]}</span>{#if ticket.unreadCount > 0}<span class="ticket-unread" aria-label={`${ticket.unreadCount} unread support ${ticket.unreadCount === 1 ? 'reply' : 'replies'}`}>{ticket.unreadCount}</span>{/if}</span>
+              <button type="button" class:active={selectedTicket?.id === ticket.id} aria-current={selectedTicket?.id === ticket.id ? 'true' : undefined} on:click={() => selectTicket(ticket.id)}>
+                <span class="ticket-main"><strong>{ticket.subject}</strong><small>{supportCategoryLabel(ticket.category)}, {formatDate(ticket.updatedAt)}</small></span>
+                <span class="ticket-end"><span class={`status status-${statusKinds[ticket.status]}`}>{statusLabels[ticket.status]}</span>{#if ticket.unreadCount > 0}<span class="tag tag-warn ticket-unread" aria-label={`${ticket.unreadCount} unread support ${ticket.unreadCount === 1 ? 'reply' : 'replies'}`}>{ticket.unreadCount}</span>{/if}</span>
               </button>
             {/each}
           </div>
           <div class="support-thread" aria-live="polite">
             {#if ticketLoading}
-              <p class="support-empty">Loading request…</p>
+              <p class="rows-empty">Loading request…</p>
             {:else if selectedTicket}
               <header class="support-thread-head">
-                <div><h3>{selectedTicket.subject}</h3><p>{supportCategoryLabel(selectedTicket.category)} · Request {selectedTicket.id} · opened {formatDate(selectedTicket.createdAt)}</p></div>
-                <span class={`ticket-status ${selectedTicket.status}`}>{statusLabels[selectedTicket.status]}</span>
+                <div><h3>{selectedTicket.subject}</h3><p class="row-meta row-facts"><span>{supportCategoryLabel(selectedTicket.category)}</span><span>Request {selectedTicket.id}</span><span>Opened {formatDate(selectedTicket.createdAt)}</span></p></div>
+                <span class={`status status-${statusKinds[selectedTicket.status]}`}>{statusLabels[selectedTicket.status]}</span>
               </header>
-              <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink}&nbsp;<a href="/account#security">Change your reply email setting</a>.{/if}</p>
-              {#if selectedTicket.appVersion || selectedTicket.diagnosticCode || selectedTicket.browserIntegration || selectedTicket.requestId}<p class="support-ticket-meta">{selectedTicket.appVersion ? `Sesame ${selectedTicket.appVersion}` : ''}{selectedTicket.diagnosticCode ? `${selectedTicket.appVersion ? ' · ' : ''}Diagnostic ${selectedTicket.diagnosticCode}` : ''}{selectedTicket.browserIntegration ? `${selectedTicket.appVersion || selectedTicket.diagnosticCode ? ' · ' : ''}Browser ${selectedTicket.browserIntegration}` : ''}{selectedTicket.requestId ? `${selectedTicket.appVersion || selectedTicket.diagnosticCode || selectedTicket.browserIntegration ? ' · ' : ''}Request ${selectedTicket.requestId}` : ''}</p>{/if}
+              <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink}&nbsp;<a href="/account/security">Change your reply email setting</a>.{/if}</p>
+              {#if selectedTicket.appVersion || selectedTicket.diagnosticCode || selectedTicket.browserIntegration || selectedTicket.requestId}<p class="row-meta row-facts support-ticket-meta">{#if selectedTicket.appVersion}<span>Sesame <span class="version">{selectedTicket.appVersion}</span></span>{/if}{#if selectedTicket.diagnosticCode}<span>Diagnostic {selectedTicket.diagnosticCode}</span>{/if}{#if selectedTicket.browserIntegration}<span>Browser {selectedTicket.browserIntegration}</span>{/if}{#if selectedTicket.requestId}<span>Request {selectedTicket.requestId}</span>{/if}</p>{/if}
               <div class="support-messages">
                 {#each selectedTicket.messages as item (item.id)}
                   <article class:staff={item.authorRole === 'staff'}>
@@ -263,89 +288,101 @@ import { siteOrigin } from '../lib/runtime-config'
                   </article>
                 {/each}
               </div>
-              <div class="support-lifecycle-actions">
-                {#if selectedTicket.canClose}<button class="button button-soft button-sm" type="button" disabled={lifecycleWorking} on:click={() => changeTicketLifecycle('close')}>{lifecycleWorking ? 'Updating...' : 'Close request'}</button>
-                {:else if selectedTicket.canReopen}<button class="button button-soft button-sm" type="button" disabled={lifecycleWorking} on:click={() => changeTicketLifecycle('reopen')}>{lifecycleWorking ? 'Updating...' : 'Reopen request'}</button>{/if}
-              </div>
               {#if selectedTicket.status === 'closed'}
                 <p class="support-closed-note">{selectedTicket.autoClosed ? 'This request closed automatically after 14 days without a reply. You can reopen it for 30 days, then start a new request if the problem returned.' : 'This request is closed. You can reopen it for 30 days, then start a new request if the problem returned.'}</p>
               {:else}
                 <form class="support-reply" on:submit|preventDefault={sendReply}>
-                  <label>Add a follow-up<textarea bind:value={reply} required minlength="2" maxlength="4000" rows="4" aria-describedby="support-reply-safety"></textarea></label>
-                  <p id="support-reply-safety" class:unsafe={replySecretSignal} class="support-safety">{replySecretSignal ? `This looks like ${replySecretSignal}. Remove it before sending.` : 'Do not include credentials, codes, vault exports, or screenshots.'}</p>
-                  <button class="button button-sm" type="submit" disabled={replySending || reply.trim().length < 2 || !!replySecretSignal}>{replySending ? 'Sending…' : 'Send follow-up'}</button>
+                  <label>Add a follow-up<textarea bind:value={reply} required minlength="2" maxlength="4000" rows="4" aria-describedby="support-reply-safety" aria-invalid={replySecretSignal ? 'true' : undefined}></textarea></label>
+                  <p id="support-reply-safety" class={replySecretSignal ? 'inline-notice inline-danger' : 'field-hint'}>{#if replySecretSignal}<Icon name="error" size={15} />{/if}{replySecretSignal ? `This looks like ${replySecretSignal}. Remove it before sending.` : 'Do not include credentials, codes, vault exports, or screenshots.'}</p>
+                  <div class="button-row"><button class="button button-secondary button-sm" type="submit" disabled={replySending || reply.trim().length < 2 || !!replySecretSignal}>{replySending ? 'Sending…' : 'Send follow-up'}</button></div>
                 </form>
               {/if}
+              <div class="support-lifecycle-actions">
+                {#if selectedTicket.canClose}<button class="button button-text button-sm button-flush" type="button" disabled={lifecycleWorking} on:click={() => changeTicketLifecycle('close')}>{lifecycleWorking ? 'Updating...' : 'Close request'}</button>
+                {:else if selectedTicket.canReopen}<button class="button button-secondary button-sm" type="button" disabled={lifecycleWorking} on:click={() => changeTicketLifecycle('reopen')}>{lifecycleWorking ? 'Updating...' : 'Reopen request'}</button>{/if}
+              </div>
             {:else}
-              <p class="support-empty">Choose a request to read its conversation.</p>
+              <p class="rows-empty">Choose a request to read its conversation.</p>
             {/if}
           </div>
         </div>
       {/if}
     </section>
   {:else}
-    <aside class="support-account-note card"><div><strong>Want a request history?</strong><p><a href="/login">Sign in</a> before sending. Guest requests still enter the same staff queue, but a reference number alone never grants access to their contents.</p></div></aside>
+    <Notice title="Want a request history?">
+      <p class="notice-body"><a href="/login">Sign in</a> before sending. Guest requests still enter the same staff queue, but a reference number alone never grants access to their contents.</p>
+    </Notice>
   {/if}
 
-  <div class="support-intake card" id="new-request">
-    {#if receipt}
-      <div class="support-receipt" role="status"><h2>Request {receipt}</h2><p>Added to the queue. {account ? 'The request is now in your support history. You can follow replies above.' : 'Keep this reference for any follow-up. Guest request contents are not exposed through the public website.'}</p><div class="support-receipt-actions">{#if account}<button class="button" type="button" on:click={() => selectTicket(receipt)}>View request</button>{/if}<button class="button button-soft" type="button" on:click={() => (receipt = '')}>Send another report</button></div></div>
-    {:else}
-      <div class="support-form-head"><h2>Send a request</h2><span>No attachments</span></div>
-      <p class="support-response-expectation">We aim to reply within 3 business days.</p>
-      {#if related.length > 0}
-        <div class="support-related" role="status" aria-label="Existing request">
-          <p>You already have an open request on this topic: <strong>{related[0].subject}</strong>. Adding to it keeps the history together.</p>
-          <button class="button button-soft button-sm" type="button" on:click={() => openRelated(related[0].id)}>Open request</button>
-        </div>
-      {/if}
-      <form class="support-form" on:submit|preventDefault={submit}>
-        <label>Email<input type="email" bind:value={email} autocomplete="email" required maxlength="254" readonly={!!account} /></label>
-        <label>Topic<select bind:value={category}>{#each SUPPORT_CATEGORIES as option (option.value)}<option value={option.value}>{option.label}</option>{/each}</select></label>
-        <label>Short title<input type="text" bind:value={subject} required minlength="3" maxlength="120" /></label>
-        <label>Message<textarea bind:value={message} required minlength="20" maxlength="4000" rows="7" placeholder={guidance.placeholder} aria-describedby="support-safety"></textarea></label>
-        {#if help.length > 0}
-          <section class="support-help" aria-label="Answers that may help">
-            <h3>These may already answer it</h3>
-            {#each help as entry (entry.id)}
-              <article>
-                <h4>{entry.title}</h4>
-                <p>{entry.answer}</p>
-                <div class="support-help-actions">
-                  {#if entry.link}<a href={helpHref(entry.link)}>{entry.link.label}</a>{/if}
-                  <button class="inline-action" type="button" on:click={() => (dismissedHelp = [...dismissedHelp, entry.id])}>Not what I need</button>
+  {#if showForm}
+    <section class="group support-new" id="new-request" aria-labelledby="new-request-title">
+      <div class="support-columns">
+        <div class="support-intake">
+          {#if receipt}
+            <div class="support-receipt" role="status"><h2 class="section-title" id="new-request-title" tabindex="-1">Request {receipt}</h2><p class="group-note">Added to the queue. {account ? 'The request is now in your support history. You can follow replies above.' : 'Keep this reference for any follow-up. Guest request contents are not exposed through the public website.'}</p><div class="button-row">{#if account}<button class="button" type="button" on:click={() => selectTicket(receipt)}>View request</button>{/if}<button class="button button-soft" type="button" on:click={() => { receipt = ''; formOpen = true }}>Send another report</button></div></div>
+          {:else}
+            <div class="support-form-head"><h2 class="section-title" id="new-request-title" tabindex="-1">New request</h2><span class="tag">No attachments</span></div>
+            <p class="support-response-expectation">We aim to reply within 3 business days.</p>
+            {#if related.length > 0}
+              <Notice title="You already have an open request on this topic" role="status" label="Existing request">
+                <p class="notice-body"><strong>{related[0].subject}</strong>. Adding to it keeps the history together.</p>
+                <button slot="action" class="button button-secondary button-sm" type="button" on:click={() => openRelated(related[0].id)}>Open request</button>
+              </Notice>
+            {/if}
+            <form class="support-form" on:submit|preventDefault={submit}>
+              <label>Email<input type="email" bind:value={email} autocomplete="email" required maxlength="254" readonly={!!account} /></label>
+              <label class="select-field">Topic<select bind:value={category}>{#each SUPPORT_CATEGORIES as option (option.value)}<option value={option.value}>{option.label}</option>{/each}</select><span class="select-chevron" aria-hidden="true"><Icon name="chevron" /></span></label>
+              <label>Short title<input type="text" bind:value={subject} required minlength="3" maxlength="120" /></label>
+              <label>Message<textarea bind:value={message} required minlength="20" maxlength="4000" rows="7" placeholder={guidance.placeholder} aria-describedby="support-safety" aria-invalid={secretSignal ? 'true' : undefined}></textarea></label>
+              <p id="support-safety" class={secretSignal ? 'inline-notice inline-danger' : 'field-hint'}>{#if secretSignal}<Icon name="error" size={15} />{/if}{secretSignal ? `This looks like ${secretSignal}. Remove it before sending.` : 'We check for common secret patterns before sending.'}</p>
+              {#if help.length > 0}
+                <section class="support-help" aria-label="Answers that may help">
+                  <h3>These may already answer it</h3>
+                  {#each help as entry (entry.id)}
+                    <article>
+                      <h4>{entry.title}</h4>
+                      <p>{entry.answer}</p>
+                      <div class="button-row">
+                        {#if entry.link}<a class="button button-text button-sm button-flush" href={helpHref(entry.link)}>{entry.link.label}</a>{/if}
+                        <button class="button button-text button-sm" type="button" on:click={() => (dismissedHelp = [...dismissedHelp, entry.id])}>Not what I need</button>
+                      </div>
+                    </article>
+                  {/each}
+                </section>
+              {/if}
+              <details class="support-advanced">
+                <summary><Icon name="chevron" />Add technical details <span>optional</span></summary>
+                <div class="support-advanced-fields">
+                  <label>App version<input type="text" bind:value={appVersion} maxlength="40" placeholder="0.4.1" /></label>
+                  <label>Diagnostic code<input type="text" bind:value={diagnosticCode} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="UI-7F2A" /></label>
+                  <label>Browser integration<input type="text" bind:value={browserIntegration} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="ready" /></label>
+                  <label>Request ID<input type="text" bind:value={requestId} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="req-1234" /></label>
                 </div>
-              </article>
-            {/each}
-          </section>
-        {/if}
-        <details class="support-advanced">
-          <summary>Add technical details <span>optional</span></summary>
-          <div class="support-advanced-fields">
-            <label>App version<input type="text" bind:value={appVersion} maxlength="40" placeholder="0.4.1" /></label>
-            <label>Diagnostic code<input type="text" bind:value={diagnosticCode} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="UI-7F2A" /></label>
-            <label>Browser integration<input type="text" bind:value={browserIntegration} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="ready" /></label>
-            <label>Request ID<input type="text" bind:value={requestId} maxlength="64" pattern="[A-Za-z0-9._-]+" placeholder="req-1234" /></label>
-          </div>
-        </details>
-        <p id="support-safety" class:unsafe={secretSignal} class="support-safety">{secretSignal ? `This looks like ${secretSignal}. Remove it before sending.` : 'We check for common secret patterns before sending.'}</p>
-        <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink}&nbsp;<a href="/account#security">Change your reply email setting</a>.{/if}</p>
-        {#if error}<p class="auth-error" role="alert">{error}</p>{/if}
-        <button class="button" type="submit" disabled={sending || !!secretSignal}>{sending ? 'Sending…' : 'Send request'}</button>
-      </form>
-    {/if}
-  </div>
-</section>
+              </details>
+              <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink}&nbsp;<a href="/account/security">Change your reply email setting</a>.{/if}</p>
+              {#if error}<p class="inline-notice inline-danger" role="alert"><Icon name="error" size={15} />{error}</p>{/if}
+              <div class="button-row"><button class="button" type="submit" disabled={sending || !!secretSignal}>{sending ? 'Sending…' : 'Send request'}</button></div>
+            </form>
+          {/if}
+        </div>
+        <aside class="support-guide" aria-label="What to include">
+          <div><h3>Helpful</h3><ul>{#each guidance.include as item (item)}<li>{item}</li>{/each}</ul></div>
+          <div><h3>Never send</h3><ul><li>Passwords or codes</li><li>Vault or export files</li><li>Recovery kits or keys</li></ul></div>
+        </aside>
+      </div>
+    </section>
+  {/if}
 
-<section class="section support-faq">
-  <div class="faq-block">
-    <h2>Common questions</h2>
-    <details><summary>Can I download Sesame now?</summary><p>Yes. Sesame is a free download for Windows and Linux.</p></details>
-    <details><summary>Can support unlock my vault?</summary><p>No. Use your recovery kit, PIN, or Windows Hello. Without an unlock method, the vault cannot be recovered.</p></details>
-    <details><summary>What can I import?</summary><p>Bitwarden, 1Password, major browsers, other password managers and authenticator apps. The import screen lists every format.</p></details>
-    <details><summary>Does Sync work yet?</summary><p>No. The <a href={`${siteOrigin}/roadmap#sync`}>roadmap</a> lists what has to pass first.</p></details>
-    <details><summary>Is there a mobile app or browser extension?</summary><p>No mobile app yet. The browser helper is not in stores.</p></details>
-    <details><summary>Where is my vault stored?</summary><p>On your computer.</p></details>
-    <details><summary>Has Sesame been independently reviewed?</summary><p>Not yet. The <a href={`${siteOrigin}/security`}>security page</a> shows what that means for the current release.</p></details>
-  </div>
-</section>
+  <section class="group support-faq" aria-labelledby="faq-title">
+    <h2 class="section-title" id="faq-title">Common questions</h2>
+    <div class="faq-block">
+      <details><summary>Can I download Sesame now?</summary><p>Yes. Sesame is a free download for Windows and Linux.</p></details>
+      <details><summary>Can support unlock my vault?</summary><p>No. Use your recovery kit, PIN, or Windows Hello. Without an unlock method, the vault cannot be recovered.</p></details>
+      <details><summary>What can I import?</summary><p>Bitwarden, 1Password, major browsers, other password managers and authenticator apps. The import screen lists every format.</p></details>
+      <details><summary>Does Sync work yet?</summary><p>No. The <a href={`${siteOrigin}/roadmap#sync`}>roadmap</a> lists what has to pass first.</p></details>
+      <details><summary>Is there a mobile app or browser extension?</summary><p>No mobile app yet. The browser helper is not in stores.</p></details>
+      <details><summary>Where is my vault stored?</summary><p>On your computer.</p></details>
+      <details><summary>Has Sesame been independently reviewed?</summary><p>Not yet. The <a href={`${siteOrigin}/security`}>security page</a> shows what that means for the current release.</p></details>
+    </div>
+  </section>
+</div>

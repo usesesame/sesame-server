@@ -90,6 +90,7 @@ test('an open request on the same topic is pointed out and opens in one click', 
   support.getSupportTickets.mockResolvedValue([summary()])
   support.getSupportTicket.mockResolvedValue({ ...summary(), messages: [] } as SupportTicketDetail)
   render(SupportPage, { account })
+  await fireEvent.click(await screen.findByRole('button', { name: 'New request' }))
   await fireEvent.change(await screen.findByLabelText('Topic'), { target: { value: 'sync' } })
   expect((await screen.findByRole('status', { name: 'Existing request' })).textContent).toContain('Sync keeps failing')
   support.getSupportTicket.mockClear()
@@ -100,6 +101,7 @@ test('an open request on the same topic is pointed out and opens in one click', 
 test('a closed request on the same topic is not pointed out', async () => {
   support.getSupportTickets.mockResolvedValue([summary({ status: 'closed' })])
   render(SupportPage, { account })
+  await fireEvent.click(await screen.findByRole('button', { name: 'New request' }))
   await fireEvent.change(await screen.findByLabelText('Topic'), { target: { value: 'sync' } })
   expect(screen.queryByRole('status', { name: 'Existing request' })).toBeNull()
 })

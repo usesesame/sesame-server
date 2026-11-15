@@ -5,6 +5,8 @@
   import { conditionalPasskeysAvailable, passkeysSupported, signInWithPasskey } from '../lib/passkey'
   import PasswordField from '../lib/PasswordField.svelte'
   import { siteOrigin } from '../lib/runtime-config'
+  import Notice from '../lib/Notice.svelte'
+  import Icon from '../lib/Icon.svelte'
 
   export let mode: 'login' | 'register'
   export let sessionExpired = false
@@ -27,6 +29,9 @@
   let legalMissing = false
   let errorElement: HTMLElement | undefined
   let legalBox: HTMLInputElement | undefined
+  let emailInput: HTMLInputElement | undefined
+  let inviteInput: HTMLInputElement | undefined
+  let fieldErrors: { email?: string; invite?: string; password?: string } = {}
 
   const linkedInvite = mode === 'register' && typeof window !== 'undefined'
     ? (new URLSearchParams(window.location.search).get('invite') ?? '').trim()
@@ -109,9 +114,25 @@
     }
   }
 
+  function registrationFieldErrors() {
+    const problems: typeof fieldErrors = {}
+    if (emailInput?.validity.valueMissing) problems.email = 'Enter your email address.'
+    else if (emailInput && !emailInput.validity.valid) problems.email = 'Enter a full email address, such as name@example.com.'
+    if (inviteInput && !inviteInput.validity.valid) problems.invite = 'Enter your invitation code.'
+    if (password.length < MIN_PASSWORD_LENGTH) problems.password = `Use a password of at least ${MIN_PASSWORD_LENGTH} characters.`
+    return problems
+  }
+
   async function submit() {
     error = ''
     legalMissing = false
+    fieldErrors = isRegistering ? registrationFieldErrors() : {}
+    if (fieldErrors.email || fieldErrors.invite || fieldErrors.password) {
+      await tick()
+      const first = fieldErrors.email ? emailInput : fieldErrors.invite ? inviteInput : document.getElementById('auth-password')
+      first?.focus()
+      return
+    }
     if (isRegistering && !legalAccepted) {
       legalMissing = true
       await tick()
@@ -160,7 +181,7 @@
       <div class="auth-form card">
         <p>If <strong>{registeredEmail}</strong> can be registered, a verification link is on its way. Open it, then sign in. This page never says whether an address already has an account.</p>
         <p>Nothing yet? Look in your spam folder and wait a few minutes. If it still has not arrived, <a href="/support/request">ask support</a>.</p>
-        <a class="button button-soft" href="/login">Back to sign in</a>
+        <a class="button button-secondary" href="/login">Back to sign in</a>
       </div>
     {:else}
       <h1>{isRegistering ? 'Create your account' : 'Sign in'}</h1>
@@ -169,18 +190,19 @@
           ? "Your account is for downloads, your devices and support. This page never asks for your vault's master password."
           : "Use your Sesame website account. This is not your vault's master password."}
       </p>
-      <form class="auth-form card" on:submit|preventDefault={submit} aria-busy={registrationLoading || submitting}>
-        {#if sessionExpired}<p class="auth-notice" role="status">Your session expired. Sign in again to continue.</p>{/if}
-        {#if unavailable}<p class="auth-notice auth-notice-warn" role="alert">{unavailable} <button type="button" class="inline-action" on:click={() => window.location.reload()}>Try again</button></p>{/if}
+      <form class="auth-form card" on:submit|preventDefault={submit} novalidate={isRegistering} aria-busy={registrationLoading || submitting}>
+        {#if sessionExpired}<Notice title="Your session expired. Sign in again to continue." role="status" />{/if}
+        {#if unavailable}<Notice kind="danger" title={unavailable} role="alert"><button slot="action" type="button" class="button button-secondary button-sm" on:click={() => window.location.reload()}>Try again</button></Notice>{/if}
         {#if registrationLoading}
           <p class="auth-loading"><span class="auth-spinner" aria-hidden="true"></span>Checking invitation access…</p>
         {:else if registrationError}
-          <p class="auth-error" role="alert">{registrationError}</p>
-          <button class="button button-soft" type="button" on:click={() => void loadRegistration()}>Try again</button>
+          <p class="inline-notice inline-danger" role="alert"><Icon name="error" size={15} />{registrationError}</p>
+          <button class="button button-secondary" type="button" on:click={() => void loadRegistration()}>Try again</button>
         {:else}
           <div class="field">
             <label for="auth-email">Email</label>
-            <input id="auth-email" type="email" bind:value={email} autocomplete={!isRegistering && quietPasskeyAvailable ? 'username webauthn' : 'email'} autocapitalize="none" spellcheck="false" inputmode="email" required maxlength="254" disabled={submitting} />
+            <input id="auth-email" bind:this={emailInput} type="email" bind:value={email} aria-invalid={fieldErrors.email ? 'true' : undefined} aria-describedby={fieldErrors.email ? 'auth-email-error' : undefined} autocomplete={!isRegistering && quietPasskeyAvailable ? 'username webauthn' : 'email'} autocapitalize="none" spellcheck="false" inputmode="email" required maxlength="254" disabled={submitting} />
+            {#if fieldErrors.email}<p id="auth-email-error" class="inline-notice inline-danger"><Icon name="error" size={15} />{fieldErrors.email}</p>{/if}
           </div>
           {#if isRegistering && registration?.requiresInvite}
             {#if inviteFromLink}
@@ -191,7 +213,8 @@
             {:else}
               <div class="field">
                 <label for="auth-invite">Invitation code</label>
-                <input id="auth-invite" type="text" bind:value={inviteCode} autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="128" disabled={submitting} />
+                <input id="auth-invite" bind:this={inviteInput} type="text" bind:value={inviteCode} aria-invalid={fieldErrors.invite ? 'true' : undefined} aria-describedby={fieldErrors.invite ? 'auth-invite-error' : undefined} autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="128" disabled={submitting} />
+                {#if fieldErrors.invite}<p id="auth-invite-error" class="inline-notice inline-danger"><Icon name="error" size={15} />{fieldErrors.invite}</p>{/if}
               </div>
             {/if}
           {/if}
@@ -201,25 +224,27 @@
             bind:value={password}
             bind:revealed={showPassword}
             autocomplete={isRegistering ? 'new-password' : 'current-password'}
-            describedby={isRegistering ? 'auth-password-note' : undefined}
+            describedby={isRegistering ? fieldErrors.password ? 'auth-password-note auth-password-error' : 'auth-password-note' : undefined}
+            invalid={Boolean(fieldErrors.password)}
             minlength={isRegistering ? MIN_PASSWORD_LENGTH : undefined}
             disabled={submitting}
           >
             <svelte:fragment slot="aside">{#if !isRegistering}<a href="/forgot-password">Forgot password?</a>{/if}</svelte:fragment>
-            <svelte:fragment slot="note">{#if isRegistering}<small id="auth-password-note" aria-live="polite">{passwordNote}</small>{/if}</svelte:fragment>
+            <svelte:fragment slot="note">{#if isRegistering}<p id="auth-password-note" class="inline-notice inline-info" aria-live="polite"><Icon name="info" size={15} />{passwordNote}</p>{#if fieldErrors.password}<p id="auth-password-error" class="inline-notice inline-danger"><Icon name="error" size={15} />{fieldErrors.password}</p>{/if}{/if}</svelte:fragment>
           </PasswordField>
           {#if isRegistering}
             <div class="field legal-field">
               <label class="legal-agreement" for="auth-legal">
-                <input id="auth-legal" bind:this={legalBox} type="checkbox" bind:checked={legalAccepted} aria-describedby={legalMissing ? 'auth-legal-error' : undefined} aria-required="true" disabled={submitting} />
+                <input id="auth-legal" class="check-input" bind:this={legalBox} type="checkbox" bind:checked={legalAccepted} aria-describedby={legalMissing ? 'auth-legal-error' : undefined} aria-required="true" disabled={submitting} />
+                <span class="check-box" aria-hidden="true"><Icon name="check" size={12} /></span>
                 <span>I agree to the <a href={`${siteOrigin}/terms`} target="_blank" rel="noopener noreferrer">Terms of Use</a> and acknowledge the <a href={`${siteOrigin}/privacy`} target="_blank" rel="noopener noreferrer">Privacy Policy</a>.</span>
               </label>
-              {#if legalMissing}<p id="auth-legal-error" class="auth-error" role="alert">Accept the Terms of Use and acknowledge the Privacy Policy to continue.</p>{/if}
+              {#if legalMissing}<p id="auth-legal-error" class="inline-notice inline-danger" role="alert"><Icon name="error" size={15} />Accept the Terms of Use and acknowledge the Privacy Policy to continue.</p>{/if}
             </div>
           {/if}
-          {#if error}<p class="auth-error" role="alert" tabindex="-1" bind:this={errorElement}>{error}</p>{/if}
+          {#if error}<p class="inline-notice inline-danger form-error" role="alert" tabindex="-1" bind:this={errorElement}><Icon name="error" size={15} />{error}</p>{/if}
           <button class="button auth-submit" type="submit" disabled={submitting} aria-busy={submitting}>
-            {#if submitting}<span class="auth-spinner" aria-hidden="true"></span>{/if}
+            {#if submitting}<span class="spin" aria-hidden="true"><Icon name="spin" /></span>{/if}
             {submitting ? isRegistering ? 'Creating account…' : 'Signing in…' : isRegistering ? 'Create account' : 'Sign in'}
           </button>
           {#if !isRegistering && canUsePasskey}

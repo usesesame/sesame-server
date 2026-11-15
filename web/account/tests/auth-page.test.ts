@@ -281,3 +281,46 @@ test('a failed password sign-in starts the quiet passkey request again', async (
   await user.click(screen.getByRole('button', { name: 'Sign in' }))
   await vi.waitFor(() => expect(passkey.signInWithPasskey).toHaveBeenCalledTimes(2))
 })
+
+test('registration checks the fields itself and shows the length problem next to the hint instead of a browser bubble', async () => {
+  auth.getRegistrationStatus.mockResolvedValue(open)
+  render(AuthPage, { mode: 'register', onAuthenticated: vi.fn() })
+  await screen.findByLabelText('Invitation code')
+  const form = screen.getByRole('button', { name: 'Create account' }).closest('form') as HTMLFormElement
+  expect(form.noValidate).toBe(true)
+  const user = userEvent.setup()
+  await user.type(screen.getByLabelText('Email'), 'tester@example.invalid')
+  await user.type(screen.getByLabelText('Invitation code'), 'INVITE-TEST')
+  await user.type(screen.getByLabelText('Create a password'), 'short')
+  await user.click(screen.getByRole('checkbox'))
+  await user.click(screen.getByRole('button', { name: 'Create account' }))
+  expect(auth.register).not.toHaveBeenCalled()
+  const passwordInput = screen.getByLabelText('Create a password')
+  expect(screen.getByText('5 of 12 characters')).toBeTruthy()
+  expect(screen.getByText('Use a password of at least 12 characters.')).toBeTruthy()
+  expect(passwordInput.getAttribute('aria-invalid')).toBe('true')
+  expect(passwordInput.getAttribute('aria-describedby')).toBe('auth-password-note auth-password-error')
+  expect(document.activeElement).toBe(passwordInput)
+})
+
+test('registration names a missing or malformed email and a missing invitation code on their own fields', async () => {
+  auth.getRegistrationStatus.mockResolvedValue(open)
+  render(AuthPage, { mode: 'register', onAuthenticated: vi.fn() })
+  await screen.findByLabelText('Invitation code')
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: 'Create account' }))
+  expect(screen.getByText('Enter your email address.')).toBeTruthy()
+  expect(screen.getByText('Enter your invitation code.')).toBeTruthy()
+  expect(document.activeElement).toBe(screen.getByLabelText('Email'))
+  await user.type(screen.getByLabelText('Email'), 'not-an-address')
+  await user.click(screen.getByRole('button', { name: 'Create account' }))
+  expect(screen.getByText('Enter a full email address, such as name@example.com.')).toBeTruthy()
+  expect(screen.getByLabelText('Email').getAttribute('aria-describedby')).toBe('auth-email-error')
+  expect(auth.register).not.toHaveBeenCalled()
+})
+
+test('the sign-in form keeps the browser checks', async () => {
+  render(AuthPage, { mode: 'login', onAuthenticated: vi.fn() })
+  const form = screen.getByRole('button', { name: 'Sign in' }).closest('form') as HTMLFormElement
+  expect(form.noValidate).toBe(false)
+})

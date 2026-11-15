@@ -1,6 +1,6 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import type { Account, AccountBootstrap } from '../src/lib/auth'
+import type { Account, AccountBootstrap, AccountSession, DesktopDevice } from '../src/lib/auth'
 
 const auth = vi.hoisted(() => ({
   cancelDesktopLink: vi.fn(),
@@ -93,10 +93,9 @@ test('loads and saves the optional notification preferences', async () => {
   mockAccess()
   auth.getNotificationPreferences.mockResolvedValue({ betaReleases: true, supportReplies: false, productAnnouncements: false })
   auth.updateNotificationPreferences.mockResolvedValue(undefined)
-  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
-  await fireEvent.click(screen.getByRole('tab', { name: 'Security' }))
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'security' })
   const betaReleases = await screen.findByRole('checkbox', { name: 'New beta releases' }) as HTMLInputElement
-  expect(betaReleases.checked).toBe(true)
+  await vi.waitFor(() => expect(betaReleases.checked).toBe(true))
   expect((screen.getByRole('checkbox', { name: 'Support replies' }) as HTMLInputElement).checked).toBe(false)
   expect((screen.getByRole('checkbox', { name: 'Product announcements' }) as HTMLInputElement).checked).toBe(false)
   await fireEvent.click(screen.getByRole('checkbox', { name: 'Support replies' }))
@@ -108,42 +107,27 @@ test('loads and saves the optional notification preferences', async () => {
 test('shows a preference loading failure', async () => {
   mockAccess()
   auth.getNotificationPreferences.mockRejectedValue(new Error('The account service is temporarily unavailable.'))
-  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
-  await fireEvent.click(screen.getByRole('tab', { name: 'Security' }))
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'security' })
   expect((await screen.findByRole('alert')).textContent).toContain('The account service is temporarily unavailable.')
-})
-
-test('opens the security tab from the support preference link', async () => {
-  mockAccess()
-  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: true, supportReplies: true, productAnnouncements: false })
-  window.history.replaceState({}, '', '/account#security')
-  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
-  expect(await screen.findByRole('checkbox', { name: 'Support replies' })).toBeTruthy()
 })
 
 test('has no downloads tab because every release is public', async () => {
   mockAccess()
   render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
   await screen.findByText('Beta access')
-  expect(screen.queryByRole('tab', { name: 'Downloads' })).toBeNull()
+  expect(screen.queryByText('Downloads')).toBeNull()
 })
 
-test('summarises access and signs out from the overview', async () => {
-  const assign = vi.fn()
-  vi.stubGlobal('location', { assign, search: '', pathname: '/', hash: '', origin: 'http://localhost', href: 'http://localhost/' })
+test('summarises access on the overview and leaves signing out to the sidebar', async () => {
   mockAccess(bootstrap({
     access: { betaAccess: true, emailVerified: true, downloadsAllowed: true, licences: [{ id: 'licence-test', product: 'Sesame Pro', status: 'active', issuedAt: '2026-08-01T00:00:00Z' }] },
     notificationCounts: { security: 0, support: 3, product: 0 },
   }))
-  auth.signOut.mockResolvedValue(undefined)
-  const onSignedOut = vi.fn()
-  render(AccountPage, { account, authState: authenticated, onSignedOut })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
   expect(await screen.findByText('3 unread')).toBeTruthy()
   expect(screen.getByText('Granted')).toBeTruthy()
-  await fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
-  expect(auth.signOut).toHaveBeenCalledOnce()
-  expect(onSignedOut).toHaveBeenCalledOnce()
-  expect(assign).toHaveBeenCalledWith('/')
+  expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
 })
 
 test('shows the signed-out state without an account', () => {
@@ -185,16 +169,17 @@ test('a new account is told to verify its email first and can send the link agai
   expect(auth.requestEmailVerification).toHaveBeenCalledOnce()
 })
 
-test('a verified account with no desktop is pointed at connecting one, and the button opens that tab', async () => {
+test('a verified account with no desktop is pointed at connecting one, and the button asks for the Desktops page', async () => {
   mockAccess()
   auth.listDesktopDevices.mockResolvedValue([])
   auth.getDesktopLink.mockResolvedValue(null)
-  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  const onSelectTab = vi.fn()
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), onSelectTab })
   expect(await screen.findByRole('heading', { name: 'Connect Sesame on your computer' })).toBeTruthy()
   expect(screen.getByRole('link', { name: 'Download Sesame' }).getAttribute('href')).toBe('https://website.test.invalid/releases')
   expect(screen.getByText('None connected')).toBeTruthy()
   await fireEvent.click(screen.getByRole('button', { name: 'Create a link code' }))
-  expect(screen.getByRole('tab', { name: 'Desktops' }).getAttribute('aria-selected')).toBe('true')
+  expect(onSelectTab).toHaveBeenCalledWith('devices')
 })
 
 test('an account that already has a desktop shows no next step and counts it', async () => {
@@ -221,15 +206,341 @@ test('no step is shown before the account details have loaded', () => {
   expect(screen.queryByRole('heading', { name: 'Verify your email' })).toBeNull()
 })
 
-test('choosing a tab brings it into view when the tab row scrolls on a phone', async () => {
+const desktop: DesktopDevice = {
+  deviceId: 'device-studio',
+  deviceName: 'Studio desktop',
+  connectedAt: '2026-11-01T09:00:00Z',
+  expiresAt: '2027-11-01T09:00:00Z',
+} as DesktopDevice
+
+async function openDesktops() {
+  mockAccess()
+  auth.listDesktopDevices.mockResolvedValue([desktop])
+  auth.getDesktopLink.mockResolvedValue({ state: 'none' })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'devices' })
+  return (await screen.findByText('Studio desktop')).closest('li') as HTMLElement
+}
+
+test('removing a desktop asks first, names it and the consequence, and sends nothing on the first click', async () => {
+  const row = await openDesktops()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  expect(row.textContent).toContain('Remove Studio desktop? It is disconnected from this account until you connect it again with a new code. The vault on that computer is not touched.')
+  expect(within(row).getByRole('button', { name: 'Remove desktop' })).toBeTruthy()
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(auth.revokeDesktopDevice).not.toHaveBeenCalled()
+})
+
+test('cancelling the desktop confirmation puts the row back without a request', async () => {
+  const row = await openDesktops()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  await fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }))
+  expect(within(row).getByRole('button', { name: 'Remove' })).toBeTruthy()
+  expect(within(row).queryByRole('button', { name: 'Remove desktop' })).toBeNull()
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(auth.revokeDesktopDevice).not.toHaveBeenCalled()
+})
+
+test('confirming without the password explains it on the row and moves focus to the password field', async () => {
+  const row = await openDesktops()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove desktop' }))
+  expect(within(row).getByRole('alert').textContent).toBe('Enter your account password, then remove the desktop again.')
+  expect(document.activeElement).toBe(within(row).getByLabelText('Account password'))
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(auth.revokeDesktopDevice).not.toHaveBeenCalled()
+})
+
+test('confirming with the password checks it and then removes the desktop', async () => {
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.revokeDesktopDevice.mockResolvedValue(undefined)
+  const row = await openDesktops()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  await fireEvent.input(within(row).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove desktop' }))
+  await vi.waitFor(() => expect(screen.queryByText('Studio desktop')).toBeNull())
+  expect(auth.reauthenticate).toHaveBeenCalledWith('fictional-account-password')
+  expect(auth.revokeDesktopDevice).toHaveBeenCalledWith('device-studio')
+})
+
+test('a wrong password is reported on the desktop row that was confirmed', async () => {
+  auth.reauthenticate.mockRejectedValue(new Error('That password is not correct.'))
+  const row = await openDesktops()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  await fireEvent.input(within(row).getByLabelText('Account password'), { target: { value: 'fictional-wrong-password' } })
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove desktop' }))
+  expect((await within(row).findByRole('alert')).textContent).toBe('That password is not correct.')
+  expect(auth.revokeDesktopDevice).not.toHaveBeenCalled()
+})
+
+const sessions: AccountSession[] = [
+  { id: 'session-here', label: 'Firefox on Linux', current: true, lastSeenAt: '2026-11-15T09:00:00Z', expiresAt: '2026-12-15T09:00:00Z' },
+  { id: 'session-other', label: 'Safari on macOS', current: false, lastSeenAt: '2026-11-10T09:00:00Z', expiresAt: '2026-12-10T09:00:00Z' },
+] as AccountSession[]
+
+async function openSessions() {
+  mockAccess()
+  auth.listSessions.mockResolvedValue(sessions)
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'sessions' })
+  await screen.findByText('Safari on macOS')
+}
+
+test('revoking another session asks first and sends nothing until it is confirmed', async () => {
+  await openSessions()
+  const row = screen.getByText('Safari on macOS').closest('li') as HTMLElement
+  await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }))
+  expect(row.textContent).toContain('Revoke Safari on macOS? That browser is signed out of this account.')
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(auth.revokeSession).not.toHaveBeenCalled()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Revoke session' }))
+  expect(within(row).getByRole('alert').textContent).toBe('Enter your account password, then revoke the session again.')
+  expect(document.activeElement).toBe(within(row).getByLabelText('Account password'))
+  expect(auth.revokeSession).not.toHaveBeenCalled()
+})
+
+test('revoking the current session says this browser is signed out, and confirming signs out', async () => {
+  const assign = vi.fn()
+  vi.stubGlobal('location', { assign, search: '', pathname: '/account', hash: '', origin: 'http://localhost', href: 'http://localhost/account' })
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.revokeSession.mockResolvedValue(undefined)
+  await openSessions()
+  const row = screen.getByText('Firefox on Linux').closest('li') as HTMLElement
+  await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }))
+  expect(row.textContent).toContain('Revoke this session? This browser is signed out and goes back to the sign-in page.')
+  await fireEvent.input(within(row).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  expect(auth.revokeSession).not.toHaveBeenCalled()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Revoke session' }))
+  await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/login'))
+  expect(auth.reauthenticate).toHaveBeenCalledWith('fictional-account-password')
+  expect(auth.revokeSession).toHaveBeenCalledWith('session-here')
+})
+
+test('cancelling a session confirmation keeps the session', async () => {
+  await openSessions()
+  const row = screen.getByText('Safari on macOS').closest('li') as HTMLElement
+  await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }))
+  await fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }))
+  expect(within(row).getByRole('button', { name: 'Revoke' })).toBeTruthy()
+  expect(auth.revokeSession).not.toHaveBeenCalled()
+})
+
+async function openPasskeys() {
+  passkey.passkeysSupported.mockReturnValue(true)
+  passkey.listPasskeys.mockResolvedValue([{ id: 'passkey-laptop', name: 'Work laptop', createdAt: '2026-10-01T09:00:00Z' }])
+  mockAccess()
+  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: false, supportReplies: false, productAnnouncements: false })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'security' })
+  return (await screen.findByText('Work laptop')).closest('li') as HTMLElement
+}
+
+test('removing a passkey asks first and points at the password field when it is empty', async () => {
+  const row = await openPasskeys()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  expect(row.textContent).toContain('Remove the passkey "Work laptop"? It can no longer sign in to this account.')
+  expect(passkey.deletePasskey).not.toHaveBeenCalled()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove passkey' }))
+  expect(within(row).getByRole('alert').textContent).toBe('Enter your account password, then remove the passkey again.')
+  expect(document.activeElement).toBe(within(row).getByLabelText('Account password'))
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(passkey.deletePasskey).not.toHaveBeenCalled()
+})
+
+test('a confirmed passkey removal checks the password first', async () => {
+  auth.reauthenticate.mockResolvedValue(undefined)
+  passkey.deletePasskey.mockResolvedValue(undefined)
+  const row = await openPasskeys()
+  const passkeyForm = screen.getByRole('button', { name: 'Add passkey' }).closest('form') as HTMLElement
+  await fireEvent.input(within(passkeyForm).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  await fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }))
+  expect(passkey.deletePasskey).not.toHaveBeenCalled()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove passkey' }))
+  await vi.waitFor(() => expect(screen.queryByText('Work laptop')).toBeNull())
+  expect(auth.reauthenticate).toHaveBeenCalledWith('fictional-account-password')
+  expect(passkey.deletePasskey).toHaveBeenCalledWith('passkey-laptop')
+})
+
+test('security sections are headings and the notifications are plain checkboxes with the notice outside them', async () => {
+  mockAccess()
+  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: false, supportReplies: true, productAnnouncements: false })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'security' })
+  expect(screen.queryByText('Recent confirmation required')).toBeNull()
+  for (const name of ['Sign-in', 'Email notifications']) expect(screen.getByRole('heading', { level: 2, name })).toBeTruthy()
+  for (const name of ['Email address', 'Password']) expect(screen.getByRole('heading', { level: 3, name })).toBeTruthy()
+  const group = screen.getByRole('group', { name: 'Optional email notifications' })
+  expect(within(group).getAllByRole('checkbox')).toHaveLength(3)
+  expect(within(group).queryByRole('button')).toBeNull()
+  await fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+  expect(screen.queryByText('Reply email is now on for this account.')).toBeNull()
+})
+
+test('delete account opens the typed confirmation and keeps the password and DELETE gate', async () => {
+  mockAccess()
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
+  await screen.findByText('Signed in as')
+  const open = screen.getByRole('button', { name: 'Delete account' })
+  expect(open.className).toContain('button-danger-text')
+  await fireEvent.click(open)
+  const submit = screen.getByRole('button', { name: 'Delete permanently' }) as HTMLButtonElement
+  expect(submit.disabled).toBe(true)
+  await fireEvent.input(screen.getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  expect(submit.disabled).toBe(true)
+  await fireEvent.input(screen.getByLabelText('Type DELETE'), { target: { value: 'DELETE' } })
+  expect(submit.disabled).toBe(false)
+  expect(auth.deleteAccount).not.toHaveBeenCalled()
+})
+
+test('activity rows read as sentences with the time beside them', async () => {
+  mockAccess()
+  auth.getAccountActivity.mockResolvedValue([
+    { id: 'event-1', type: 'sign_in', label: 'Passkey', metadata: { method: 'passkey' }, createdAt: '2026-11-14T09:41:00Z', expiresAt: '2027-11-14T09:41:00Z' },
+    { id: 'event-2', type: 'desktop_revoked', label: 'Sesame desktop', createdAt: '2026-11-13T18:05:00Z', expiresAt: '2027-11-13T18:05:00Z' },
+    { id: 'event-3', type: 'something_new', label: 'Sesame account', createdAt: '2026-11-12T08:00:00Z', expiresAt: '2027-11-12T08:00:00Z' },
+  ])
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'activity' })
+  expect(await screen.findByText('Signed in with a passkey')).toBeTruthy()
+  expect(screen.getByText('Removed a desktop')).toBeTruthy()
+  expect(screen.getByText('Something new')).toBeTruthy()
+  expect(screen.queryByText('desktop revoked')).toBeNull()
+  const time = (screen.getByText('Signed in with a passkey').closest('li') as HTMLElement).querySelector('time')
+  expect(time?.getAttribute('datetime')).toBe('2026-11-14T09:41:00Z')
+})
+
+test('each page header carries one fact from data the page already loaded', async () => {
+  mockAccess()
+  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: false, supportReplies: false, productAnnouncements: false })
+  const security = render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'security' })
+  const header = within(screen.getByRole('heading', { level: 1, name: 'Security' }).closest('.page-header') as HTMLElement)
+  expect(header.getByText('tester@example.invalid')).toBeTruthy()
+  expect(header.getByText('email verified')).toBeTruthy()
+  security.unmount()
+
+  auth.listSessions.mockResolvedValue(sessions)
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'sessions' })
+  const sessionsHeader = screen.getByRole('heading', { level: 1, name: 'Sessions' }).closest('.page-header') as HTMLElement
+  await vi.waitFor(() => expect(sessionsHeader.textContent).toContain('2 sessions'))
+})
+
+test('the email form opens from its row and still confirms the password before asking for the change', async () => {
+  mockAccess()
+  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: false, supportReplies: false, productAnnouncements: false })
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.requestEmailChange.mockResolvedValue(undefined)
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'security' })
+  const open = screen.getByRole('button', { name: 'Change email' })
+  expect(open.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByLabelText('New email')).toBeNull()
+  await fireEvent.click(open)
+  expect(open.getAttribute('aria-expanded')).toBe('true')
+  await fireEvent.input(screen.getByLabelText('New email'), { target: { value: 'new@example.invalid' } })
+  const form = screen.getByRole('button', { name: 'Send confirmation to new email' }).closest('form') as HTMLElement
+  await fireEvent.input(within(form).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.submit(form)
+  await vi.waitFor(() => expect(auth.requestEmailChange).toHaveBeenCalledWith('new@example.invalid'))
+  expect(auth.reauthenticate).toHaveBeenCalledWith('fictional-account-password')
+  expect(auth.reauthenticate.mock.invocationCallOrder[0]).toBeLessThan(auth.requestEmailChange.mock.invocationCallOrder[0])
+})
+
+test('the password form opens from its row and keeps the length and match checks before any request', async () => {
+  mockAccess()
+  auth.getNotificationPreferences.mockResolvedValue({ betaReleases: false, supportReplies: false, productAnnouncements: false })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'security' })
+  await fireEvent.click(screen.getByRole('button', { name: 'Change password' }))
+  await fireEvent.input(screen.getByLabelText('Current password'), { target: { value: 'fictional-old-password' } })
+  await fireEvent.input(screen.getByLabelText('New password'), { target: { value: 'fictional-new-password' } })
+  await fireEvent.input(screen.getByLabelText('Confirm new password'), { target: { value: 'fictional-other-password' } })
+  await fireEvent.submit(screen.getByRole('button', { name: 'Update password and revoke other sessions' }).closest('form') as HTMLElement)
+  expect((await screen.findByRole('alert')).textContent).toBe('The new passwords do not match.')
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(auth.changePassword).not.toHaveBeenCalled()
+})
+
+test('a desktop code shows its characters in groups with the time left', async () => {
   mockAccess()
   auth.listDesktopDevices.mockResolvedValue([])
-  auth.getDesktopLink.mockResolvedValue(null)
-  const scrolled = vi.fn()
-  Element.prototype.scrollIntoView = scrolled
-  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn() })
-  await screen.findByText('Beta access')
-  await fireEvent.click(screen.getByRole('tab', { name: 'Desktops' }))
-  await vi.waitFor(() => expect(scrolled).toHaveBeenCalledWith({ inline: 'nearest', block: 'nearest' }))
-  expect(scrolled.mock.contexts.at(-1)).toBe(screen.getByRole('tab', { name: 'Desktops' }))
+  auth.getDesktopLink.mockResolvedValue({ state: 'none' })
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.createDesktopLink.mockResolvedValue({ state: 'pending', linkId: 'link-test', code: 'SESAME-K7QF2M9XTR4BH8WN', expiresAt: new Date(Date.now() + 600_000).toISOString() })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'devices' })
+  expect(await screen.findByRole('heading', { name: 'No desktops yet' })).toBeTruthy()
+  await fireEvent.input(screen.getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Create desktop code' }))
+  await screen.findByText('Desktop code')
+  const groups = [...document.querySelectorAll('.code-group')].map((node) => node.textContent)
+  expect(groups).toEqual(['K7QF', '2M9X', 'TR4B', 'H8WN'])
+  expect(screen.getByText('SESAME-K7QF2M9XTR4BH8WN')).toBeTruthy()
+  expect(screen.getByLabelText(/seconds remaining/)).toBeTruthy()
+  expect(auth.reauthenticate).toHaveBeenCalledWith('fictional-account-password')
+})
+
+test('the Desktops page has no separate password notice, and the password sits beside Create desktop code', async () => {
+  const row = await openDesktops()
+  expect(screen.queryByText('Account password required')).toBeNull()
+  const create = screen.getByRole('button', { name: 'Create desktop code' })
+  expect(within(create.parentElement as HTMLElement).getByLabelText('Account password')).toBeTruthy()
+  expect(screen.getAllByLabelText('Account password')).toHaveLength(1)
+  expect(within(row).queryByLabelText('Account password')).toBeNull()
+})
+
+test('the desktop confirm row and the connect block share one password value and send one check before the removal', async () => {
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.revokeDesktopDevice.mockResolvedValue(undefined)
+  const row = await openDesktops()
+  const connectField = within(screen.getByRole('button', { name: 'Create desktop code' }).parentElement as HTMLElement).getByLabelText('Account password') as HTMLInputElement
+  await fireEvent.input(connectField, { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+  expect((within(row).getByLabelText('Account password') as HTMLInputElement).value).toBe('fictional-account-password')
+  await fireEvent.click(within(row).getByRole('button', { name: 'Remove desktop' }))
+  await vi.waitFor(() => expect(auth.revokeDesktopDevice).toHaveBeenCalledWith('device-studio'))
+  expect(auth.reauthenticate).toHaveBeenCalledOnce()
+  expect(auth.reauthenticate.mock.invocationCallOrder[0]).toBeLessThan(auth.revokeDesktopDevice.mock.invocationCallOrder[0])
+  await vi.waitFor(() => expect(connectField.value).toBe(''))
+})
+
+test('renaming a desktop asks for the password in the same row and checks it before the rename', async () => {
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.renameDesktopDevice.mockResolvedValue(undefined)
+  const row = await openDesktops()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Rename' }))
+  await fireEvent.input(within(row).getByLabelText('Desktop name'), { target: { value: 'Studio tower' } })
+  await fireEvent.click(within(row).getByRole('button', { name: 'Save name' }))
+  expect((await within(row).findByRole('alert')).textContent).toBe('Enter your website account password to continue.')
+  expect(auth.renameDesktopDevice).not.toHaveBeenCalled()
+  await fireEvent.input(within(row).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(row).getByRole('button', { name: 'Save name' }))
+  await vi.waitFor(() => expect(auth.renameDesktopDevice).toHaveBeenCalledWith('device-studio', 'Studio tower'))
+  expect(auth.reauthenticate).toHaveBeenCalledWith('fictional-account-password')
+})
+
+test('an empty Desktops page says No desktops in the header with nothing under it', async () => {
+  mockAccess()
+  auth.listDesktopDevices.mockResolvedValue([])
+  auth.getDesktopLink.mockResolvedValue({ state: 'none' })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'devices' })
+  await screen.findByRole('heading', { name: 'No desktops yet' })
+  const header = screen.getByRole('heading', { level: 1, name: 'Desktops' }).closest('.page-header') as HTMLElement
+  expect(header.querySelector('.page-fact')?.textContent?.trim()).toBe('No desktops')
+})
+
+test('the Desktops header says a code is waiting while one is showing', async () => {
+  mockAccess()
+  auth.listDesktopDevices.mockResolvedValue([])
+  auth.getDesktopLink.mockResolvedValue({ state: 'pending', linkId: 'link-test', code: 'SESAME-K7QF2M9XTR4BH8WN', expiresAt: new Date(Date.now() + 600_000).toISOString() })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'devices' })
+  await screen.findByRole('heading', { name: 'No desktops yet' })
+  const header = screen.getByRole('heading', { level: 1, name: 'Desktops' }).closest('.page-header') as HTMLElement
+  await vi.waitFor(() => expect(header.querySelector('.page-fact-detail')?.textContent?.trim()).toBe('a code is waiting'))
+  expect(header.querySelector('.page-fact-main')?.textContent?.trim()).toBe('No desktops')
+})
+
+test('Sessions shows a password field only where a revoke needs it', async () => {
+  await openSessions()
+  const row = screen.getByText('Safari on macOS').closest('li') as HTMLElement
+  const revokeAll = screen.getByRole('button', { name: 'Revoke every session' }) as HTMLButtonElement
+  expect(revokeAll.disabled).toBe(true)
+  expect(screen.getAllByLabelText('Account password')).toHaveLength(1)
+  await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }))
+  await fireEvent.input(within(row).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  expect(revokeAll.disabled).toBe(false)
+  expect(auth.revokeAllSessions).not.toHaveBeenCalled()
 })

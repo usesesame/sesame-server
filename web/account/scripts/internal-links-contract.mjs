@@ -9,6 +9,10 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const knownRoutes = new Set([
   '/',
   '/account',
+  '/account/security',
+  '/account/sessions',
+  '/account/desktops',
+  '/account/activity',
   '/login',
   '/register',
   '/support',

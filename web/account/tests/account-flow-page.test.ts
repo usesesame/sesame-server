@@ -53,7 +53,7 @@ test('asks for a password after the first verification and finishes once it is s
   expect(await screen.findByRole('heading', { name: 'Choose a password' })).toBeTruthy()
   expect(onAuthenticated).toHaveBeenCalledWith(account)
   expect(screen.queryByRole('link', { name: 'Open account' })).toBeNull()
-  expect(screen.getByRole('link', { name: 'add a passkey' }).getAttribute('href')).toBe('/account#security')
+  expect(screen.getByRole('link', { name: 'add a passkey' }).getAttribute('href')).toBe('/account/security')
 
   await fillPasswords('fictional-first-password', 'fictional-first-password')
   await fireEvent.click(screen.getByRole('button', { name: 'Set password' }))
