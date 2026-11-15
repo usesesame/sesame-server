@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { AdminAccount, User } from '../src/lib/types'
 
@@ -256,4 +256,54 @@ test('searches users after the debounce', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
   await fireEvent.input(await screen.findByLabelText('Search users'), { target: { value: 'tester' } })
   await vi.waitFor(() => expect(api.request).toHaveBeenCalledWith('/v1/admin/users?query=tester&size=100&page=1'))
+})
+
+test('locks every user action while an unsuspend request is in flight', async () => {
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/users?')) return { users: [user({ suspendedAt: '2026-08-31T12:00:00Z' })], total: 1 }
+    if (path === '/v1/admin/users/user-test') return { user: user({ suspendedAt: '2026-08-31T12:00:00Z' }) }
+    return {}
+  }, { role: 'super', permissions: ['users:read', 'users:manage', 'users:delete'] })
+  let release: (value: unknown) => void = () => {}
+  api.mutate.mockImplementation(() => new Promise((done) => { release = done }))
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
+  await fireEvent.click(await screen.findByText('tester@example.invalid'))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Delete account' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Unsuspend' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/users/user-test/suspend', 'DELETE', undefined)
+  for (const name of ['Unsuspend', 'Grant beta', 'Revoke sessions', 'Delete account', 'Delete permanently']) {
+    expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true)
+  }
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Unsuspend' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  release({})
+  expect(await screen.findByText('User account updated and the action was audited.')).toBeTruthy()
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Delete permanently' }) as HTMLButtonElement).disabled).toBe(false))
+})
+
+test('locks the user actions while a deletion is in flight', async () => {
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/users?')) return { users: [user()], total: 1 }
+    if (path === '/v1/admin/users/user-test') return { user: user() }
+    return {}
+  }, { role: 'super', permissions: ['users:read', 'users:manage', 'users:delete'] })
+  let release: (value: unknown) => void = () => {}
+  api.mutate.mockImplementation(() => new Promise((done) => { release = done }))
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
+  await fireEvent.click(await screen.findByText('tester@example.invalid'))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Delete account' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  const suspend = screen.getByRole('button', { name: 'Suspend' }) as HTMLButtonElement
+  expect(suspend.disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Grant beta' }) as HTMLButtonElement).disabled).toBe(true)
+  await fireEvent.click(suspend)
+  await fireEvent.click(screen.getByRole('button', { name: 'Grant beta' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  release({})
+  expect(await screen.findByText('User account deleted.')).toBeTruthy()
 })

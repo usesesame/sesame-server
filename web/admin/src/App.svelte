@@ -402,30 +402,34 @@
   }
 
   async function userAction(action: string, method: 'POST' | 'DELETE', body?: unknown) {
-    if (!selectedUser) return
+    if (!selectedUser || busy) return
+    const id = selectedUser.id
     busy = true
     try {
-      await mutate(`/v1/admin/users/${selectedUser.id}/${action}`, method, body)
+      await mutate(`/v1/admin/users/${id}/${action}`, method, body)
       showNotice('User account updated and the action was audited.')
-      await loadUsers(); await inspectUser(selectedUser.id)
+      await loadUsers(); await inspectUser(id)
     } catch (reason) { showError(reason) } finally { busy = false }
   }
 
   function cancelPending() { pending = ''; suspendReason = '' }
 
   async function confirmUserAction(action: string, method: 'POST' | 'DELETE', body?: unknown) {
+    if (busy || confirmBusy) return
     confirmBusy = true
     try { await userAction(action, method, body) } finally { confirmBusy = false; if (!error) cancelPending() }
   }
 
   async function deleteUser() {
-    if (!selectedUser) return
+    if (!selectedUser || busy || confirmBusy) return
+    const id = selectedUser.id
+    busy = true
     confirmBusy = true
-    try { await mutate(`/v1/admin/users/${selectedUser.id}`, 'DELETE'); selectedUser = null; cancelPending(); await loadUsers(); showNotice('User account deleted.') } catch (reason) { showError(reason) } finally { confirmBusy = false }
+    try { await mutate(`/v1/admin/users/${id}`, 'DELETE'); selectedUser = null; cancelPending(); await loadUsers(); showNotice('User account deleted.') } catch (reason) { showError(reason) } finally { busy = false; confirmBusy = false }
   }
 
   async function toggleUserSuspension() {
-    if (!selectedUser) return
+    if (!selectedUser || busy) return
     if (selectedUser.suspendedAt) {
       await userAction('suspend', 'DELETE')
       return
@@ -514,8 +518,14 @@
     } catch (reason) { showError(reason) }
   }
 
+  function recordAdmin(id: string, role: Role, suspended: boolean) {
+    admins = admins.map((entry) => entry.id === id ? { ...entry, role, suspended } : entry)
+  }
+
   async function updateAdmin(admin: AdminAccount, role = admin.role, suspended = admin.suspended) {
-    try { await mutate(`/v1/admin/admins/${admin.id}`, 'PATCH', { role, suspended }); await openPage('admins'); showNotice('Administrator updated.') } catch (reason) { showError(reason) }
+    if (confirmBusy) return
+    confirmBusy = true
+    try { await mutate(`/v1/admin/admins/${admin.id}`, 'PATCH', { role, suspended }); recordAdmin(admin.id, role, suspended); await openPage('admins'); showNotice('Administrator updated.') } catch (reason) { showError(reason) } finally { confirmBusy = false }
   }
 
   function stageRole(admin: AdminAccount, role: Role) {
@@ -523,10 +533,10 @@
   }
 
   async function applyStagedRole(admin: AdminAccount) {
-    if (!stagedRole || stagedRole.id !== admin.id) return
+    if (!stagedRole || stagedRole.id !== admin.id || confirmBusy) return
     const role = stagedRole.role
     confirmBusy = true
-    try { await mutate(`/v1/admin/admins/${admin.id}`, 'PATCH', { role, suspended: admin.suspended }); await openPage('admins'); showNotice('Administrator updated.') } catch (reason) { stagedRole = null; showError(reason) } finally { confirmBusy = false }
+    try { await mutate(`/v1/admin/admins/${admin.id}`, 'PATCH', { role, suspended: admin.suspended }); recordAdmin(admin.id, role, admin.suspended); await openPage('admins'); showNotice('Administrator updated.') } catch (reason) { stagedRole = null; showError(reason) } finally { confirmBusy = false }
   }
 
   function auditQuery() {
@@ -543,11 +553,12 @@
   }
 
   async function deleteAdmin(admin: AdminAccount) {
+    if (confirmBusy) return
     confirmBusy = true
     try { await mutate(`/v1/admin/admins/${admin.id}`, 'DELETE'); await openPage('admins'); showNotice('Administrator deleted.') } catch (reason) { showError(reason) } finally { confirmBusy = false }
   }
 
-  type Need = { text: string; filter: { priority?: string; assigned?: string } }
+  type Need = { text: string; filter: { priority?: string; assigned?: string }; link?: string }
 
   function plural(count: number, one: string, many: string) { return `${formatCount(count)} ${count === 1 ? one : many}` }
 
@@ -558,7 +569,7 @@
     const list: Need[] = []
     if (value.urgentTickets > 0) list.push({ text: plural(value.urgentTickets, 'urgent ticket', 'urgent tickets'), filter: { priority: 'urgent' } })
     if (value.unassignedTickets > 0) list.push({ text: plural(value.unassignedTickets, 'unassigned ticket', 'unassigned tickets'), filter: { assigned: 'unassigned' } })
-    if (value.openTickets > 0) list.push({ text: `${plural(value.openTickets, 'ticket', 'tickets')} not closed yet`, filter: {} })
+    if (value.openTickets > 0) list.push({ text: `${plural(value.openTickets, 'ticket is', 'tickets are')} not closed yet.`, filter: {}, link: 'Open the whole queue' })
     return list
   }
 
@@ -658,7 +669,11 @@
               {#if needs.length > 0}
                 <ul>
                   {#each needs as need (need.text)}
-                    <li><button type="button" class="need-link" class:urgent={need.filter.priority === 'urgent'} onclick={() => openQueue(need.filter)}>{need.text}</button></li>
+                    {#if need.link}
+                      <li class="need-row"><span>{need.text}</span><button type="button" class="need-link" onclick={() => openQueue(need.filter)}>{need.link}</button></li>
+                    {:else}
+                      <li><button type="button" class="need-link" class:urgent={need.filter.priority === 'urgent'} onclick={() => openQueue(need.filter)}>{need.text}</button></li>
+                    {/if}
                   {/each}
                 </ul>
               {:else}
@@ -815,22 +830,22 @@
         <div class="split-view"><section class="table-panel"><table><thead><tr><th>Email</th><th>Beta</th><th>Sessions</th><th>Devices</th><th>Status</th></tr></thead><tbody>{#each users as user (user.id)}<tr tabindex="0" onclick={() => inspectUser(user.id)} onkeydown={(event) => event.key === 'Enter' && inspectUser(user.id)}><td><strong>{user.email}</strong><small>{user.emailVerified ? 'Verified' : 'Unverified'}</small></td><td>{user.betaAccess ? user.emailVerified ? 'Eligible' : 'Pending verification' : 'Not granted'}</td><td>{user.sessionCount}</td><td>{user.deviceCount}</td><td>{user.suspendedAt ? 'Suspended' : 'Active'}</td></tr>{/each}</tbody></table></section>
           {#if selectedUser}<aside class="detail"><div class="detail-head"><h2>{selectedUser.email}</h2><button aria-label="Close details" onclick={() => { selectedUser = null; cancelPending() }}>×</button></div><dl><div><dt>Created</dt><dd>{date(selectedUser.createdAt)}</dd></div><div><dt>Email</dt><dd>{selectedUser.emailVerified ? 'Verified' : 'Not verified'}</dd></div></dl>
             {#if selectedUser.betaAccess && !selectedUser.emailVerified}<p class="message error">Beta is granted but inactive until this email address is verified. Downloads and desktop linking remain blocked.</p>{/if}
-            {#if canEditUsers}<div class="action-grid"><button onclick={() => userAction('beta', selectedUser!.betaAccess ? 'DELETE' : 'POST')}>{selectedUser.betaAccess ? 'Revoke beta' : 'Grant beta'}</button><button onclick={() => { pending = 'user-sessions' }} disabled={pending === 'user-sessions'}>Revoke sessions</button><button onclick={toggleUserSuspension} disabled={pending === 'user-suspend'}>{selectedUser.suspendedAt ? 'Unsuspend' : 'Suspend'}</button>{#if me.role === 'super'}<button class="danger" onclick={() => { pending = 'user-delete' }} disabled={pending === 'user-delete'}>Delete account</button>{/if}</div>
+            {#if canEditUsers}<div class="action-grid"><button onclick={() => userAction('beta', selectedUser!.betaAccess ? 'DELETE' : 'POST')} disabled={busy}>{selectedUser.betaAccess ? 'Revoke beta' : 'Grant beta'}</button><button onclick={() => { pending = 'user-sessions' }} disabled={busy || pending === 'user-sessions'}>Revoke sessions</button><button onclick={toggleUserSuspension} disabled={busy || pending === 'user-suspend'}>{selectedUser.suspendedAt ? 'Unsuspend' : 'Suspend'}</button>{#if me.role === 'super'}<button class="danger" onclick={() => { pending = 'user-delete' }} disabled={busy || pending === 'user-delete'}>Delete account</button>{/if}</div>
               {#if pending === 'user-sessions'}
-                <ConfirmRow message={`Sign ${selectedUser.email} out of every website session? They can sign in again.`} action="Revoke all sessions" busy={confirmBusy} onConfirm={() => confirmUserAction('sessions', 'DELETE')} onCancel={cancelPending} />
+                <ConfirmRow message={`Sign ${selectedUser.email} out of every website session? They can sign in again.`} action="Revoke all sessions" busy={confirmBusy || busy} onConfirm={() => confirmUserAction('sessions', 'DELETE')} onCancel={cancelPending} />
               {:else if pending === 'user-suspend'}
-                <ConfirmRow message={`Suspend ${selectedUser.email}? Every website session ends now, and the account stays suspended until someone unsuspends it.`} action="Suspend account" busy={confirmBusy} onConfirm={() => confirmUserAction('suspend', 'POST', { reason: suspendReason })} onCancel={cancelPending}>
+                <ConfirmRow message={`Suspend ${selectedUser.email}? Every website session ends now, and the account stays suspended until someone unsuspends it.`} action="Suspend account" busy={confirmBusy || busy} onConfirm={() => confirmUserAction('suspend', 'POST', { reason: suspendReason })} onCancel={cancelPending}>
                   <label class="confirm-field">Reason, shown only to staff<input bind:value={suspendReason} maxlength="500" /></label>
                 </ConfirmRow>
               {:else if pending === 'user-delete'}
-                <ConfirmRow message={`Delete ${selectedUser.email} permanently? This removes the account and cannot be undone.`} action="Delete permanently" busy={confirmBusy} onConfirm={deleteUser} onCancel={cancelPending} />
+                <ConfirmRow message={`Delete ${selectedUser.email} permanently? This removes the account and cannot be undone.`} action="Delete permanently" busy={confirmBusy || busy} onConfirm={deleteUser} onCancel={cancelPending} />
               {/if}
             {/if}
             {#if canOwnerRelease}<div class="compact-row owner-release"><div><strong>Owner update ring</strong><small>Grants this verified beta account owner-channel updates as well as beta updates. It does not publish a release.</small></div><button onclick={publishToOwnerDevices}>Add to owner update ring</button></div>{/if}
             <h3>Website sessions</h3>{#if selectedUser.sessions?.length}{#each selectedUser.sessions as session (session.id)}<div class="compact-row"><div><strong>{session.label}</strong><small>{date(session.lastSeenAt)}</small></div></div>{/each}{:else}<p class="empty">No active sessions.</p>{/if}
-            <h3>Connected devices</h3>{#if selectedUser.devices?.length}{#each selectedUser.devices as device (device.id)}<div class="compact-row"><div><strong>{device.name}</strong><small>{date(device.connectedAt)}</small></div>{#if canEditUsers}<button class="danger" onclick={() => { pending = `user-device:${device.id}` }} disabled={pending === `user-device:${device.id}`}>Revoke</button>{/if}</div>
+            <h3>Connected devices</h3>{#if selectedUser.devices?.length}{#each selectedUser.devices as device (device.id)}<div class="compact-row"><div><strong>{device.name}</strong><small>{date(device.connectedAt)}</small></div>{#if canEditUsers}<button class="danger" onclick={() => { pending = `user-device:${device.id}` }} disabled={busy || pending === `user-device:${device.id}`}>Revoke</button>{/if}</div>
               {#if pending === `user-device:${device.id}`}
-                <ConfirmRow message={`Revoke ${device.name}? The desktop is disconnected from this account and has to be linked again.`} action="Revoke device" busy={confirmBusy} onConfirm={() => confirmUserAction(`devices/${device.id}`, 'DELETE')} onCancel={cancelPending} />
+                <ConfirmRow message={`Revoke ${device.name}? The desktop is disconnected from this account and has to be linked again.`} action="Revoke device" busy={confirmBusy || busy} onConfirm={() => confirmUserAction(`devices/${device.id}`, 'DELETE')} onCancel={cancelPending} />
               {/if}
             {/each}{:else}<p class="empty">No connected devices.</p>{/if}
           </aside>{/if}
@@ -860,7 +875,7 @@
         {#if canEditAdmins}<section class="panel"><h2>Invite an administrator</h2><div class="toolbar"><input type="email" placeholder="name@example.com" bind:value={inviteEmail} /><select aria-label="Role for the new administrator" bind:value={inviteRole}>{#each roles as role (role)}<option value={role}>{roleLabel(role)}</option>{/each}</select><button class="primary" onclick={inviteAdmin} disabled={!inviteEmail}>Create setup link</button></div>{#if inviteURL}<label>One-time setup link<input value={inviteURL} readonly onfocus={(event) => event.currentTarget.select()} /></label>{/if}</section>{/if}
         <section class="panel"><h2>Administrators</h2>
           {#each admins as admin (admin.id)}
-            <div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select aria-label={`Role for ${admin.email}`} value={stagedRole?.id === admin.id ? stagedRole.role : admin.role} onchange={(event) => stageRole(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins || confirmBusy}>{#each roles as role (role)}<option value={role}>{roleLabel(role)}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => { pending = `admin-delete:${admin.id}` }} disabled={admin.id === me.id || pending === `admin-delete:${admin.id}`}>Delete</button>{/if}</div>
+            <div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select aria-label={`Role for ${admin.email}`} value={stagedRole?.id === admin.id ? stagedRole.role : admin.role} onchange={(event) => stageRole(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins || confirmBusy}>{#each roles as role (role)}<option value={role}>{roleLabel(role)}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id || confirmBusy}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => { pending = `admin-delete:${admin.id}` }} disabled={admin.id === me.id || confirmBusy || pending === `admin-delete:${admin.id}`}>Delete</button>{/if}</div>
             {#if stagedRole?.id === admin.id}
               <ConfirmRow tone="change" message={`Change ${admin.email} from ${roleLabel(admin.role)} to ${roleLabel(stagedRole.role)}? What they can see and change follows the new role at once.`} action="Change role" busy={confirmBusy} onConfirm={() => applyStagedRole(admin)} onCancel={() => { stagedRole = null }} />
             {:else if pending === `admin-delete:${admin.id}`}

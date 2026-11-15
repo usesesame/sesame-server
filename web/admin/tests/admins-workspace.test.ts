@@ -160,3 +160,64 @@ test('readonly staff see administrators without controls', async () => {
   expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
   expect((screen.getByDisplayValue('Support') as HTMLSelectElement).disabled).toBe(true)
 })
+
+function deferred() {
+  let resolve: (value: unknown) => void = () => {}
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
+
+test('locks the role controls and Suspend while an administrator update is in flight', async () => {
+  mockApp((path) => path === '/v1/admin/admins' ? { admins: [admin(), other] } : {})
+  const pending = deferred()
+  api.mutate.mockImplementation(() => pending.promise)
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Administrators' }))
+  const row = (await screen.findByText('support@example.invalid')).closest('.setting-row') as HTMLElement
+  const select = within(row).getByDisplayValue('Support') as HTMLSelectElement
+  await fireEvent.change(select, { target: { value: 'ops' } })
+  const suspend = within(row).getByRole('button', { name: 'Suspend' }) as HTMLButtonElement
+  await fireEvent.click(suspend)
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/admins/admin-support', 'PATCH', { role: 'support', suspended: true })
+  expect(select.disabled).toBe(true)
+  expect(suspend.disabled).toBe(true)
+  expect((within(row).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(true)
+  const confirm = screen.getByRole('button', { name: 'Change role' }) as HTMLButtonElement
+  expect(confirm.disabled).toBe(true)
+  await fireEvent.click(confirm)
+  await fireEvent.click(suspend)
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  pending.resolve({})
+  expect(await screen.findByText('Administrator updated.')).toBeTruthy()
+  const reloaded = (await screen.findByText('support@example.invalid')).closest('.setting-row') as HTMLElement
+  expect((within(reloaded).getByRole('combobox') as HTMLSelectElement).disabled).toBe(false)
+  expect((within(reloaded).getByRole('button', { name: 'Suspend' }) as HTMLButtonElement).disabled).toBe(false)
+})
+
+test('locks Suspend while a role change is in flight and keeps the new suspension state after a failed reload', async () => {
+  let reloads = 0
+  mockApp((path) => {
+    if (path !== '/v1/admin/admins') return {}
+    reloads += 1
+    if (reloads > 1) throw new Error('The administrator list could not be loaded.')
+    return { admins: [admin(), other] }
+  })
+  const pending = deferred()
+  api.mutate.mockImplementationOnce(() => pending.promise).mockResolvedValue({})
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Administrators' }))
+  const row = (await screen.findByText('support@example.invalid')).closest('.setting-row') as HTMLElement
+  await fireEvent.change(within(row).getByDisplayValue('Support'), { target: { value: 'ops' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Change role' }))
+  const suspend = within(row).getByRole('button', { name: 'Suspend' }) as HTMLButtonElement
+  expect(suspend.disabled).toBe(true)
+  await fireEvent.click(suspend)
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  pending.resolve({})
+  expect(await screen.findByText('Administrator updated.')).toBeTruthy()
+  const after = (await screen.findByText('support@example.invalid')).closest('.setting-row') as HTMLElement
+  expect((within(after).getByRole('combobox') as HTMLSelectElement).value).toBe('ops')
+  await fireEvent.click(within(after).getByRole('button', { name: 'Suspend' }))
+  expect(api.mutate).toHaveBeenLastCalledWith('/v1/admin/admins/admin-support', 'PATCH', { role: 'ops', suspended: true })
+})
