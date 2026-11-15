@@ -34,7 +34,7 @@ npm run admin:bootstrap -- bootstrap you@example.com
 
 Registration is invite-only by default. You can change the registration mode or send invitations from the administration portal.
 
-This stack is for development and runs over plain HTTP. To run the hosted service publicly, follow [DEPLOYMENT.md](DEPLOYMENT.md) instead. If you put the local stack behind TLS anyway, give `SESAME_API_ORIGIN` and each portal origin its HTTPS address in `deploy/compose/.env`, set `SESAME_SESSION_SECURE` and `SESAME_ADMIN_SESSION_SECURE` to `true`, and run `npm run compose:up` again so the portals are rebuilt with the new API address. The API refuses to start when an HTTPS origin has its flag off. Every API setting is listed in [.env.example](.env.example).
+This stack is for development and runs over plain HTTP, and [DEPLOYMENT.md](DEPLOYMENT.md) covers running the hosted service publicly. If you put the local stack behind TLS, set `SESAME_API_ORIGIN` and each portal origin to its HTTPS address in `deploy/compose/.env`, set `SESAME_SESSION_SECURE` and `SESAME_ADMIN_SESSION_SECURE` to `true`, and run `npm run compose:up` again so the portals pick up the new API address. Every API setting is listed in [.env.example](.env.example).
 
 ## Database migrations
 
@@ -47,9 +47,7 @@ npm ci
 npm run ci
 ```
 
-This runs the contract checks, lint, the builds and the Go tests. The PostgreSQL tests run only when `SESAME_TEST_DATABASE_URL` points at a test database, and CI provides one. Each app under `web` has its own `npm ci`, `release:check` and `test`.
-
-`npm run openapi:generate` rebuilds [openapi/openapi.json](openapi/openapi.json) from the API's routes, and `npm run openapi:check` fails when that file is stale. The request and response rules for each route are in [API.md](API.md).
+That runs the root checks, and [.github/workflows/ci.yml](.github/workflows/ci.yml) has the full set a pull request must pass, including the portal tests and the self-hosting jobs. The PostgreSQL tests run only when `SESAME_TEST_DATABASE_URL` points at a test database, which CI provides. After changing a route, run `npm run openapi:generate` to rebuild [openapi/openapi.json](openapi/openapi.json), and see [API.md](API.md) for the rules each route follows.
 
 ## More
 
