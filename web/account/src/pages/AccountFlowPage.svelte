@@ -3,6 +3,7 @@
   import { SvelteURL } from 'svelte/reactivity'
   import PasswordField from '../lib/PasswordField.svelte'
   import PasswordSetupForm from '../lib/PasswordSetupForm.svelte'
+  import Icon from '../lib/Icon.svelte'
   import {
     confirmEmailChange,
     confirmEmailVerification,
@@ -109,9 +110,9 @@
       {#if complete}
         {#if mode === 'forgot-password'}
           <p>If an eligible account exists for that address, we sent a recovery link. This page never confirms whether an address is registered.</p>
-          <a class="button button-soft" href="/login">Back to sign in</a>
+          <a class="button button-secondary" href="/login">Back to sign in</a>
         {:else if mode === 'verify-email' && setupRequired && !passwordSet}
-          <p>Your email address is verified. This account has no password yet, so choose one to sign in again. You can also <a href="/account#security">add a passkey</a> from your account security settings.</p>
+          <p>Your email address is verified. This account has no password yet, so choose one to sign in again. You can also <a href="/account/security">add a passkey</a> from your account security settings.</p>
           <PasswordSetupForm onComplete={() => (passwordSet = true)} />
         {:else}
           <p>{mode === 'reset-password' || mode === 'confirm-email-change' ? 'Other website sessions were revoked.' : passwordSet ? 'You can sign in with your email address and this password.' : 'You can now use your account.'}</p>
@@ -127,14 +128,14 @@
           {:else if mode === 'reset-password'}
             <PasswordField id="flow-password" label="New password" bind:value={newPassword} bind:revealed={showPassword} autocomplete="new-password" minlength={12} describedby="flow-password-note" disabled={submitting} />
             <PasswordField id="flow-password-confirm" label="Confirm new password" bind:value={confirmPassword} revealed={showPassword} toggle={false} autocomplete="new-password" disabled={submitting} />
-            <small id="flow-password-note">12 characters or more. Completing this signs out other website sessions.</small>
+            <p id="flow-password-note" class="inline-notice inline-info"><Icon name="info" size={15} />12 characters or more. Completing this signs out other website sessions.</p>
           {:else if mode === 'verify-email'}
             <p>Enter the password you chose when you signed up to finish verifying your email.</p>
             <PasswordField id="flow-verify-password" label="Your password" bind:value={verifyPassword} bind:revealed={showPassword} autocomplete="current-password" required={false} disabled={submitting} />
           {:else}
             <p>Use this link to replace the email address on your account.</p>
           {/if}
-          {#if error}<p class="auth-error" role="alert" tabindex="-1" bind:this={errorElement}>{error}</p>{/if}
+          {#if error}<p class="inline-notice inline-danger form-error" role="alert" tabindex="-1" bind:this={errorElement}><Icon name="error" size={15} />{error}</p>{/if}
           <button class="button auth-submit" type="submit" disabled={submitting}>
             {submitting ? 'Working…' : mode === 'forgot-password' ? 'Send recovery link' : mode === 'reset-password' ? 'Set password' : mode === 'verify-email' ? 'Verify email' : 'Update email'}
           </button>

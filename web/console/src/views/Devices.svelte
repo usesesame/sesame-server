@@ -66,10 +66,10 @@
           <div class="row-side">
             <small>Last seen {formatRelative(device.lastSeenAt)}</small>
             {#if confirming === device.id}
-              <button type="button" class="danger" onclick={() => revoke(device)} disabled={busy === device.id}>Revoke device</button>
+              <button type="button" class="destructive" onclick={() => revoke(device)} disabled={busy === device.id}>Revoke device</button>
               <button type="button" onclick={() => { confirming = '' }} disabled={busy === device.id}>Keep</button>
             {:else}
-              <button type="button" class="quiet" onclick={() => { confirming = device.id }}>Revoke</button>
+              <button type="button" class="quiet danger" onclick={() => { confirming = device.id }}>Revoke</button>
             {/if}
           </div>
         </li>

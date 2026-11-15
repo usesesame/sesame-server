@@ -318,6 +318,12 @@ func ValidTicketStatus(s string) bool {
 	}
 }
 
+const TicketStatusFilterNotClosed = "not_closed"
+
+func ValidTicketStatusFilter(s string) bool {
+	return s == TicketStatusFilterNotClosed || ValidTicketStatus(s)
+}
+
 type TicketPriority string
 
 const (

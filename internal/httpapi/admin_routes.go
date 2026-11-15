@@ -667,7 +667,7 @@ func (a *api) adminSupportTickets(response http.ResponseWriter, request *http.Re
 		writeError(response, http.StatusBadRequest, "invalid_ticket_search", "The search is too long.")
 		return
 	}
-	if filter.Status != "" && !adminstore.ValidTicketStatus(filter.Status) {
+	if filter.Status != "" && !adminstore.ValidTicketStatusFilter(filter.Status) {
 		writeError(response, http.StatusBadRequest, "invalid_ticket_filter", "That status value is not recognized.")
 		return
 	}

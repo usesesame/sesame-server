@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
+  import { onMount, tick } from 'svelte'
   import AccountPage from './pages/AccountPage.svelte'
   import AccountFlowPage from './pages/AccountFlowPage.svelte'
   import AuthPage from './pages/AuthPage.svelte'
   import LegalPage from './pages/LegalPage.svelte'
   import SupportPage from './pages/SupportPage.svelte'
   import SupportRequestPage from './pages/SupportRequestPage.svelte'
-  import { loadAuthState, getAccountBootstrap, type Account, type AuthState } from './lib/auth'
+  import PortalSidebar from './lib/PortalSidebar.svelte'
+  import PageHeader from './lib/PageHeader.svelte'
+  import { loadAuthState, getAccountBootstrap, signOut, type Account, type AuthState } from './lib/auth'
+  import { accountPath, accountTabFromPath, accountTabLabel, normalizePath, type AccountTab } from './lib/account-routes'
   import { siteOrigin } from './lib/runtime-config'
 
   const FLOW_PAGES = ['forgot-password', 'reset-password', 'verify-email', 'confirm-email-change'] as const
@@ -17,8 +20,10 @@
 
   export let initialPath = typeof window === 'undefined' ? '/account' : window.location.pathname
 
-  const route = initialPath.replace(/\/+$/, '') || '/'
-  const page: Page = route === '/' || route === '/account'
+  const route = normalizePath(initialPath)
+  const initialHash = typeof window === 'undefined' ? '' : window.location.hash
+  const initialTab = accountTabFromPath(route, initialHash)
+  const page: Page = initialTab
     ? 'account'
     : route === '/support/request'
       ? 'support-request'
@@ -34,199 +39,164 @@
   let authState: AuthState = needsSessionCheck ? { state: 'loading' } : { state: 'anonymous' }
   let supportUnread = 0
   let sessionExpired = false
+  let accountTab: AccountTab = initialTab ?? 'overview'
+  let signingOut = false
+  let signOutError = ''
   const siteHost = new URL(siteOrigin).host
   $: serviceNotice = authState.state === 'offline' ? 'You appear to be offline. Reconnect and try again.' : authState.state === 'error' ? authState.error.message : ''
+  $: signedIn = Boolean(account) && (authState.state === 'authenticated' || authState.state === 'offline')
+  $: shell = page === 'account' || ((page === 'support' || page === 'support-request') && signedIn)
+  $: currentDestination = page === 'account' ? accountTab : page === 'support' || page === 'support-request' ? 'support' : ''
+  $: if (page === 'account' && typeof document !== 'undefined') document.title = `${accountTabLabel(accountTab)}, Sesame account`
 
   onMount(() => {
-    if (!needsSessionCheck) return
-    void loadAuthState().then((state) => {
-      const hasAccount = state.state === 'authenticated' || (state.state === 'offline' && Boolean(state.account))
-      if (page === 'account' && !hasAccount) {
-        window.location.replace(state.state === 'anonymous' && state.expired ? '/login?expired=1' : '/login')
-        return
-      }
-      authState = state
-      account = state.state === 'authenticated'
-        ? state.account
-        : state.state === 'offline'
-          ? state.account || null
-          : null
-      sessionExpired = (state.state === 'anonymous' && state.expired === true) || (page === 'login' && new URLSearchParams(window.location.search).get('expired') === '1')
-      if (state.state === 'authenticated' || (state.state === 'offline' && state.account)) {
-        void getAccountBootstrap()
-          .then((bootstrap) => { supportUnread = bootstrap.notificationCounts.support })
-          .catch(() => { supportUnread = 0 })
-      }
-    })
+    if (page === 'account' && initialHash === '#security' && accountTabFromPath(route) === 'overview') {
+      window.history.replaceState(window.history.state, '', accountPath('security'))
+    }
+    const popstate = () => {
+      const next = accountTabFromPath(window.location.pathname, window.location.hash)
+      if (page === 'account' && next) accountTab = next
+    }
+    window.addEventListener('popstate', popstate)
+    if (needsSessionCheck) {
+      void loadAuthState().then((state) => {
+        const hasAccount = state.state === 'authenticated' || (state.state === 'offline' && Boolean(state.account))
+        if (page === 'account' && !hasAccount) {
+          window.location.replace(state.state === 'anonymous' && state.expired ? '/login?expired=1' : '/login')
+          return
+        }
+        authState = state
+        account = state.state === 'authenticated'
+          ? state.account
+          : state.state === 'offline'
+            ? state.account || null
+            : null
+        sessionExpired = (state.state === 'anonymous' && state.expired === true) || (page === 'login' && new URLSearchParams(window.location.search).get('expired') === '1')
+        if (state.state === 'authenticated' || (state.state === 'offline' && state.account)) {
+          void getAccountBootstrap()
+            .then((bootstrap) => { supportUnread = bootstrap.notificationCounts.support })
+            .catch(() => { supportUnread = 0 })
+        }
+      })
+    }
+    return () => window.removeEventListener('popstate', popstate)
   })
+
+  async function goToTab(next: AccountTab, focusTitle = true) {
+    const path = accountPath(next)
+    if (normalizePath(window.location.pathname) !== path) window.history.pushState(window.history.state, '', path)
+    accountTab = next
+    await tick()
+    document.documentElement.scrollTop = 0
+    if (focusTitle) document.getElementById('page-title')?.focus()
+  }
+
+  function navigate(event: MouseEvent, path: string, fromMenu: boolean) {
+    if (page !== 'account' || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+    const next = accountTabFromPath(path)
+    if (!next) return
+    event.preventDefault()
+    void goToTab(next, !fromMenu)
+  }
+
+  async function leave() {
+    signingOut = true
+    signOutError = ''
+    try {
+      await signOut()
+      account = null
+      authState = { state: 'anonymous' }
+      window.location.assign('/')
+    } catch (reason) {
+      signOutError = reason instanceof Error ? reason.message : 'Sign out is temporarily unavailable.'
+    } finally {
+      signingOut = false
+    }
+  }
 </script>
 
 <a class="skip-link" href="#top">Skip to content</a>
 
-<header class="site-header">
-  <div class="site-header-inner">
-    <a class="brand" href="/account">
-      <img class="brand-mark" src="/favicon.svg" alt="" />
-      <strong>Sesame <span class="brand-portal">account</span></strong>
-    </a>
-    {#if !focusedPage}
-    <nav aria-label="Portal navigation">
-      <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
-      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support{#if supportUnread > 0}<span class="nav-count" aria-label={`${supportUnread} unread support ${supportUnread === 1 ? 'reply' : 'replies'}`}>{supportUnread}</span>{/if}</a>
-      <a class="nav-site" href={siteOrigin}>{siteHost}</a>
-    </nav>
-    {/if}
-    <div class="header-account-actions">
-      {#if focusedPage}
-        <a class="header-help" href="/support">Support</a>
-      {:else if authState.state === 'authenticated' || (authState.state === 'offline' && account)}
-        <span class="header-account-email" role="status">{account?.email}</span>
-      {:else if page !== 'account' && (authState.state === 'error' || authState.state === 'offline')}
-        <span class="header-account-status" role="status">Account service unavailable</span>
-      {:else if authState.state === 'anonymous' && page !== 'account'}
-        <a class="button button-sm button-soft" href="/login">Sign in</a>
-      {:else if authState.state === 'loading'}
-        <span class="header-session-loader" role="status" aria-label="Checking account session"><span class="session-spinner" aria-hidden="true"></span></span>
-      {/if}
-    </div>
-  </div>
-</header>
-
-<main id="top">
-  {#if page === 'login' || page === 'register'}
-    <AuthPage
-      mode={page}
-      sessionExpired={page === 'login' && sessionExpired}
-      unavailable={page === 'login' ? serviceNotice : ''}
-      onAuthenticated={(nextAccount) => { account = nextAccount; sessionExpired = false }}
-    />
-  {:else if isFlow(page)}
-    <AccountFlowPage
-      mode={page}
-      onAuthenticated={(nextAccount) => {
-        account = nextAccount
-        authState = { state: 'authenticated', account: nextAccount }
-      }}
-    />
-  {:else if page === 'support'}
-    <SupportPage {account} />
-  {:else if page === 'support-request'}
-    <SupportRequestPage {account} authLoading={authState.state === 'loading'} />
-  {:else if isLegal(page)}
-    <LegalPage document={page} />
-  {:else if page === 'account'}
-    <AccountPage
-      {account}
-      {authState}
-      onSignedOut={() => {
-        account = null
-        authState = { state: 'anonymous' }
-      }}
+<div class={shell ? 'layout portal' : 'layout public'}>
+  {#if shell}
+    <PortalSidebar
+      current={currentDestination}
+      email={account?.email ?? ''}
+      {supportUnread}
+      {signingOut}
+      {signOutError}
+      onNavigate={navigate}
+      onSignOut={leave}
     />
   {:else}
-    <section class="compact-page-hero">
-      <h1>Page not found</h1>
-      <p class="intro">That address is not part of the account portal. <a href="/account">Go to your account</a>.</p>
-    </section>
-  {/if}
-</main>
-
-{#if focusedPage}
-<footer class="site-footer site-footer-compact">
-  <div class="footer-compact-inner">
-    <span>&copy; 2026 Sesame</span>
-    <a href={`${siteOrigin}/privacy`}>Privacy</a>
-    <a href={`${siteOrigin}/terms`}>Terms</a>
-    <a href={`${siteOrigin}/security`}>Security</a>
-    <a href="/support">Support</a>
-  </div>
-</footer>
-{:else}
-<footer class="site-footer">
-  <div class="footer-inner">
-    <div class="footer-brand">
-      <a class="brand" href="/account">
+    <header class="public-bar">
+      <a class="public-brand" href="/account">
         <img class="brand-mark" src="/favicon.svg" alt="" />
-        <strong>Sesame</strong>
+        <span class="brand-words"><strong>Sesame</strong><span class="brand-portal">Account</span></span>
       </a>
-      <p>This portal manages only the website account. Sesame never receives your vault.</p>
-    </div>
-    <nav class="footer-col" aria-label="Portal">
-      <strong>Portal</strong>
-      <a href="/account" aria-current={page === 'account' ? 'page' : undefined}>Account</a>
-      <a href="/support" aria-current={page === 'support' ? 'page' : undefined}>Support{#if supportUnread > 0}<span class="nav-count" aria-label={`${supportUnread} unread support ${supportUnread === 1 ? 'reply' : 'replies'}`}>{supportUnread}</span>{/if}</a>
-    </nav>
-    <nav class="footer-col" aria-label="Legal">
-      <strong>Legal</strong>
+      <div class="public-actions">
+        <a class="public-site" href={siteOrigin}>{siteHost}</a>
+        {#if !focusedPage}
+          {#if authState.state === 'error' || authState.state === 'offline'}
+            <span class="public-status" role="status">Account service unavailable</span>
+          {:else if authState.state === 'anonymous'}
+            <a class="button button-secondary button-sm" href="/login">Sign in</a>
+          {:else if authState.state === 'loading'}
+            <span class="header-session-loader" role="status" aria-label="Checking account session"><span class="session-spinner" aria-hidden="true"></span></span>
+          {/if}
+        {/if}
+      </div>
+    </header>
+  {/if}
+
+  <main id="top" class={shell ? 'portal-main' : 'public-main'} tabindex="-1">
+    {#if page === 'account'}
+      <AccountPage
+        {account}
+        {authState}
+        tab={accountTab}
+        onSelectTab={(next) => void goToTab(next)}
+        onSignedOut={() => {
+          account = null
+          authState = { state: 'anonymous' }
+        }}
+      />
+    {:else if page === 'login' || page === 'register'}
+      <AuthPage
+        mode={page}
+        sessionExpired={page === 'login' && sessionExpired}
+        unavailable={page === 'login' ? serviceNotice : ''}
+        onAuthenticated={(nextAccount) => { account = nextAccount; sessionExpired = false }}
+      />
+    {:else if isFlow(page)}
+      <AccountFlowPage
+        mode={page}
+        onAuthenticated={(nextAccount) => {
+          account = nextAccount
+          authState = { state: 'authenticated', account: nextAccount }
+        }}
+      />
+    {:else if page === 'support'}
+      <SupportPage {account} />
+    {:else if page === 'support-request'}
+      <SupportRequestPage {account} authLoading={authState.state === 'loading'} />
+    {:else if isLegal(page)}
+      <LegalPage document={page} />
+    {:else}
+      <section class="public-page">
+        <PageHeader title="Page not found" />
+        <p class="page-lede">That address is not part of the account portal. <a href="/account">Go to your account</a>.</p>
+      </section>
+    {/if}
+  </main>
+
+  {#if !shell}
+    <footer class="public-foot">
+      <span>&copy; 2026 Sesame</span>
       <a href={`${siteOrigin}/privacy`}>Privacy</a>
       <a href={`${siteOrigin}/terms`}>Terms</a>
       <a href={`${siteOrigin}/security`}>Security</a>
-    </nav>
-    <nav class="footer-col" aria-label="Sesame">
-      <strong>Sesame</strong>
-      <a href={siteOrigin}>{siteHost}</a>
-      <a href={`${siteOrigin}/releases`}>Releases</a>
-    </nav>
-  </div>
-  <div class="footer-bottom">
-    <span>&copy; 2026 Sesame</span>
-    <span>Licensed under AGPL-3.0-or-later, with no trackers and no ads.</span>
-    <span>{siteHost}</span>
-  </div>
-</footer>
-{/if}
-
-<style>
-  .brand-portal {
-    color: var(--text-muted);
-  }
-
-  .header-help {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-    color: var(--text-muted);
-    font-size: var(--type-2);
-    font-weight: var(--weight-medium);
-    padding: 0 var(--space-2);
-    text-decoration: none;
-  }
-
-  .header-help:hover {
-    color: var(--text-heading);
-  }
-
-  .footer-compact-inner {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2) var(--space-5);
-    width: min(var(--site-width), calc(100% - 40px));
-    margin: 0 auto;
-    padding: var(--space-5) 0;
-    color: var(--text-muted);
-    font-size: var(--type-2);
-  }
-
-  .footer-compact-inner a {
-    padding-block: var(--space-2);
-    color: var(--text-muted);
-  }
-
-  .footer-compact-inner a:hover {
-    color: var(--text-heading);
-  }
-
-  .footer-compact-inner span {
-    margin-right: auto;
-  }
-
-  .header-account-email {
-    color: var(--text-muted);
-    font-size: var(--type-2);
-    max-width: 22ch;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-</style>
+      <a href="/support">Support</a>
+    </footer>
+  {/if}
+</div>

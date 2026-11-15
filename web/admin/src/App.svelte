@@ -5,6 +5,8 @@
   import ExtensionStoresWorkspace from './lib/releases/ExtensionStoresWorkspace.svelte'
   import ReleaseWorkspace from './lib/releases/ReleaseWorkspace.svelte'
   import SystemWorkspace from './lib/system/SystemWorkspace.svelte'
+  import ConfirmRow from './lib/ConfirmRow.svelte'
+  import { REGISTRATION_LABELS, auditActor, flagCopy, formatCount, registrationEffect, roleLabel, sentenceCase } from './lib/labels'
   import { TICKET_CATEGORY_LABELS, deliveryReasonLabel } from './lib/types'
   import type { AdminAccount, AuditEntry, ChromeListingState, ExtensionPublication, Flag, OperationalSnapshot, Overview, Plan, Release, Role, SavedReply, SupportMailState, SystemMailConfig, TicketDetail, TicketNote, TicketSummary, TicketStatus, TicketPriority, User } from './lib/types'
 
@@ -78,6 +80,11 @@
   let assignees: { id: string; email: string }[] = []
   let assignWorking = false
   let userSearchTimer: ReturnType<typeof setTimeout> | undefined
+  let pending = ''
+  let suspendReason = ''
+  let stagedFlag: { key: string; value: string } | null = null
+  let stagedRole: { id: string; role: Role } | null = null
+  let confirmBusy = false
   let ticketSearchTimer: ReturnType<typeof setTimeout> | undefined
 
   $: isSetup = setupToken.length > 0
@@ -99,6 +106,8 @@
   $: canEditPlans = me?.role === 'super' || me?.role === 'billing'
   $: canSupport = me?.role === 'super' || me?.role === 'support'
   $: canViewSupport = canSupport || me?.role === 'readonly'
+  $: needs = overviewNeeds(overview, canViewSupport)
+  $: figures = overviewFigures(overview)
 
   onMount(() => {
     onStepUpRequired(requestStepUp)
@@ -130,7 +139,9 @@
   function showError(reason: unknown) { error = reason instanceof Error ? reason.message : 'The request failed.'; notice = ''; if (page === 'support') supportAnnouncement = `Error: ${error}` }
   function showNotice(message: string) { notice = message; error = ''; if (page === 'support') supportAnnouncement = `Notice: ${message}` }
 
-  async function login() {
+  async function login(event?: SubmitEvent) {
+    event?.preventDefault()
+    if (busy || !email || !password || code.length !== 6) return
     busy = true; error = ''
     try {
       applyIdentity(await mutate<AdminIdentity>('/v1/admin/auth/login', 'POST', { email, password, code }))
@@ -138,7 +149,9 @@
     } catch (reason) { showError(reason) } finally { busy = false }
   }
 
-  async function completeSetup() {
+  async function completeSetup(event?: SubmitEvent) {
+    event?.preventDefault()
+    if (busy || password.length < 12 || code.length !== 6) return
     busy = true; error = ''
     try {
       applyIdentity(await mutate<AdminIdentity>('/v1/admin/auth/setup/complete', 'POST', { token: setupToken, password, code }))
@@ -195,9 +208,9 @@
   }
 
   async function openPage(next: Page) {
-    page = next; selectedUser = null; error = ''; notice = ''
+    page = next; selectedUser = null; error = ''; notice = ''; cancelPending(); stagedFlag = null; stagedRole = null
     try {
-      if (next === 'overview') overview = (await request<{ overview: Overview }>('/v1/admin/overview')).overview
+      if (next === 'overview') { overview = null; overview = (await request<{ overview: Overview }>('/v1/admin/overview')).overview }
       if (next === 'users') await loadUsers()
       if (next === 'support') { await loadTickets(); void loadAssignees(); void loadSavedReplies() }
       if (next === 'flags') flags = (await request<{ flags: Flag[] }>('/v1/admin/flags')).flags
@@ -373,43 +386,68 @@
   }
 
   async function deleteSavedReply(reply: SavedReply) {
-    if (!confirm(`Delete the saved reply "${reply.title}"?`)) return
+    confirmBusy = true
     try {
       await mutate(`/v1/admin/saved-replies/${reply.id}`, 'DELETE')
       if (editingSavedReplyID === reply.id) clearSavedReplyForm()
+      cancelPending()
       await loadSavedReplies()
       showNotice('Saved reply deleted.')
-    } catch (reason) { showError(reason) }
+    } catch (reason) { showError(reason) } finally { confirmBusy = false }
   }
 
   async function inspectUser(id: string) {
+    if (selectedUser?.id !== id) cancelPending()
     try { selectedUser = (await request<{ user: User }>(`/v1/admin/users/${id}`)).user } catch (reason) { showError(reason) }
   }
 
   async function userAction(action: string, method: 'POST' | 'DELETE', body?: unknown) {
-    if (!selectedUser) return
+    if (!selectedUser || busy) return
+    const id = selectedUser.id
     busy = true
     try {
-      await mutate(`/v1/admin/users/${selectedUser.id}/${action}`, method, body)
+      await mutate(`/v1/admin/users/${id}/${action}`, method, body)
       showNotice('User account updated and the action was audited.')
-      await loadUsers(); await inspectUser(selectedUser.id)
+      await loadUsers(); await inspectUser(id)
     } catch (reason) { showError(reason) } finally { busy = false }
   }
 
+  function cancelPending() { pending = ''; suspendReason = '' }
+
+  async function confirmUserAction(action: string, method: 'POST' | 'DELETE', body?: unknown) {
+    if (busy || confirmBusy) return
+    confirmBusy = true
+    try { await userAction(action, method, body) } finally { confirmBusy = false; if (!error) cancelPending() }
+  }
+
   async function deleteUser() {
-    if (!selectedUser || !confirm(`Permanently delete ${selectedUser.email}? This cannot be undone.`)) return
-    try { await mutate(`/v1/admin/users/${selectedUser.id}`, 'DELETE'); selectedUser = null; await loadUsers(); showNotice('User account deleted.') } catch (reason) { showError(reason) }
+    if (!selectedUser || busy || confirmBusy) return
+    const id = selectedUser.id
+    busy = true
+    confirmBusy = true
+    try { await mutate(`/v1/admin/users/${id}`, 'DELETE'); selectedUser = null; cancelPending(); await loadUsers(); showNotice('User account deleted.') } catch (reason) { showError(reason) } finally { busy = false; confirmBusy = false }
   }
 
   async function toggleUserSuspension() {
-    if (!selectedUser) return
+    if (!selectedUser || busy) return
     if (selectedUser.suspendedAt) {
       await userAction('suspend', 'DELETE')
       return
     }
-    const reason = prompt('Reason for suspending this account (shown only to staff):', '')
-    if (reason === null) return
-    await userAction('suspend', 'POST', { reason })
+    pending = 'user-suspend'
+    suspendReason = ''
+  }
+
+  function stageFlag(flag: Flag, select: HTMLSelectElement) {
+    if (select.value === flag.value) { stagedFlag = null; return }
+    stagedFlag = { key: flag.key, value: select.value }
+  }
+
+  async function applyStagedFlag(flag: Flag) {
+    if (!stagedFlag || stagedFlag.key !== flag.key) return
+    const value = stagedFlag.value
+    confirmBusy = true
+    try { await mutate(`/v1/admin/flags/${flag.key}`, 'PATCH', { value }); await openPage('flags'); showNotice('Feature flag updated live.') } catch (reason) { stagedFlag = null; showError(reason) } finally { confirmBusy = false }
   }
 
   async function setFlag(flag: Flag, select: HTMLSelectElement) {
@@ -480,8 +518,25 @@
     } catch (reason) { showError(reason) }
   }
 
+  function recordAdmin(id: string, role: Role, suspended: boolean) {
+    admins = admins.map((entry) => entry.id === id ? { ...entry, role, suspended } : entry)
+  }
+
   async function updateAdmin(admin: AdminAccount, role = admin.role, suspended = admin.suspended) {
-    try { await mutate(`/v1/admin/admins/${admin.id}`, 'PATCH', { role, suspended }); await openPage('admins'); showNotice('Administrator updated.') } catch (reason) { showError(reason) }
+    if (confirmBusy) return
+    confirmBusy = true
+    try { await mutate(`/v1/admin/admins/${admin.id}`, 'PATCH', { role, suspended }); recordAdmin(admin.id, role, suspended); await openPage('admins'); showNotice('Administrator updated.') } catch (reason) { showError(reason) } finally { confirmBusy = false }
+  }
+
+  function stageRole(admin: AdminAccount, role: Role) {
+    stagedRole = role === admin.role ? null : { id: admin.id, role }
+  }
+
+  async function applyStagedRole(admin: AdminAccount) {
+    if (!stagedRole || stagedRole.id !== admin.id || confirmBusy) return
+    const role = stagedRole.role
+    confirmBusy = true
+    try { await mutate(`/v1/admin/admins/${admin.id}`, 'PATCH', { role, suspended: admin.suspended }); recordAdmin(admin.id, role, admin.suspended); await openPage('admins'); showNotice('Administrator updated.') } catch (reason) { stagedRole = null; showError(reason) } finally { confirmBusy = false }
   }
 
   function auditQuery() {
@@ -498,8 +553,40 @@
   }
 
   async function deleteAdmin(admin: AdminAccount) {
-    if (!confirm(`Delete the administrator ${admin.email}? Their audit entries will remain.`)) return
-    try { await mutate(`/v1/admin/admins/${admin.id}`, 'DELETE'); await openPage('admins'); showNotice('Administrator deleted.') } catch (reason) { showError(reason) }
+    if (confirmBusy) return
+    confirmBusy = true
+    try { await mutate(`/v1/admin/admins/${admin.id}`, 'DELETE'); await openPage('admins'); showNotice('Administrator deleted.') } catch (reason) { showError(reason) } finally { confirmBusy = false }
+  }
+
+  type Need = { text: string; filter: { priority?: string; assigned?: string } }
+
+  function plural(count: number, one: string, many: string) { return `${formatCount(count)} ${count === 1 ? one : many}` }
+
+  function overviewNeeds(value: Overview | null, canOpenSupport: boolean): Need[] | null {
+    if (!value || !canOpenSupport) return null
+    const counts = [value.urgentTickets, value.unassignedTickets, value.openTickets]
+    if (counts.every((count) => typeof count !== 'number')) return null
+    const list: Need[] = []
+    if (value.urgentTickets > 0) list.push({ text: plural(value.urgentTickets, 'urgent ticket', 'urgent tickets'), filter: { priority: 'urgent' } })
+    if (value.unassignedTickets > 0) list.push({ text: plural(value.unassignedTickets, 'unassigned ticket', 'unassigned tickets'), filter: { assigned: 'unassigned' } })
+    if (value.openTickets > 0) list.push({ text: `${plural(value.openTickets, 'ticket', 'tickets')} not closed yet`, filter: {} })
+    return list
+  }
+
+  function overviewFigures(value: Overview | null): [string, string][] {
+    if (!value) return []
+    const entries: [string, number | undefined][] = [['Users', value.users], ['New this week', value.newUsersThisWeek], ['Beta grants', value.betaUsers], ['Unverified', value.unverifiedUsers], ['Suspended', value.suspendedUsers], ['Admin sessions', value.activeAdminSessions]]
+    return entries.filter((entry): entry is [string, number] => typeof entry[1] === 'number').map(([label, count]) => [label, formatCount(count)])
+  }
+
+  function openQueue(filter: Need['filter']) {
+    ticketStatusFilter = 'not_closed'
+    ticketPriorityFilter = filter.priority ?? ''
+    ticketCategoryFilter = ''
+    ticketAssignedFilter = filter.assigned ?? ''
+    ticketQuery = ''
+    ticketsPage = 1
+    void openPage('support')
   }
 
   async function exportAudit() {
@@ -532,18 +619,22 @@
       <div class="brand"><img src="/favicon.svg" alt="" /><span>Sesame</span><small>Administration</small></div>
       {#if isSetup}
         <h1>Secure your admin account</h1><p>Use an authenticator app to add this key, then confirm a current code. MFA is required for every administrator.</p>
-        <label>Admin email<input value={setupEmail} disabled /></label>
-        <label>Authenticator secret<input value={setupSecret} readonly onfocus={(event) => event.currentTarget.select()} /></label>
-        <details><summary>Authenticator URI</summary><code class="wrap">{setupURI}</code></details>
-        <label>New password<input type="password" bind:value={password} minlength="12" maxlength="1024" autocomplete="new-password" /></label>
-        <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" /></label>
-        <button class="primary" onclick={completeSetup} disabled={busy || password.length < 12 || code.length !== 6}>Finish setup</button>
+        <form onsubmit={completeSetup}>
+          <label>Admin email<input value={setupEmail} disabled /></label>
+          <label>Authenticator secret<input value={setupSecret} readonly onfocus={(event) => event.currentTarget.select()} /></label>
+          <details><summary>Authenticator URI</summary><code class="wrap">{setupURI}</code></details>
+          <label>New password<input type="password" bind:value={password} minlength="12" maxlength="1024" autocomplete="new-password" /></label>
+          <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" /></label>
+          <button type="submit" class="primary" disabled={busy || password.length < 12 || code.length !== 6}>Finish setup</button>
+        </form>
       {:else}
         <h1>Admin sign in</h1><p>This is separate from a Sesame website account.</p>
-        <label>Email<input type="email" bind:value={email} autocomplete="username" /></label>
-        <label>Password<input type="password" bind:value={password} autocomplete="current-password" /></label>
-        <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" /></label>
-        <button class="primary" onclick={login} disabled={busy || !email || !password || code.length !== 6}>Sign in</button>
+        <form onsubmit={login}>
+          <label>Email<input type="email" bind:value={email} autocomplete="username" /></label>
+          <label>Password<input type="password" bind:value={password} autocomplete="current-password" /></label>
+          <label>Six-digit code<input bind:value={code} inputmode="numeric" pattern={'[0-9]{6}'} maxlength="6" autocomplete="one-time-code" /></label>
+          <button type="submit" class="primary" disabled={busy || !email || !password || code.length !== 6}>Sign in</button>
+        </form>
       {/if}
       {#if error}<p class="message error" role="alert">{error}</p>{/if}
     </section>
@@ -563,7 +654,7 @@
         <button class:active={page === 'audit'} onclick={() => openPage('audit')}>Audit log</button>
         {#if canSystem}<button class:active={page === 'system'} onclick={() => openPage('system')}>System</button>{/if}
       </nav>
-      <div class="admin-self"><strong>{me.email}</strong><span>{me.role}</span><button onclick={logout}>Sign out</button></div>
+      <div class="admin-self"><strong>{me.email}</strong><span>{roleLabel(me.role)}</span><button onclick={logout}>Sign out</button></div>
     </aside>
     <main class="content">
       <header class="page-head"><h1>{pageNames[page]}</h1></header>
@@ -571,16 +662,32 @@
       {#if notice}<p class="message success" role="status">{notice}</p>{/if}
 
       {#if page === 'overview'}
-        <div class="metric-grid">
-          {#each [['Users', overview?.users], ['New this week', overview?.newUsersThisWeek], ['Beta grants', overview?.betaUsers], ['Unverified', overview?.unverifiedUsers], ['Suspended', overview?.suspendedUsers], ['Admin sessions', overview?.activeAdminSessions], ['Open tickets', overview?.openTickets], ['Unassigned', overview?.unassignedTickets], ['Urgent', overview?.urgentTickets]] as metric (metric[0])}
-            <article><span>{metric[0]}</span><strong>{metric[1] ?? 'Not available'}</strong></article>
-          {/each}
-        </div>
+        {#if overview}
+          {#if needs}
+            <section class="needs" aria-labelledby="needs-title">
+              <h2 id="needs-title">Needs you</h2>
+              {#if needs.length > 0}
+                <ul>
+                  {#each needs as need (need.text)}
+                    <li><button type="button" class="need-link" class:urgent={need.filter.priority === 'urgent'} onclick={() => openQueue(need.filter)}>{need.text}</button></li>
+                  {/each}
+                </ul>
+              {:else}
+                <p class="empty">Nothing in the support queue needs you right now.</p>
+              {/if}
+            </section>
+          {/if}
+          {#if figures.length > 0}
+            <dl class="figures" aria-label="Accounts">
+              {#each figures as figure (figure[0])}<div><dt>{figure[0]}</dt><dd>{figure[1]}</dd></div>{/each}
+            </dl>
+          {/if}
+        {/if}
       {:else if page === 'support'}
         <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Support status">{supportAnnouncement}</p>
         <div class="toolbar">
           <input class="search" aria-label="Search tickets" placeholder="Search email or subject" bind:value={ticketQuery} oninput={onTicketSearch} />
-          <select aria-label="Filter by status" bind:value={ticketStatusFilter} onchange={loadTickets}><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option></select>
+          <select aria-label="Filter by status" bind:value={ticketStatusFilter} onchange={loadTickets}><option value="">All statuses</option><option value="not_closed">Not closed</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option></select>
           <select aria-label="Filter by priority" bind:value={ticketPriorityFilter} onchange={loadTickets}><option value="">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select>
           <select aria-label="Filter by category" bind:value={ticketCategoryFilter} onchange={loadTickets}><option value="">All categories</option>{#each Object.entries(TICKET_CATEGORY_LABELS) as [value, label] (value)}<option {value}>{label}</option>{/each}</select>
           <select aria-label="Filter by assignment" bind:value={ticketAssignedFilter} onchange={loadTickets}><option value="">All assignments</option><option value="unassigned">Unassigned</option><option value={me?.id}>Assigned to me</option></select>
@@ -595,8 +702,11 @@
                 <div class="saved-reply-row">
                   <div><strong>{saved.title}</strong><small>{saved.body}</small></div>
                   <button onclick={() => editSavedReply(saved)}>Edit</button>
-                  <button class="danger" onclick={() => deleteSavedReply(saved)}>Delete</button>
+                  <button class="danger" onclick={() => { pending = `saved-reply:${saved.id}` }} disabled={pending === `saved-reply:${saved.id}`}>Delete</button>
                 </div>
+                {#if pending === `saved-reply:${saved.id}`}
+                  <ConfirmRow message={`Delete the saved reply "${saved.title}"? Staff can no longer insert it into a reply.`} action="Delete saved reply" busy={confirmBusy} onConfirm={() => deleteSavedReply(saved)} onCancel={cancelPending} />
+                {/if}
               {/each}
               {#if savedReplies.length === 0}<p class="empty">No saved replies yet.</p>{/if}
             </div>
@@ -611,15 +721,15 @@
         <div class="split-view support-split" class:has-detail={selectedTicket}>
           <section class="table-panel">
             <table>
-              <thead><tr><th>Subject</th><th>Requester</th><th>Category</th><th>Status</th><th>Priority</th><th>SLA</th><th>Age</th><th>Updated</th></tr></thead>
+              <thead><tr><th>Subject</th>{#if !selectedTicket}<th>Requester</th>{/if}<th>Category</th><th>Status</th><th>Priority</th><th>SLA</th><th>Age</th><th>Updated</th></tr></thead>
               <tbody>
                 {#each tickets as ticket (ticket.id)}
                   <tr role="button" tabindex="0" class:active={selectedTicket?.id === ticket.id} aria-label={`Open ticket ${ticket.subject} from ${ticket.email}`} onclick={() => inspectTicket(ticket.id)} onkeydown={(event) => activateTicketRow(event, ticket.id)}>
-                    <td><strong>{ticket.subject}</strong><small>{ticket.messageCount} message{ticket.messageCount === 1 ? '' : 's'}</small></td>
-                    <td>{ticket.email}</td>
+                    <td><strong>{ticket.subject}</strong>{#if selectedTicket}<small class="ticket-requester">{ticket.email}</small>{/if}<small>{ticket.messageCount} message{ticket.messageCount === 1 ? '' : 's'}</small></td>
+                    {#if !selectedTicket}<td>{ticket.email}</td>{/if}
                     <td><span class="badge badge-neutral">{TICKET_CATEGORY_LABELS[ticket.category]}</span></td>
-                    <td><span class="badge" data-status={ticket.status}>{ticket.status.replace('_', ' ')}</span></td>
-                    <td><span class="badge" data-priority={ticket.priority}>{ticket.priority}</span></td>
+                    <td><span class="badge" data-status={ticket.status}>{sentenceCase(ticket.status)}</span></td>
+                    <td><span class="badge" data-priority={ticket.priority}>{sentenceCase(ticket.priority)}</span></td>
                     <td><span class:overdue={ticket.slaBreached}>{ticket.firstResponseAt ? 'Met' : ticket.slaBreached ? 'Overdue' : `Due ${date(ticket.slaDueAt)}`}</span></td>
                     <td>{age(ticket.createdAt)}</td>
                     <td>{date(ticket.updatedAt)}</td>
@@ -670,7 +780,7 @@
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <div class="thread" role="region" aria-label="Conversation messages" tabindex="0">
                 {#each selectedTicket.messages as message (message.id)}
-                  <article class="message" data-role={message.authorRole}>
+                  <article class="thread-message" data-role={message.authorRole}>
                     <div class="message-meta"><strong>{message.authorRole === 'staff' ? message.adminEmail : selectedTicket.email}</strong><small>{date(message.createdAt)}{#if message.authorRole === 'staff' && message.emailDeliveryReason} · {deliveryReasonLabel(message.emailDeliveryReason)}{#if message.emailAttempts && (message.emailDeliveryReason === 'pending' || message.emailDeliveryReason === 'failed')} · {message.emailAttempts} attempt{message.emailAttempts === 1 ? '' : 's'}{/if}{#if message.emailNextAttemptAt && message.emailDeliveryReason === 'pending'} · retry {date(message.emailNextAttemptAt)}{/if}{/if}</small></div>
                     <p>{message.body}</p>
                   </article>
@@ -695,7 +805,7 @@
               <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
               <div class="thread" role="region" aria-label="Internal notes list" tabindex="0">
                 {#each selectedTicket.notes as note (note.id)}
-                  <article class="message note">
+                  <article class="thread-message note">
                     <div class="message-meta"><strong>{note.adminEmail}</strong><small>{date(note.createdAt)}</small></div>
                     <p>{note.body}</p>
                   </article>
@@ -714,26 +824,63 @@
       {:else if page === 'users'}
         <div class="toolbar"><input class="search" aria-label="Search users" placeholder="Search email" bind:value={userQuery} oninput={onUserSearch} /><span>{userTotal} users{#if usersPages() > 1} · page {usersPage} of {usersPages()}{/if}</span>{#if usersPages() > 1}<button class="page-button" onclick={prevUsersPage} disabled={usersPage <= 1}>Prev</button><button class="page-button" onclick={nextUsersPage} disabled={usersPage >= usersPages()}>Next</button>{/if}</div>
         <div class="split-view"><section class="table-panel"><table><thead><tr><th>Email</th><th>Beta</th><th>Sessions</th><th>Devices</th><th>Status</th></tr></thead><tbody>{#each users as user (user.id)}<tr tabindex="0" onclick={() => inspectUser(user.id)} onkeydown={(event) => event.key === 'Enter' && inspectUser(user.id)}><td><strong>{user.email}</strong><small>{user.emailVerified ? 'Verified' : 'Unverified'}</small></td><td>{user.betaAccess ? user.emailVerified ? 'Eligible' : 'Pending verification' : 'Not granted'}</td><td>{user.sessionCount}</td><td>{user.deviceCount}</td><td>{user.suspendedAt ? 'Suspended' : 'Active'}</td></tr>{/each}</tbody></table></section>
-          {#if selectedUser}<aside class="detail"><div class="detail-head"><h2>{selectedUser.email}</h2><button aria-label="Close details" onclick={() => selectedUser = null}>×</button></div><dl><div><dt>Created</dt><dd>{date(selectedUser.createdAt)}</dd></div><div><dt>Email</dt><dd>{selectedUser.emailVerified ? 'Verified' : 'Not verified'}</dd></div></dl>
+          {#if selectedUser}<aside class="detail"><div class="detail-head"><h2>{selectedUser.email}</h2><button aria-label="Close details" onclick={() => { selectedUser = null; cancelPending() }}>×</button></div><dl><div><dt>Created</dt><dd>{date(selectedUser.createdAt)}</dd></div><div><dt>Email</dt><dd>{selectedUser.emailVerified ? 'Verified' : 'Not verified'}</dd></div></dl>
             {#if selectedUser.betaAccess && !selectedUser.emailVerified}<p class="message error">Beta is granted but inactive until this email address is verified. Downloads and desktop linking remain blocked.</p>{/if}
-            {#if canEditUsers}<div class="action-grid"><button onclick={() => userAction('beta', selectedUser!.betaAccess ? 'DELETE' : 'POST')}>{selectedUser.betaAccess ? 'Revoke beta' : 'Grant beta'}</button><button onclick={() => userAction('sessions', 'DELETE')}>Revoke sessions</button><button onclick={toggleUserSuspension}>{selectedUser.suspendedAt ? 'Unsuspend' : 'Suspend'}</button>{#if me.role === 'super'}<button class="danger" onclick={deleteUser}>Delete account</button>{/if}</div>{/if}
-            {#if canOwnerRelease}<div class="owner-release-action"><button class="primary" onclick={publishToOwnerDevices}>Add to owner update ring</button><small>Grants this verified beta account access to owner-channel updates as well as beta updates. It does not publish a release.</small></div>{/if}
+            {#if canEditUsers}<div class="action-grid"><button onclick={() => userAction('beta', selectedUser!.betaAccess ? 'DELETE' : 'POST')} disabled={busy}>{selectedUser.betaAccess ? 'Revoke beta' : 'Grant beta'}</button><button onclick={() => { pending = 'user-sessions' }} disabled={busy || pending === 'user-sessions'}>Revoke sessions</button><button onclick={toggleUserSuspension} disabled={busy || pending === 'user-suspend'}>{selectedUser.suspendedAt ? 'Unsuspend' : 'Suspend'}</button>{#if me.role === 'super'}<button class="danger" onclick={() => { pending = 'user-delete' }} disabled={busy || pending === 'user-delete'}>Delete account</button>{/if}</div>
+              {#if pending === 'user-sessions'}
+                <ConfirmRow message={`Sign ${selectedUser.email} out of every website session? They can sign in again.`} action="Revoke all sessions" busy={confirmBusy || busy} onConfirm={() => confirmUserAction('sessions', 'DELETE')} onCancel={cancelPending} />
+              {:else if pending === 'user-suspend'}
+                <ConfirmRow message={`Suspend ${selectedUser.email}? Every website session ends now, and the account stays suspended until someone unsuspends it.`} action="Suspend account" busy={confirmBusy || busy} onConfirm={() => confirmUserAction('suspend', 'POST', { reason: suspendReason })} onCancel={cancelPending}>
+                  <label class="confirm-field">Reason, shown only to staff<input bind:value={suspendReason} maxlength="500" /></label>
+                </ConfirmRow>
+              {:else if pending === 'user-delete'}
+                <ConfirmRow message={`Delete ${selectedUser.email} permanently? This removes the account and cannot be undone.`} action="Delete permanently" busy={confirmBusy || busy} onConfirm={deleteUser} onCancel={cancelPending} />
+              {/if}
+            {/if}
+            {#if canOwnerRelease}<div class="compact-row owner-release"><div><strong>Owner update ring</strong><small>Grants this verified beta account owner-channel updates as well as beta updates. It does not publish a release.</small></div><button onclick={publishToOwnerDevices}>Add to owner update ring</button></div>{/if}
             <h3>Website sessions</h3>{#if selectedUser.sessions?.length}{#each selectedUser.sessions as session (session.id)}<div class="compact-row"><div><strong>{session.label}</strong><small>{date(session.lastSeenAt)}</small></div></div>{/each}{:else}<p class="empty">No active sessions.</p>{/if}
-            <h3>Connected devices</h3>{#if selectedUser.devices?.length}{#each selectedUser.devices as device (device.id)}<div class="compact-row"><div><strong>{device.name}</strong><small>{date(device.connectedAt)}</small></div>{#if canEditUsers}<button onclick={() => userAction(`devices/${device.id}`, 'DELETE')}>Revoke</button>{/if}</div>{/each}{:else}<p class="empty">No connected devices.</p>{/if}
+            <h3>Connected devices</h3>{#if selectedUser.devices?.length}{#each selectedUser.devices as device (device.id)}<div class="compact-row"><div><strong>{device.name}</strong><small>{date(device.connectedAt)}</small></div>{#if canEditUsers}<button class="danger" onclick={() => { pending = `user-device:${device.id}` }} disabled={busy || pending === `user-device:${device.id}`}>Revoke</button>{/if}</div>
+              {#if pending === `user-device:${device.id}`}
+                <ConfirmRow message={`Revoke ${device.name}? The desktop is disconnected from this account and has to be linked again.`} action="Revoke device" busy={confirmBusy || busy} onConfirm={() => confirmUserAction(`devices/${device.id}`, 'DELETE')} onCancel={cancelPending} />
+              {/if}
+            {/each}{:else}<p class="empty">No connected devices.</p>{/if}
           </aside>{/if}
         </div>
       {:else if page === 'flags'}
-        <section class="panel"><h2>Runtime feature flags</h2><p>Changes take effect without a deployment and are written to the audit log.</p>{#each flags as flag (flag.key)}<div class="setting-row"><div><strong>{flag.key.replaceAll('_', ' ')}</strong><small>Updated {date(flag.updatedAt)}</small></div>{#if flag.key === 'registration_mode'}<select aria-label={`${flag.key.replaceAll('_', ' ')} setting`} value={flag.value} onchange={(event) => setFlag(flag, event.currentTarget)} disabled={!canEditFlags}><option value="closed">Closed</option><option value="invite">Invitation only</option><option value="public">Public</option></select>{:else}<select aria-label={`${flag.key.replaceAll('_', ' ')} setting`} value={flag.value} onchange={(event) => setFlag(flag, event.currentTarget)} disabled={!canEditFlags}><option value="false">Off</option><option value="true">On</option></select>{/if}</div>{/each}</section>
+        <section class="panel"><h2>Runtime feature flags</h2><p>Changes take effect without a deployment and are written to the audit log.</p>
+          {#each flags as flag (flag.key)}
+            <div class="setting-row">
+              <div><strong>{flagCopy(flag.key).label}</strong>{#if flagCopy(flag.key).effect}<small>{flagCopy(flag.key).effect}</small>{/if}<small>Updated {date(flag.updatedAt)}</small></div>
+              {#if flag.key === 'registration_mode'}
+                <select aria-label={`${flagCopy(flag.key).label} setting`} value={stagedFlag?.key === flag.key ? stagedFlag.value : flag.value} onchange={(event) => stageFlag(flag, event.currentTarget)} disabled={!canEditFlags || confirmBusy}>{#each Object.entries(REGISTRATION_LABELS) as [value, label] (value)}<option {value}>{label}</option>{/each}</select>
+              {:else}
+                <select aria-label={`${flagCopy(flag.key).label} setting`} value={flag.value} onchange={(event) => setFlag(flag, event.currentTarget)} disabled={!canEditFlags}><option value="false">Off</option><option value="true">On</option></select>
+              {/if}
+            </div>
+            {#if stagedFlag?.key === flag.key}
+              <ConfirmRow tone="change" message={`Change registration from ${REGISTRATION_LABELS[flag.value] ?? flag.value} to ${REGISTRATION_LABELS[stagedFlag.value] ?? stagedFlag.value}? ${registrationEffect(stagedFlag.value)} The change applies at once and is written to the audit log.`} action="Apply change" busy={confirmBusy} onConfirm={() => applyStagedFlag(flag)} onCancel={() => { stagedFlag = null }} />
+            {/if}
+          {/each}
+        </section>
       {:else if page === 'plans'}
         <div class="form-grid">{#each plans as plan (plan.id)}<section class="panel form-card"><h2>{plan.name}</h2><label>Name<input bind:value={plan.name} disabled={!canEditPlans} /></label><div class="two"><label>Price<input bind:value={plan.price} disabled={!canEditPlans} /></label><label>Annual price<input bind:value={plan.annualPrice} placeholder="Optional" disabled={!canEditPlans} /></label></div><label>Billing<select bind:value={plan.billing} disabled={!canEditPlans}><option value="none">None</option><option value="one_time">One time</option><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label><label>Description<textarea bind:value={plan.description} disabled={!canEditPlans}></textarea></label><label class="check"><input type="checkbox" bind:checked={plan.available} disabled={!canEditPlans} /> Available</label>{#if canEditPlans}<button class="primary" onclick={() => savePlan(plan)}>Save plan</button>{/if}</section>{/each}</div>
       {:else if page === 'releases'}
         <ReleaseWorkspace {releases} canManage={canManageReleases} onCommand={releaseCommand} />
         <ExtensionStoresWorkspace {publications} canManage={canManageReleases} onTransition={extensionTransition} onAccept={extensionAccept} chrome={chromeListing} canShow={canEditFlags} onSetVisible={setExtensionVisible} />
       {:else if page === 'admins'}
-        {#if canEditAdmins}<section class="panel"><h2>Invite an administrator</h2><div class="toolbar"><input type="email" placeholder="name@example.com" bind:value={inviteEmail} /><select aria-label="Role for the new administrator" bind:value={inviteRole}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select><button class="primary" onclick={inviteAdmin} disabled={!inviteEmail}>Create setup link</button></div>{#if inviteURL}<label>One-time setup link<input value={inviteURL} readonly onfocus={(event) => event.currentTarget.select()} /></label>{/if}</section>{/if}
-        <section class="panel"><h2>Administrators</h2>{#each admins as admin (admin.id)}<div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select aria-label={`Role for ${admin.email}`} value={admin.role} onchange={(event) => updateAdmin(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins}>{#each roles as role (role)}<option value={role}>{role}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => deleteAdmin(admin)} disabled={admin.id === me.id}>Delete</button>{/if}</div>{/each}</section>
+        {#if canEditAdmins}<section class="panel"><h2>Invite an administrator</h2><div class="toolbar"><input type="email" placeholder="name@example.com" bind:value={inviteEmail} /><select aria-label="Role for the new administrator" bind:value={inviteRole}>{#each roles as role (role)}<option value={role}>{roleLabel(role)}</option>{/each}</select><button class="primary" onclick={inviteAdmin} disabled={!inviteEmail}>Create setup link</button></div>{#if inviteURL}<label>One-time setup link<input value={inviteURL} readonly onfocus={(event) => event.currentTarget.select()} /></label>{/if}</section>{/if}
+        <section class="panel"><h2>Administrators</h2>
+          {#each admins as admin (admin.id)}
+            <div class="setting-row"><div><strong>{admin.email}</strong><small>{admin.mfaVerified ? 'MFA verified' : 'Setup pending'} · last sign-in {date(admin.lastLoginAt)}</small></div><select aria-label={`Role for ${admin.email}`} value={stagedRole?.id === admin.id ? stagedRole.role : admin.role} onchange={(event) => stageRole(admin, event.currentTarget.value as Role)} disabled={!canEditAdmins || confirmBusy}>{#each roles as role (role)}<option value={role}>{roleLabel(role)}</option>{/each}</select>{#if canEditAdmins}<button onclick={() => updateAdmin(admin, admin.role, !admin.suspended)} disabled={admin.id === me.id || confirmBusy}>{admin.suspended ? 'Unsuspend' : 'Suspend'}</button><button class="danger" onclick={() => { pending = `admin-delete:${admin.id}` }} disabled={admin.id === me.id || confirmBusy || pending === `admin-delete:${admin.id}`}>Delete</button>{/if}</div>
+            {#if stagedRole?.id === admin.id}
+              <ConfirmRow tone="change" message={`Change ${admin.email} from ${roleLabel(admin.role)} to ${roleLabel(stagedRole.role)}? What they can see and change follows the new role at once.`} action="Change role" busy={confirmBusy} onConfirm={() => applyStagedRole(admin)} onCancel={() => { stagedRole = null }} />
+            {:else if pending === `admin-delete:${admin.id}`}
+              <ConfirmRow message={`Delete the administrator ${admin.email}? They lose access at once, and their audit entries remain.`} action="Delete administrator" busy={confirmBusy} onConfirm={() => deleteAdmin(admin)} onCancel={cancelPending} />
+            {/if}
+          {/each}
+        </section>
       {:else if page === 'audit'}
-        <section class="panel audit-filters"><div><label>Action<input placeholder="user.suspend" bind:value={auditAction} /></label>{#if canAuditAll}<label>Admin ID<input placeholder="Optional" bind:value={auditAdmin} /></label>{/if}<label>From<input type="datetime-local" bind:value={auditFrom} /></label><label>To<input type="datetime-local" bind:value={auditTo} /></label></div><div class="toolbar"><button onclick={loadAudit}>Apply filters</button>{#if canAuditAll}<button onclick={exportAudit}>Export CSV</button>{/if}<span>{audit.length} results on this page</span></div></section><section class="table-panel"><table><thead><tr><th>Time</th><th>Administrator</th><th>Action</th><th>Target</th></tr></thead><tbody>{#each audit as entry (entry.id)}<tr><td>{date(entry.createdAt)}</td><td>{entry.adminEmail || 'Deleted admin'}</td><td><code>{entry.action}</code></td><td>{entry.targetType} {entry.targetId || ''}</td></tr>{/each}</tbody></table></section>
+        <section class="panel audit-filters"><div><label>Action<input placeholder="user.suspend" bind:value={auditAction} /></label>{#if canAuditAll}<label>Admin ID<input placeholder="Optional" bind:value={auditAdmin} /></label>{/if}<label>From<input type="datetime-local" bind:value={auditFrom} /></label><label>To<input type="datetime-local" bind:value={auditTo} /></label></div><div class="toolbar"><button onclick={loadAudit}>Apply filters</button>{#if canAuditAll}<button onclick={exportAudit}>Export CSV</button>{/if}<span>{audit.length} results on this page</span></div></section><section class="table-panel"><table><thead><tr><th>Time</th><th>Administrator</th><th>Action</th><th>Target</th></tr></thead><tbody>{#each audit as entry (entry.id)}<tr><td>{date(entry.createdAt)}</td><td>{auditActor(entry)}</td><td><code>{entry.action}</code></td><td>{entry.targetType} {entry.targetId || ''}</td></tr>{/each}</tbody></table></section>
       {:else if page === 'system'}
         <SystemWorkspace snapshot={system} mail={systemMail} failure={systemFailure} />
       {/if}

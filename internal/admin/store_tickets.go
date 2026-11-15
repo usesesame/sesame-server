@@ -11,6 +11,8 @@ import (
 	"usesesame.app/backend/internal/support"
 )
 
+const notClosedTicketCondition = "status IN ('open', 'in_progress', 'waiting')"
+
 func (s *Store) Tickets(ctx context.Context, filter TicketListFilter, page, size int) ([]TicketSummary, int, error) {
 	if page < 1 {
 		page = 1
@@ -20,7 +22,9 @@ func (s *Store) Tickets(ctx context.Context, filter TicketListFilter, page, size
 	}
 	conditions := []string{"TRUE"}
 	args := make([]any, 0, 5)
-	if filter.Status != "" {
+	if filter.Status == TicketStatusFilterNotClosed {
+		conditions = append(conditions, "t."+notClosedTicketCondition)
+	} else if filter.Status != "" {
 		args = append(args, filter.Status)
 		conditions = append(conditions, fmt.Sprintf("t.status = $%d", len(args)))
 	}

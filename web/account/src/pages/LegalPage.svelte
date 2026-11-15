@@ -4,10 +4,10 @@
   export let document: 'terms' | 'privacy' | 'security'
 </script>
 
-<section class="compact-page-hero legal-page">
+<section class="public-page legal-page">
   {#if document === 'terms'}
     <h1>Terms of use</h1>
-    <p class="intro">This Sesame account service is operated by the person or organization running this instance, not by the Sesame project.</p>
+    <p class="page-lede">This Sesame account service is operated by the person or organization running this instance, not by the Sesame project.</p>
     <h2>Your account</h2>
     <p>You need an invitation from the operator to create an account. Keep your password, passkeys, and recovery codes private.</p>
     <p>The operator may suspend or remove accounts that abuse the service or break the law.</p>
@@ -15,7 +15,7 @@
     <p>Sesame never sends your vault or master password to this service. The operator cannot read or recover them.</p>
   {:else if document === 'privacy'}
     <h1>Privacy notice</h1>
-    <p class="intro">This notice describes the account data this instance stores. The operator running this instance controls that data.</p>
+    <p class="page-lede">This notice describes the account data this instance stores. The operator running this instance controls that data.</p>
     <h2>What is stored</h2>
     <ul>
       <li>Your email address and a password hash.</li>
@@ -30,7 +30,7 @@
     <p>Use the <a href="/support">support page</a> to ask the operator to show, correct, or delete your account data.</p>
   {:else}
     <h1>Security</h1>
-    <p class="intro">This account service stores only account metadata. It cannot decrypt a vault.</p>
+    <p class="page-lede">This account service stores only account metadata. It cannot decrypt a vault.</p>
     <h2>Report a problem with this service</h2>
     <p>Contact the operator through the <a href="/support">support page</a>.</p>
     <h2>Report a vulnerability in Sesame</h2>

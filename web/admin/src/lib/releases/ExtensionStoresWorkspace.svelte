@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ChromeListingState, ExtensionPublication, PublicExtension } from '../types'
+  import { sentenceCase } from '../labels'
 
   const NEXT: Record<string, string> = { built: 'uploaded', uploaded: 'submitted', submitted: 'approved', approved: 'published', published: 'withdrawn' }
   const NEXT_LABELS: Record<string, string> = { uploaded: 'Mark uploaded', submitted: 'Mark submitted', approved: 'Mark approved', published: 'Mark published', withdrawn: 'Mark withdrawn' }
@@ -86,7 +87,7 @@
       <header class="release-card-head">
         <div class="release-card-title">
           <strong>{STORE_LABELS[publication.store] ?? publication.store}</strong>
-          <span class="badge badge-neutral">{publication.status}</span>
+          <span class="badge badge-neutral">{sentenceCase(publication.status)}</span>
         </div>
         <div class="release-card-meta">
           <span>{publication.version}</span>
@@ -118,9 +119,9 @@
               <div class="confirm-strip">
                 <p>Mark {publication.version} as {pending?.to}{pending?.to === 'withdrawn' ? ', which removes it from the store record' : ''}. {pending?.to === 'withdrawn' ? 'Reason' : 'Store listing or submission reference'}:</p>
                 <input bind:value={reference} placeholder={pending?.to === 'withdrawn' ? 'Why it was withdrawn' : 'Store listing or submission reference'} />
-                <div class="release-actions">
-                  <button class="danger" onclick={() => confirmTransition(publication)}>Confirm</button>
-                  <button onclick={() => (pending = null)}>Cancel</button>
+                <div class="confirm-actions">
+                  <button class={pending?.to === 'withdrawn' ? 'destructive' : 'primary'} onclick={() => confirmTransition(publication)}>Confirm</button>
+                  <button class="quiet-button" onclick={() => (pending = null)}>Cancel</button>
                 </div>
               </div>
             {/if}

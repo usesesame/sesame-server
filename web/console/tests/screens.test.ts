@@ -32,10 +32,14 @@ test('revokes a device after confirmation, with step-up when asked', async () =>
     'DELETE /v1/owner/devices/dev-1': () => { if (++attempts === 1) return stepUpNeeded(); revoked = true; return undefined },
     'POST /v1/owner/step-up': () => json({ ok: true }),
   })
-  await fireEvent.click(await screen.findByRole('button', { name: 'Revoke' }))
+  const trigger = await screen.findByRole('button', { name: 'Revoke' })
+  expect(trigger.classList.contains('danger')).toBe(true)
+  await fireEvent.click(trigger)
   expect(calls.some((call) => call.method === 'DELETE')).toBe(false)
+  expect(screen.getByRole('button', { name: 'Revoke device' }).classList.contains('destructive')).toBe(true)
   await fireEvent.click(screen.getByRole('button', { name: 'Revoke device' }))
   const dialog = await screen.findByRole('dialog')
+  expect(dialog.textContent).toContain('Enter your password and a current code to revoke a device.')
   await fireEvent.input(dialog.querySelector('input[type=password]')!, { target: { value: 'fictional password for tests' } })
   await fireEvent.input(dialog.querySelector('input[inputmode=numeric]')!, { target: { value: '123456' } })
   await fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))

@@ -434,7 +434,8 @@ test('creates, edits, and deletes saved replies', async () => {
     if (path === '/v1/admin/saved-replies/saved-new' && method === 'DELETE') replies = []
     return {}
   })
-  vi.stubGlobal('confirm', () => true)
+  const confirmMock = vi.fn(() => true)
+  vi.stubGlobal('confirm', confirmMock)
   render(App)
   await fireEvent.click(await screen.findByRole('button', { name: 'Support' }))
   await fireEvent.input(screen.getByLabelText('Saved reply title'), { target: { value: 'Refund policy' } })
@@ -452,6 +453,14 @@ test('creates, edits, and deletes saved replies', async () => {
   expect(await screen.findByText('Saved reply updated.')).toBeTruthy()
 
   await fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  expect(api.mutate).not.toHaveBeenCalledWith('/v1/admin/saved-replies/saved-new', 'DELETE')
+  expect(screen.getByText('Delete the saved reply "Refund policy (updated)"? Staff can no longer insert it into a reply.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('button', { name: 'Delete saved reply' })).toBeNull()
+  expect(api.mutate).not.toHaveBeenCalledWith('/v1/admin/saved-replies/saved-new', 'DELETE')
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete saved reply' }))
+  expect(confirmMock).not.toHaveBeenCalled()
   expect(api.mutate).toHaveBeenCalledWith('/v1/admin/saved-replies/saved-new', 'DELETE')
   expect(await screen.findByText('Saved reply deleted.')).toBeTruthy()
   expect(await screen.findByText('No saved replies yet.')).toBeTruthy()

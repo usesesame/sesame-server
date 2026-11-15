@@ -40,6 +40,8 @@ button:active:not(:disabled) { transform: var(--control-press); box-shadow: none
 .quiet:hover:not(:disabled) { background: var(--tint); }
 .danger { border-color: transparent; color: var(--danger); background: transparent; box-shadow: none; }
 .danger:hover:not(:disabled) { border-color: transparent; background: var(--danger-tint); }
+.destructive { border-color: transparent; color: var(--on-danger); background: var(--danger); box-shadow: var(--button-shadow); }
+.destructive:hover:not(:disabled) { border-color: transparent; background: var(--danger-strong); }
 
 label { display: grid; gap: var(--space-2); color: var(--text-heading); font-size: var(--type-2); font-weight: var(--weight-bold); }
 input, select { width: 100%; min-height: var(--control-h-md); border: 1px solid var(--field-border); border-radius: var(--control-radius); padding: var(--space-2) var(--space-3); background: var(--field-bg); color: var(--text); font-size: var(--type-3); font-weight: var(--weight-regular); }
@@ -186,6 +188,7 @@ label small { color: var(--text-muted); font-size: var(--type-2); font-weight: v
 .stepup-panel { width: min(420px, 100%); padding: var(--space-5); border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-modal); }
 .stepup-panel h2 { font-family: var(--font-display); font-variation-settings: var(--font-display-settings); font-size: var(--type-5); font-weight: var(--weight-regular); }
 .stepup-panel > p { color: var(--text-muted); }
+.stepup-list { margin: var(--space-2) 0 0; padding-left: var(--space-5); color: var(--text-heading); }
 .stepup-panel form { display: grid; gap: var(--space-4); margin-top: var(--space-4); }
 .stepup-panel .message { margin: 0; }
 .stepup-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
@@ -196,12 +199,17 @@ label small { color: var(--text-muted); font-size: var(--type-2); font-weight: v
   .app-shell { grid-template-columns: minmax(0, 1fr); align-content: start; }
   .sidebar { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); padding: var(--space-3) var(--space-4) 0; border-right: 0; border-bottom: 1px solid var(--border); }
   .sidebar .brand { padding: 0; }
-  .sidebar nav { order: 3; display: flex; flex-wrap: wrap; width: 100%; gap: 0 var(--space-1); padding-bottom: var(--space-2); }
-  .sidebar nav a { flex: none; }
+  .sidebar nav { order: 3; display: flex; flex-wrap: nowrap; width: calc(100% + 2 * var(--space-4)); margin-inline: calc(-1 * var(--space-4)); gap: var(--space-1); padding: 0 var(--space-4) var(--space-2); overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .sidebar nav::-webkit-scrollbar { display: none; }
+  .sidebar nav[data-more="end"] { mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); }
+  .sidebar nav[data-more="start"] { mask-image: linear-gradient(to left, #000 calc(100% - 48px), transparent); }
+  .sidebar nav[data-more="both"] { mask-image: linear-gradient(to right, transparent, #000 48px, #000 calc(100% - 48px), transparent); }
+  .sidebar nav a { flex: none; display: flex; align-items: center; min-height: 44px; white-space: nowrap; }
   .signed-in { order: 2; margin: 0 0 0 auto; padding: 0; border-top: 0; display: flex; align-items: center; gap: var(--space-3); }
   .signed-in strong { max-width: 8rem; }
   .signed-in span { display: none; }
-  .signed-in button { margin: 0; }
+  .signed-in button { margin: 0; min-height: 44px; }
+  .row-side button, .row-side .button-link, .inline-edit button { min-height: 44px; }
   .content { padding-top: var(--space-5); }
 }
 
@@ -211,6 +219,7 @@ label small { color: var(--text-muted); font-size: var(--type-2); font-weight: v
   .row { flex-wrap: wrap; align-items: flex-start; }
   .row-main { flex-basis: 100%; }
   .row-side { justify-content: flex-start; text-align: left; }
+  .row-side > small { flex-basis: 100%; margin-right: 0; }
   .row-status { justify-items: start; text-align: left; }
   .row-status small { justify-content: flex-start; }
   .audit-row time { width: 100%; }

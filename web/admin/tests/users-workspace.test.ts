@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { AdminAccount, User } from '../src/lib/types'
 
@@ -109,9 +109,10 @@ test('grants and revokes beta access', async () => {
   expect(api.mutate).toHaveBeenLastCalledWith('/v1/admin/users/user-test/beta', 'DELETE', undefined)
 })
 
-test('suspends with a reason and unsuspends', async () => {
+test('suspends with a reason after the inline confirmation and unsuspends', async () => {
   let suspended = false
-  vi.stubGlobal('prompt', vi.fn(() => 'chargeback'))
+  const promptMock = vi.fn(() => 'unused')
+  vi.stubGlobal('prompt', promptMock)
   mockApp((path) => {
     if (path.startsWith('/v1/admin/users?')) return { users: [user({ suspendedAt: suspended ? '2026-08-31T12:00:00Z' : undefined })], total: 1 }
     if (path === '/v1/admin/users/user-test') return { user: user({ suspendedAt: suspended ? '2026-08-31T12:00:00Z' : undefined }) }
@@ -125,12 +126,17 @@ test('suspends with a reason and unsuspends', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
   await fireEvent.click(await screen.findByText('tester@example.invalid'))
   await fireEvent.click(await screen.findByRole('button', { name: 'Suspend' }))
+  expect(api.mutate).not.toHaveBeenCalled()
+  expect(screen.getByText('Suspend tester@example.invalid? Every website session ends now, and the account stays suspended until someone unsuspends it.')).toBeTruthy()
+  await fireEvent.input(screen.getByLabelText('Reason, shown only to staff'), { target: { value: 'chargeback' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Suspend account' }))
+  expect(promptMock).not.toHaveBeenCalled()
   expect(api.mutate).toHaveBeenCalledWith('/v1/admin/users/user-test/suspend', 'POST', { reason: 'chargeback' })
   await fireEvent.click(await screen.findByRole('button', { name: 'Unsuspend' }))
   expect(api.mutate).toHaveBeenLastCalledWith('/v1/admin/users/user-test/suspend', 'DELETE', undefined)
 })
 
-test('deletes an account only after confirmation', async () => {
+test('deletes an account only after the inline confirmation', async () => {
   const confirmMock = vi.fn(() => true)
   vi.stubGlobal('confirm', confirmMock)
   mockApp((path) => {
@@ -143,14 +149,15 @@ test('deletes an account only after confirmation', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
   await fireEvent.click(await screen.findByText('tester@example.invalid'))
   await fireEvent.click(await screen.findByRole('button', { name: 'Delete account' }))
-  expect(confirmMock).toHaveBeenCalledWith('Permanently delete tester@example.invalid? This cannot be undone.')
+  expect(api.mutate).not.toHaveBeenCalled()
+  expect(screen.getByText('Delete tester@example.invalid permanently? This removes the account and cannot be undone.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+  expect(confirmMock).not.toHaveBeenCalled()
   expect(api.mutate).toHaveBeenCalledWith('/v1/admin/users/user-test', 'DELETE')
   expect(await screen.findByText('User account deleted.')).toBeTruthy()
 })
 
 test('keeps the account when deletion is cancelled', async () => {
-  const confirmMock = vi.fn(() => false)
-  vi.stubGlobal('confirm', confirmMock)
   mockApp((path) => {
     if (path.startsWith('/v1/admin/users?')) return { users: [user()], total: 1 }
     if (path === '/v1/admin/users/user-test') return { user: user() }
@@ -160,8 +167,70 @@ test('keeps the account when deletion is cancelled', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
   await fireEvent.click(await screen.findByText('tester@example.invalid'))
   await fireEvent.click(await screen.findByRole('button', { name: 'Delete account' }))
-  expect(confirmMock).toHaveBeenCalled()
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('button', { name: 'Delete permanently' })).toBeNull()
   expect(api.mutate).not.toHaveBeenCalled()
+})
+
+test('cancelling a suspension sends nothing', async () => {
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/users?')) return { users: [user()], total: 1 }
+    if (path === '/v1/admin/users/user-test') return { user: user() }
+    return {}
+  })
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
+  await fireEvent.click(await screen.findByText('tester@example.invalid'))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Suspend' }))
+  await fireEvent.input(screen.getByLabelText('Reason, shown only to staff'), { target: { value: 'chargeback' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByLabelText('Reason, shown only to staff')).toBeNull()
+  expect(api.mutate).not.toHaveBeenCalled()
+})
+
+test('revokes all website sessions only after the inline confirmation', async () => {
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/users?')) return { users: [user()], total: 1 }
+    if (path === '/v1/admin/users/user-test') return { user: user() }
+    return {}
+  })
+  api.mutate.mockResolvedValue({})
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
+  await fireEvent.click(await screen.findByText('tester@example.invalid'))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Revoke sessions' }))
+  expect(api.mutate).not.toHaveBeenCalled()
+  expect(screen.getByText('Sign tester@example.invalid out of every website session? They can sign in again.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(api.mutate).not.toHaveBeenCalled()
+  await fireEvent.click(screen.getByRole('button', { name: 'Revoke sessions' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Revoke all sessions' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/users/user-test/sessions', 'DELETE', undefined)
+  expect(await screen.findByText('User account updated and the action was audited.')).toBeTruthy()
+  await vi.waitFor(() => expect(screen.queryByRole('button', { name: 'Revoke all sessions' })).toBeNull())
+})
+
+test('revokes a connected device only after the inline confirmation', async () => {
+  const detail = user({ devices: [{ id: 'device-test', name: 'Office PC', connectedAt: '2026-08-01T00:00:00Z', expiresAt: '2026-09-01T00:00:00Z' }] })
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/users?')) return { users: [user()], total: 1 }
+    if (path === '/v1/admin/users/user-test') return { user: detail }
+    return {}
+  })
+  api.mutate.mockResolvedValue({})
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
+  await fireEvent.click(await screen.findByText('tester@example.invalid'))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Revoke' }))
+  expect(api.mutate).not.toHaveBeenCalled()
+  expect(screen.getByText('Revoke Office PC? The desktop is disconnected from this account and has to be linked again.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(api.mutate).not.toHaveBeenCalled()
+  await fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Revoke device' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/users/user-test/devices/device-test', 'DELETE', undefined)
 })
 
 test('readonly staff read users without edit controls', async () => {
@@ -187,4 +256,54 @@ test('searches users after the debounce', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
   await fireEvent.input(await screen.findByLabelText('Search users'), { target: { value: 'tester' } })
   await vi.waitFor(() => expect(api.request).toHaveBeenCalledWith('/v1/admin/users?query=tester&size=100&page=1'))
+})
+
+test('locks every user action while an unsuspend request is in flight', async () => {
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/users?')) return { users: [user({ suspendedAt: '2026-08-31T12:00:00Z' })], total: 1 }
+    if (path === '/v1/admin/users/user-test') return { user: user({ suspendedAt: '2026-08-31T12:00:00Z' }) }
+    return {}
+  }, { role: 'super', permissions: ['users:read', 'users:manage', 'users:delete'] })
+  let release: (value: unknown) => void = () => {}
+  api.mutate.mockImplementation(() => new Promise((done) => { release = done }))
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
+  await fireEvent.click(await screen.findByText('tester@example.invalid'))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Delete account' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Unsuspend' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  expect(api.mutate).toHaveBeenCalledWith('/v1/admin/users/user-test/suspend', 'DELETE', undefined)
+  for (const name of ['Unsuspend', 'Grant beta', 'Revoke sessions', 'Delete account', 'Delete permanently']) {
+    expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true)
+  }
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Unsuspend' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  release({})
+  expect(await screen.findByText('User account updated and the action was audited.')).toBeTruthy()
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Delete permanently' }) as HTMLButtonElement).disabled).toBe(false))
+})
+
+test('locks the user actions while a deletion is in flight', async () => {
+  mockApp((path) => {
+    if (path.startsWith('/v1/admin/users?')) return { users: [user()], total: 1 }
+    if (path === '/v1/admin/users/user-test') return { user: user() }
+    return {}
+  }, { role: 'super', permissions: ['users:read', 'users:manage', 'users:delete'] })
+  let release: (value: unknown) => void = () => {}
+  api.mutate.mockImplementation(() => new Promise((done) => { release = done }))
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Users' }))
+  await fireEvent.click(await screen.findByText('tester@example.invalid'))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Delete account' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  const suspend = screen.getByRole('button', { name: 'Suspend' }) as HTMLButtonElement
+  expect(suspend.disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Grant beta' }) as HTMLButtonElement).disabled).toBe(true)
+  await fireEvent.click(suspend)
+  await fireEvent.click(screen.getByRole('button', { name: 'Grant beta' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
+  release({})
+  expect(await screen.findByText('User account deleted.')).toBeTruthy()
 })

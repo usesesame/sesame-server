@@ -48,7 +48,7 @@ test('shows diagnostics and hides only notices the report covers', async () => {
   expect(screen.queryByText('No backup has been made yet.')).toBeNull()
   expect(screen.getByText('The configuration file is readable by other users.')).toBeTruthy()
   expect(screen.getByText('A future notice.')).toBeTruthy()
-  expect(screen.getByText('Overall: Action needed')).toBeTruthy()
+  expect(screen.getByText('1 check needs action')).toBeTruthy()
   expect(screen.getByText('Network reachability was not probed.')).toBeTruthy()
 })
 
@@ -73,7 +73,7 @@ test('shows all six checks with visible state words and mapped limitations', asy
   expect(screen.getByText('Backups')).toBeTruthy()
   expect(screen.getByText('Forwarding')).toBeTruthy()
   expect(screen.getByText('External checks')).toBeTruthy()
-  expect(screen.getByText('Overall: Action needed')).toBeTruthy()
+  expect(screen.getByText('1 check needs action')).toBeTruthy()
   expect(screen.getAllByText('OK')).toHaveLength(4)
   expect(screen.getAllByText('Action needed')).toHaveLength(1)
   expect(screen.getAllByText('Unknown')).toHaveLength(1)
@@ -197,4 +197,25 @@ test('renders hostile server strings as ordinary text', async () => {
   expect(screen.getAllByText(hostile).length).toBe(4)
   expect(document.querySelector('img[src="x"]')).toBeNull()
   expect((window as unknown as { __consolePwned?: boolean }).__consolePwned).toBeUndefined()
+})
+
+test('lists checks that need action first, then unknown ones, and counts them in the overall line', async () => {
+  await openSystem({
+    'GET /v1/owner/system': () => system(),
+    'GET /v1/owner/system/diagnostics': () => report({
+      checks: [
+        { id: 'origin', state: 'ok', code: 'origin_https', summary: 'The configured public address uses HTTPS.', next: null },
+        { id: 'audit', state: 'action', code: 'audit_incremental_break', summary: 'The incremental audit verification found a break.', next: 'Run a full audit check.' },
+        { id: 'proxy', state: 'ok', code: 'proxy_configured', summary: 'Trusted proxy ranges are configured.', next: null },
+        { id: 'external', state: 'unknown', code: 'external_not_inspected', summary: 'Certificates were not inspected.', next: null },
+        { id: 'backup', state: 'action', code: 'backup_missing', summary: 'No backup has been recorded.', next: 'Set a backup schedule on the host.' },
+        { id: 'forwarding', state: 'ok', code: 'forwarding_not_observed', summary: 'No untrusted forwarded request was observed.', next: null },
+      ],
+    }),
+  })
+  expect(await screen.findByText('2 checks need action')).toBeTruthy()
+  const labels = [...document.querySelectorAll('.diagnostics-row .row-main strong')].map((node) => node.textContent)
+  expect(labels).toEqual(['Audit log', 'Backups', 'External checks', 'Public address', 'Proxy trust', 'Forwarding'])
+  const states = [...document.querySelectorAll('.diagnostics-row')].map((node) => node.getAttribute('data-state'))
+  expect(states).toEqual(['action', 'action', 'unknown', 'ok', 'ok', 'ok'])
 })

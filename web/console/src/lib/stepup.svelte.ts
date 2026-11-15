@@ -1,39 +1,50 @@
 import { stepUp } from './owner'
+import { stepUpAction, type StepUpRequest } from './stepup-action'
 
-export const stepUpDialog = $state({ open: false, busy: false, error: '' })
+type Waiter = { action: string; resolve: (renewed: boolean) => void }
 
-let waiting: ((renewed: boolean) => void)[] = []
+export const stepUpDialog = $state({ open: false, busy: false, error: '', actions: [] as string[] })
 
-export function requestStepUp(): Promise<boolean> {
+let waiting: Waiter[] = []
+
+function track(next: Waiter[]) {
+  waiting = next
+  stepUpDialog.actions = next.map((waiter) => waiter.action)
+}
+
+export function requestStepUp(request?: StepUpRequest): Promise<boolean> {
+  const action = request ? stepUpAction(request) : 'continue'
   if (waiting.length === 0) {
     stepUpDialog.error = ''
     stepUpDialog.busy = false
     stepUpDialog.open = true
   }
-  return new Promise((resolve) => { waiting.push(resolve) })
+  return new Promise((resolve) => { track([...waiting, { action, resolve }]) })
 }
 
-function finish(renewed: boolean) {
-  stepUpDialog.open = false
+function settle(renewed: boolean, settled: Waiter[]) {
+  track(waiting.filter((waiter) => !settled.includes(waiter)))
   stepUpDialog.busy = false
-  const resolvers = waiting
-  waiting = []
-  resolvers.forEach((resolve) => resolve(renewed))
+  if (waiting.length === 0) stepUpDialog.open = false
+  settled.forEach((waiter) => waiter.resolve(renewed))
 }
 
 export function cancelStepUp() {
-  finish(false)
+  settle(false, waiting)
 }
 
-export async function submitStepUp(password: string, code: string) {
-  if (stepUpDialog.busy) return
+export async function submitStepUp(password: string, code: string): Promise<boolean> {
+  if (stepUpDialog.busy) return false
+  const named = waiting
   stepUpDialog.busy = true
   stepUpDialog.error = ''
   try {
     await stepUp({ password, code })
-    finish(true)
   } catch (reason) {
     stepUpDialog.error = reason instanceof Error ? reason.message : 'The request failed.'
     stepUpDialog.busy = false
+    return false
   }
+  settle(true, named)
+  return true
 }

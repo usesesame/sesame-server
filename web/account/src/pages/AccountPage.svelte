@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { slidingSelection } from '../lib/sliding-selection'
-  import { onDestroy, onMount, tick } from 'svelte'
+  import { onDestroy, onMount } from 'svelte'
   import {
     cancelDesktopLink,
     changePassword,
@@ -20,7 +19,6 @@
     revokeDesktopDevice,
     renameDesktopDevice,
     revokeSession,
-    signOut,
     type Account,
     type AccountActivityEvent,
     type NotificationPreferences,
@@ -35,20 +33,19 @@
   import { capabilities, capabilityEnabled, type CapabilityConfig } from '../lib/capabilities'
   import PasswordSetupForm from '../lib/PasswordSetupForm.svelte'
   import { nextStep } from '../lib/next-step'
+  import { describeActivity } from '../lib/activity'
+  import { accountTabLabel, type AccountTab } from '../lib/account-routes'
+  import PageHeader from '../lib/PageHeader.svelte'
+  import Notice from '../lib/Notice.svelte'
+  import Icon from '../lib/Icon.svelte'
 
   export let account: Account | null
   export let authState: AuthState = { state: 'loading' }
   export let onSignedOut: () => void
+  export let tab: AccountTab = 'overview'
+  export let onSelectTab: (next: AccountTab) => void = (next) => { tab = next }
 
-  type Tab = 'overview' | 'security' | 'sessions' | 'devices' | 'activity'
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'security', label: 'Security' },
-    { id: 'sessions', label: 'Sessions' },
-    { id: 'devices', label: 'Desktops' },
-    { id: 'activity', label: 'Activity' },
-  ]
-  let tab: Tab = 'overview'
+  let shownTab: AccountTab | null = null
   const siteHost = new URL(siteOrigin).host
   let now = Date.now()
   let clock: number | undefined
@@ -72,10 +69,16 @@
   let passwordSaving = false
   let securityBusy = false
   let passwordError = ''
+  let emailFormOpen = false
+  let passwordFormOpen = false
   let passkeys: PasskeyInfo[] = []
   let passkeysLoaded = false
   let passkeyError = ''
   let newPasskeyName = ''
+  let passkeyConfirmId = ''
+  let passkeyRowError = ''
+  let removingPasskeyId = ''
+  let passkeyPasswordInput: HTMLInputElement | undefined
   const canUsePasskey = passkeysSupported()
 
   let sessions: AccountSession[] = []
@@ -84,10 +87,18 @@
   let sessionsPassword = ''
   let sessionError = ''
   let revokingSession = ''
+  let sessionConfirmId = ''
+  let sessionRowError = ''
+  let sessionsPasswordInput: HTMLInputElement | undefined
+  let revokeAllConfirm = false
+  let revokeAllError = ''
+  let revokeAllPasswordInput: HTMLInputElement | undefined
 
   let link: DesktopLink | null = null
   let linking = false
   let copied = false
+  let linkTotal = 0
+  let linkTotalCode = ''
   let devicesPassword = ''
   let devices: DesktopDevice[] = []
   let devicesLoaded = false
@@ -97,6 +108,9 @@
   let renamingDeviceId = ''
   let renameDraftId = ''
   let renameDraftValue = ''
+  let deviceConfirmId = ''
+  let deviceRowError = ''
+  let devicesPasswordInput: HTMLInputElement | undefined
 
   let activity: AccountActivityEvent[] = []
   let activityLoaded = false
@@ -116,9 +130,16 @@
   let deleting = false
   let deleteError = ''
 
+  $: sessionsBusy = Boolean(revokingSession) || sessionsLoading
+  $: deviceRowBusy = Boolean(revokingDeviceId || renamingDeviceId) || linking
   $: linkSeconds = link?.expiresAt ? Math.max(0, Math.ceil((new Date(link.expiresAt).getTime() - now) / 1000)) : 0
   $: linkCountdown = `${Math.floor(linkSeconds / 60)}:${String(linkSeconds % 60).padStart(2, '0')}`
-  $: desktopCodeDisplay = link?.code ? formatDesktopCode(link.code) : ''
+  $: desktopCode = link?.code ? splitDesktopCode(link.code) : { prefix: '', groups: [] as string[] }
+  $: trackLinkTotal(link?.code ?? '', linkSeconds)
+  $: linkFraction = linkTotal > 0 ? Math.min(1, linkSeconds / linkTotal) : 0
+  $: headerFact = pageFact(tab, account, sessionsLoaded, sessions.length, devicesLoaded || accessLoaded, desktopCount, activityLoaded, activity.length)
+  $: headerDetail = tab === 'security' && account ? account.emailVerified ? 'email verified' : 'email not verified' : tab === 'overview' && account && accessLoaded ? betaGranted ? 'beta access' : 'no beta access' : tab === 'devices' && link?.code ? 'a code is waiting' : ''
+  $: if (tab !== shownTab) showTab(tab)
   $: betaGranted = access?.betaAccess ?? account?.betaAccess ?? false
   $: desktopCount = devicesLoaded ? devices.length : connectedDesktops
   $: step = account && accessLoaded
@@ -145,7 +166,6 @@
       if (link?.state === 'pending') void refreshDesktopLink(false)
     }, 5000)
     supportReplyNoticeVisible = supportReplyNoticeUnseen()
-    if (window.location.hash === '#security') selectTab('security')
     void loadAccess()
   })
 
@@ -190,43 +210,55 @@
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
   }
 
-  function formatDesktopCode(value: string) {
-    if (value.length <= 16) return value
+  function splitDesktopCode(value: string) {
     const prefix = value.startsWith('SESAME-') ? 'SESAME-' : ''
     const code = prefix ? value.slice(prefix.length) : value
-    return `${prefix}${code.match(/.{1,4}/g)?.join(' ') ?? code}`
+    return { prefix, groups: code.replace(/\s+/g, '').match(/.{1,4}/g) ?? [code] }
   }
 
-  function selectTab(next: Tab) {
-    tab = next
-    error = ''; notice = ''
+  function trackLinkTotal(code: string, seconds: number) {
+    if (code !== linkTotalCode) { linkTotalCode = code; linkTotal = seconds }
+    else if (seconds > linkTotal) linkTotal = seconds
+  }
+
+  function plural(count: number, word: string) {
+    if (count === 0) return `No ${word}s`
+    return `${count} ${word}${count === 1 ? '' : 's'}`
+  }
+
+  function pageFact(current: AccountTab, who: Account | null, haveSessions: boolean, sessionCount: number, haveDesktops: boolean, desktops: number, haveActivity: boolean, events: number) {
+    if (!who) return ''
+    if (current === 'overview' || current === 'security') return who.email
+    if (current === 'sessions') return haveSessions ? plural(sessionCount, 'session') : ''
+    if (current === 'devices') return haveDesktops ? plural(desktops, 'desktop') : ''
+    return haveActivity ? plural(events, 'event') : ''
+  }
+
+  function platformName(value?: string) {
+    const names: Record<string, string> = { linux: 'Linux', windows: 'Windows', macos: 'macOS', darwin: 'macOS' }
+    return value ? names[value.toLowerCase()] ?? value : ''
+  }
+
+  function showTab(next: AccountTab) {
+    const first = shownTab === null
+    shownTab = next
+    if (!first) { error = ''; notice = '' }
     if (next === 'security' && canUsePasskey && !passkeysLoaded) void loadPasskeys()
     if (next === 'security' && !notificationPreferencesLoaded) void loadNotificationPreferences()
     if (next === 'sessions' && !sessionsLoaded) void loadSessions()
     if (next === 'devices' && !devicesLoaded) void loadDevicesAndLink()
     if (next === 'activity' && !activityLoaded) void loadActivity()
-    if (next === 'overview' && !accessLoaded) void loadAccess()
-    void tick().then(() => document.getElementById(`account-tab-${next}`)?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' }))
+    if (next === 'overview' && !first && !accessLoaded) void loadAccess()
   }
 
-  function tabKeydown(event: KeyboardEvent, index: number) {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-    event.preventDefault()
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-    selectTab(tabs[next].id)
-    document.getElementById(`account-tab-${tabs[next].id}`)?.focus()
+  function askForPassword(input: HTMLInputElement | undefined) {
+    input?.focus()
+    input?.scrollIntoView?.({ block: 'center' })
   }
 
   async function confirmSensitive(password: string) {
     if (!password) throw new Error('Enter your website account password to continue.')
     await reauthenticate(password)
-  }
-
-  async function leave() {
-    working = true; error = ''
-    try { await signOut(); onSignedOut(); window.location.assign('/') }
-    catch (reason) { error = reason instanceof Error ? reason.message : 'Sign out is temporarily unavailable.' }
-    finally { working = false }
   }
 
   async function resendVerification() {
@@ -242,6 +274,7 @@
       await confirmSensitive(securityPassword)
       await requestEmailChange(newEmail)
       securityPassword = ''; newEmail = ''
+      emailFormOpen = false
       notice = 'Confirmation sent to the new address. Your current email stays active until the link is used.'
     } catch (reason) { passwordError = reason instanceof Error ? reason.message : 'Email change could not be started.' }
     finally { securityBusy = false }
@@ -256,6 +289,7 @@
       await confirmSensitive(currentPassword)
       await changePassword(currentPassword, newPassword)
       currentPassword = ''; newPassword = ''; confirmPassword = ''
+      passwordFormOpen = false
       notice = 'Password changed. Other website sessions were revoked in the same update.'
       sessionsLoaded = false
     } catch (reason) { passwordError = reason instanceof Error ? reason.message : 'Changing your password is temporarily unavailable.' }
@@ -279,15 +313,30 @@
     finally { securityBusy = false }
   }
 
+  function askRemovePasskey(id: string) {
+    passkeyConfirmId = id; passkeyRowError = ''; passkeyError = ''
+  }
+
+  function keepPasskey() {
+    passkeyConfirmId = ''; passkeyRowError = ''
+  }
+
   async function removePasskey(id: string) {
-    securityBusy = true; passkeyError = ''
+    passkeyRowError = ''
+    if (!securityPassword) {
+      passkeyRowError = 'Enter your account password, then remove the passkey again.'
+      askForPassword(passkeyPasswordInput)
+      return
+    }
+    securityBusy = true; removingPasskeyId = id
     try {
       await confirmSensitive(securityPassword)
       await deletePasskey(id)
       securityPassword = ''
+      passkeyConfirmId = ''
       passkeys = passkeys.filter((passkey) => passkey.id !== id)
-    } catch (reason) { passkeyError = reason instanceof Error ? reason.message : 'That passkey could not be removed.' }
-    finally { securityBusy = false }
+    } catch (reason) { passkeyRowError = reason instanceof Error ? reason.message : 'That passkey could not be removed.' }
+    finally { securityBusy = false; removingPasskeyId = '' }
   }
 
   async function loadSessions() {
@@ -318,14 +367,18 @@
   }
 
   function startRename(device: DesktopDevice) {
+    if (deviceRowBusy) return
+    deviceConfirmId = ''; deviceRowError = ''
     renameDraftId = device.deviceId; renameDraftValue = device.deviceName; deviceError = ''
   }
 
   function cancelRename() {
+    if (deviceRowBusy) return
     renameDraftId = ''; renameDraftValue = ''
   }
 
   async function renameDevice(device: DesktopDevice) {
+    if (deviceRowBusy || renameDraftId !== device.deviceId) return
     const name = renameDraftValue.trim()
     if (!name) { deviceError = 'Enter a desktop name.'; return }
     renamingDeviceId = device.deviceId; deviceError = ''
@@ -333,31 +386,73 @@
       await confirmSensitive(devicesPassword)
       await renameDesktopDevice(device.deviceId, name)
       devices = devices.map((item) => item.deviceId === device.deviceId ? { ...item, deviceName: name } : item)
-      devicesPassword = ''; renameDraftId = ''; renameDraftValue = ''
+      devicesPassword = ''
+      if (renameDraftId === device.deviceId) { renameDraftId = ''; renameDraftValue = '' }
       notice = 'Desktop name updated.'
     } catch (reason) { deviceError = reason instanceof Error ? reason.message : 'That desktop name could not be updated.' }
     finally { renamingDeviceId = '' }
   }
 
+  function askRevokeSession(session: AccountSession) {
+    if (sessionsBusy) return
+    revokeAllConfirm = false; revokeAllError = ''
+    sessionConfirmId = session.id; sessionRowError = ''; sessionError = ''
+  }
+
+  function keepSession() {
+    if (sessionsBusy) return
+    sessionConfirmId = ''; sessionRowError = ''
+  }
+
   async function removeSession(session: AccountSession) {
+    if (sessionsBusy || sessionConfirmId !== session.id) return
+    sessionRowError = ''
+    if (!sessionsPassword) {
+      sessionRowError = 'Enter your account password, then revoke the session again.'
+      askForPassword(sessionsPasswordInput)
+      return
+    }
     revokingSession = session.id; sessionError = ''
     try {
       await confirmSensitive(sessionsPassword)
       await revokeSession(session.id)
       sessionsPassword = ''
+      if (sessionConfirmId === session.id) sessionConfirmId = ''
       sessions = sessions.filter((item) => item.id !== session.id)
       if (session.current) { onSignedOut(); window.location.assign('/login') }
-    } catch (reason) { sessionError = reason instanceof Error ? reason.message : 'That session could not be revoked.' }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'That session could not be revoked.'
+      if (sessionConfirmId === session.id) sessionRowError = message
+      else sessionError = message
+    }
     finally { revokingSession = '' }
   }
 
+  function askRevokeAllSessions() {
+    if (sessionsBusy) return
+    sessionConfirmId = ''; sessionRowError = ''; sessionError = ''
+    revokeAllConfirm = true; revokeAllError = ''
+  }
+
+  function keepAllSessions() {
+    if (sessionsBusy) return
+    revokeAllConfirm = false; revokeAllError = ''
+  }
+
   async function removeAllSessions() {
+    if (sessionsBusy || !revokeAllConfirm) return
+    revokeAllError = ''
+    if (!sessionsPassword) {
+      revokeAllError = 'Enter your account password, then revoke every session again.'
+      askForPassword(revokeAllPasswordInput)
+      return
+    }
     sessionsLoading = true; sessionError = ''
     try {
       await confirmSensitive(sessionsPassword)
       await revokeAllSessions()
       onSignedOut(); window.location.assign('/login')
-    } catch (reason) { sessionError = reason instanceof Error ? reason.message : 'Sessions could not be revoked.'; sessionsLoading = false }
+    } catch (reason) { revokeAllError = reason instanceof Error ? reason.message : 'Sessions could not be revoked.'; sessionsLoading = false }
   }
 
   async function refreshDesktopLink(showError = true) {
@@ -379,6 +474,7 @@
   }
 
   async function makeDesktopLink() {
+    if (deviceRowBusy) return
     linking = true; deviceError = ''; copied = false; notice = ''
     try {
       await confirmSensitive(devicesPassword)
@@ -395,6 +491,7 @@
   }
 
   async function cancelLink() {
+    if (deviceRowBusy) return
     linking = true; deviceError = ''
     try {
       await confirmSensitive(devicesPassword)
@@ -404,14 +501,37 @@
     finally { linking = false }
   }
 
+  function askRemoveDevice(device: DesktopDevice) {
+    if (deviceRowBusy) return
+    renameDraftId = ''; renameDraftValue = ''
+    deviceConfirmId = device.deviceId; deviceRowError = ''; deviceError = ''
+  }
+
+  function keepDevice() {
+    if (deviceRowBusy) return
+    deviceConfirmId = ''; deviceRowError = ''
+  }
+
   async function removeDevice(device: DesktopDevice) {
+    if (deviceRowBusy || deviceConfirmId !== device.deviceId) return
+    deviceRowError = ''
+    if (!devicesPassword) {
+      deviceRowError = 'Enter your account password, then remove the desktop again.'
+      askForPassword(devicesPasswordInput)
+      return
+    }
     revokingDeviceId = device.deviceId; deviceError = ''
     try {
       await confirmSensitive(devicesPassword)
       await revokeDesktopDevice(device.deviceId)
       devicesPassword = ''
+      if (deviceConfirmId === device.deviceId) deviceConfirmId = ''
       devices = devices.filter((item) => item.deviceId !== device.deviceId)
-    } catch (reason) { deviceError = reason instanceof Error ? reason.message : 'This desktop could not be removed.' }
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'This desktop could not be removed.'
+      if (deviceConfirmId === device.deviceId) deviceRowError = message
+      else deviceError = message
+    }
     finally { revokingDeviceId = '' }
   }
 
@@ -428,175 +548,258 @@
   }
 </script>
 
-<section class="account-shell">
-  <div class="account-copy account-head">
-    <h1>Your account</h1>
-  </div>
+<div class="page">
+  <PageHeader title={accountTabLabel(tab)} fact={headerFact} detail={headerDetail} />
 
   {#if account}
-    <div class="account-tabs" role="tablist" aria-label="Account sections" use:slidingSelection>
-      {#each tabs as item, index (item.id)}
-        <button id={`account-tab-${item.id}`} role="tab" type="button" class:active={tab === item.id} aria-selected={tab === item.id} aria-controls="account-panel" tabindex={tab === item.id ? 0 : -1} on:keydown={(event) => tabKeydown(event, index)} on:click={() => selectTab(item.id)}>{item.label}</button>
-      {/each}
-    </div>
+    {#if notice}<Notice kind="ok" title={notice} role="status" />{/if}
+    {#if error}<Notice kind="danger" title={error} role="alert" />{/if}
 
-    <div id="account-panel" class="account-panel card" role="tabpanel" aria-live="polite">
-      {#if notice}<p class="account-success" role="status">{notice}</p>{/if}
-      {#if error}<p class="auth-error" role="alert">{error}</p>{/if}
-
-      {#if tab === 'overview'}
-        {#if credentialSetupRequired}
-          <div class="panel-section">
-            <p class="account-label">Set a password</p>
-            <p class="panel-hint">This account has no password yet, so you cannot sign in again after this session ends. Choose one now, or add a passkey on the Security tab.</p>
-            <PasswordSetupForm onComplete={() => { credentialSetupRequired = false; notice = 'Password set.' }} />
-          </div>
-        {/if}
-        {#if step}
-          <section class="next-step" aria-labelledby="next-step-title">
-            <h2 id="next-step-title">{step.title}</h2>
-            <p>{step.body}</p>
-            {#if step.action || step.secondary}
-              <div class="next-step-actions">
-                {#if step.action?.kind === 'verify-email'}
-                  <button class="button" type="button" on:click={resendVerification} disabled={working}>{working ? 'Sending…' : step.action.label}</button>
-                {:else if step.action?.kind === 'tab'}
-                  <button class="button" type="button" on:click={() => step.action?.kind === 'tab' && selectTab(step.action.tab)}>{step.action.label}</button>
-                {:else if step.action?.kind === 'link'}
-                  <a class="button" href={step.action.path}>{step.action.label}</a>
-                {/if}
-                {#if step.secondary}<a class="button button-soft" href={`${siteOrigin}${step.secondary.path}`}>{step.secondary.label}</a>{/if}
-              </div>
-            {/if}
-          </section>
-        {/if}
-        <dl class="account-rows">
-          <div><dt>Signed in as</dt><dd><strong class="account-email">{account.email}</strong><span class:verified={account.emailVerified} class="verification-state">{account.emailVerified ? 'Email verified' : 'Email not verified'}</span></dd></div>
-          <div><dt>Beta access</dt><dd>{betaGranted ? 'Granted' : 'Not granted'}</dd></div>
-          <div><dt>Desktops</dt><dd>{desktopCount === 0 ? 'None connected' : `${desktopCount} connected`}<button class="row-link" type="button" on:click={() => selectTab('devices')}>Manage</button></dd></div>
-          <div><dt>Support</dt><dd>{supportUnread > 0 ? `${supportUnread} unread` : 'Up to date'}<a class="row-link" href="/support">Your requests and replies</a></dd></div>
-          <div><dt>Licences</dt><dd>{access?.licences.length ? access.licences.length : 'None yet'}{#if !access?.licences.length}<span class="row-note">Purchases will show here when sales open.</span>{/if}</dd></div>
-        </dl>
-        <div class="panel-section">
-          <button class="button button-soft" type="button" on:click={leave} disabled={working}>{working ? 'Signing out…' : 'Sign out'}</button>
-        </div>
-        <div class="panel-section danger-zone">
-          <p class="account-label danger-label">Delete website account</p>
-          <p class="danger-copy">Deletes sessions, eligibility, licences, and desktop links. Local vaults are untouched.</p>
-          {#if !deleteOpen}
-            <button class="danger-button" type="button" on:click={() => { deleteOpen = true; deleteError = '' }}>Delete account</button>
-          {:else}
-            <form class="account-form" on:submit|preventDefault={confirmDelete}>
-              <label>Account password<input type="password" autocomplete="current-password" bind:value={deletePassword} required /></label>
-              <label>Type DELETE<input type="text" autocomplete="off" bind:value={deleteConfirm} /></label>
-              {#if deleteError}<p class="auth-error" role="alert">{deleteError}</p>{/if}
-              <div class="account-actions"><button class="button button-soft" type="button" on:click={() => { deleteOpen = false; deletePassword = ''; deleteConfirm = '' }}>Cancel</button><button class="danger-button" type="submit" disabled={deleting || deleteConfirm !== 'DELETE' || !deletePassword}>{deleting ? 'Deleting…' : 'Delete permanently'}</button></div>
-            </form>
-          {/if}
-        </div>
-
-      {:else if tab === 'security'}
-        <div class="recent-auth-note"><strong>Recent confirmation required</strong><span>Enter your website account password before changing email, password, or passkeys.</span></div>
-        <div class="panel-section">
-          <p class="account-label">Email notifications</p>
-          <p class="panel-hint">Security notices such as sign-ins and account changes are always sent. Choose optional updates below.</p>
-          {#if notificationPreferencesError}<p class="auth-error" role="alert">{notificationPreferencesError}</p>{/if}
-          <div class="notification-options" role="group" aria-label="Optional email notifications">
-            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.betaReleases} disabled={!notificationPreferencesLoaded} /><span>New beta releases</span></label>
-            <div class="notification-reply">
-              <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.supportReplies} disabled={!notificationPreferencesLoaded} /><span>Support replies</span></label>
-              {#if supportReplyNoticeVisible}
-                <p class="notification-notice" role="status"><span>Reply email is now on for this account.</span><button class="button button-soft button-sm" type="button" on:click={dismissSupportReplyNotice}>Got it</button></p>
-              {/if}
-            </div>
-            <label class="notification-option"><input type="checkbox" bind:checked={notificationPreferences.productAnnouncements} disabled={!notificationPreferencesLoaded} /><span>Product announcements</span></label>
-          </div>
-          <div class="notification-actions"><button class="button button-soft button-sm" type="button" on:click={saveNotificationPreferences} disabled={notificationPreferencesSaving || !notificationPreferencesLoaded}>{notificationPreferencesSaving ? 'Saving…' : 'Save preferences'}</button></div>
-        </div>
-        {#if passwordError}<p class="auth-error" role="alert">{passwordError}</p>{/if}
-        <div class="panel-section">
-          <p class="account-label">Email address</p>
-          <form class="account-form" on:submit|preventDefault={startEmailChange}>
-            <label>New email<input type="email" autocomplete="email" bind:value={newEmail} required maxlength="254" /></label>
-            <label>Account password<input type="password" autocomplete="current-password" bind:value={securityPassword} required /></label>
-            <button class="button button-soft" type="submit" disabled={securityBusy}>Send confirmation to new email</button>
-          </form>
-        </div>
-        <div class="panel-section">
-          <p class="account-label">Password</p>
-          <form class="account-form" on:submit|preventDefault={submitPassword}>
-            <label>Current password<input type="password" autocomplete="current-password" bind:value={currentPassword} required /></label>
-            <label>New password<input type="password" autocomplete="new-password" bind:value={newPassword} minlength="12" required /></label>
-            <label>Confirm new password<input type="password" autocomplete="new-password" bind:value={confirmPassword} required /></label>
-            <button class="button" type="submit" disabled={passwordSaving}>{passwordSaving ? 'Saving…' : 'Update password and revoke other sessions'}</button>
-          </form>
-        </div>
-        {#if canUsePasskey}
-          <div class="panel-section">
-            <p class="account-label">Passkeys</p>
-            <p class="panel-hint">Passkeys sign in to this website account. They do not unlock the desktop vault.</p>
-            {#if passkeyError}<p class="auth-error" role="alert">{passkeyError}</p>{/if}
-            {#if passkeys.length > 0}<div class="device-list">{#each passkeys as passkey (passkey.id)}<div class="device-row"><div class="device-details"><strong>{passkey.name}</strong><span>Added {formatDate(passkey.createdAt)}</span></div><button class="device-remove" type="button" on:click={() => removePasskey(passkey.id)} disabled={securityBusy}>Remove</button></div>{/each}</div>{:else if passkeysLoaded}<p class="device-empty">No passkeys.</p>{/if}
-            <form class="account-form compact-form" on:submit|preventDefault={addPasskey}>
-              <label>Name<input type="text" bind:value={newPasskeyName} maxlength="64" placeholder="This laptop" /></label>
-              <label>Account password<input type="password" autocomplete="current-password" bind:value={securityPassword} required /></label>
-              <button class="button button-soft" type="submit" disabled={securityBusy}>Add passkey</button>
-            </form>
-          </div>
-        {/if}
-
-      {:else if tab === 'sessions'}
-        <div class="panel-section">
-          <div class="device-section-head"><div><p class="account-label">Website sessions</p><p class="panel-hint">Browsers signed in to {siteHost}. Desktop links are listed separately.</p></div><button class="button button-soft button-sm" on:click={loadSessions} disabled={sessionsLoading}>{sessionsLoading ? 'Checking…' : 'Refresh'}</button></div>
-          {#if sessionError}<p class="auth-error" role="alert">{sessionError}</p>{/if}
-          <label class="inline-password">Account password<input type="password" autocomplete="current-password" bind:value={sessionsPassword} placeholder="Required to revoke" /></label>
-          {#if sessions.length > 0}<div class="device-list">{#each sessions as session (session.id)}<div class="device-row"><div class="device-details"><strong>{session.label || 'Browser session'} {#if session.current}<span class="current-pill">Current</span>{/if}</strong><span>Last used {formatDate(session.lastSeenAt)}</span><small>Expires {formatDate(session.expiresAt)}</small></div><button class="device-remove" on:click={() => removeSession(session)} disabled={revokingSession === session.id}>{revokingSession === session.id ? 'Revoking…' : 'Revoke'}</button></div>{/each}</div>{:else if sessionsLoaded}<p class="device-empty">No active website sessions.</p>{/if}
-          {#if sessions.length > 1}<button class="danger-button danger-soft" type="button" on:click={removeAllSessions} disabled={sessionsLoading || !sessionsPassword}>Revoke every session</button>{/if}
-        </div>
-
-      {:else if tab === 'devices'}
-        <div class="recent-auth-note"><strong>Account password required</strong><span>Desktop link and removal actions require a recent confirmation. Linking also requires a verified beta account.</span></div>
-        <label class="inline-password">Account password<input type="password" autocomplete="current-password" bind:value={devicesPassword} placeholder="Required for changes" /></label>
-        {#if deviceError}<p class="auth-error" role="alert">{deviceError}</p>{/if}
-        <div class="panel-section link-section">
-          <p class="account-label">Connect a desktop</p>
-          {#if !desktopLinkReady}
-            <p class="auth-error" role="status">{desktopLinkBlocker}</p>
-            {#if !account.emailVerified}<button class="button button-soft button-sm" type="button" on:click={resendVerification} disabled={working}>{working ? 'Sending…' : 'Send verification email'}</button>{/if}
-          {:else if link?.state === 'pending' && link.code && linkSeconds > 0}
-            <div class="desktop-link-card">
-              <div class="desktop-link-code"><span>One-time code</span><code aria-label={link.code}>{desktopCodeDisplay}</code></div>
-              <div class="desktop-link-expiry" aria-label={`${linkSeconds} seconds remaining`}><span>Expires in</span><strong>{linkCountdown}</strong></div>
-            </div>
-            <p class="panel-hint">Enter it in Sesame Settings before it expires.</p>
-            <div class="account-actions"><button class="button" type="button" on:click={copyDesktopCode}>{copied ? 'Copied' : 'Copy code'}</button><button class="button button-soft" type="button" on:click={makeDesktopLink} disabled={linking || !devicesPassword}>Regenerate</button><button class="device-remove" type="button" on:click={cancelLink} disabled={linking || !devicesPassword}>Cancel</button></div>
-          {:else if link?.state === 'connected'}
-            <div class="link-success" role="status"><strong>Desktop connected</strong><span>The one-time code is closed. You can manage the desktop below.</span></div>
-            <button class="button button-soft" type="button" on:click={makeDesktopLink} disabled={linking || !devicesPassword}>Connect another desktop</button>
-          {:else}
-            <p class="panel-hint">Create a one-time code, then enter it in Sesame Settings. Creating a new code cancels the old one.</p>
-            <button class="button" type="button" on:click={makeDesktopLink} disabled={linking || !devicesPassword}>{linking ? 'Creating…' : link?.state === 'expired' ? 'Create a new code' : 'Create desktop code'}</button>
-          {/if}
-        </div>
-        <div class="panel-section">
-          <div class="device-section-head"><div><p class="account-label">Connected desktops</p><p class="panel-hint">Removing a link does not remove or delete the local vault.</p></div><button class="button button-soft button-sm" type="button" on:click={loadDevices} disabled={devicesLoading}>{devicesLoading ? 'Checking…' : 'Refresh'}</button></div>
-          {#if devices.length > 0}<div class="device-list">{#each devices as device (device.deviceId)}<div class="device-row"><div class="device-details">{#if renameDraftId === device.deviceId}<label class="device-rename-label" for="device-rename-{device.deviceId}">Desktop name</label><input id="device-rename-{device.deviceId}" class="device-rename-input" type="text" bind:value={renameDraftValue} maxlength="64" disabled={renamingDeviceId === device.deviceId} />{:else}<strong>{device.deviceName || 'Sesame desktop'}</strong>{/if}<span>Connected {formatDate(device.connectedAt)}</span><small>Authorization expires {formatDate(device.expiresAt)}</small></div>{#if renameDraftId === device.deviceId}<button class="device-action" on:click={() => renameDevice(device)} disabled={renamingDeviceId === device.deviceId}>{renamingDeviceId === device.deviceId ? 'Saving…' : 'Save name'}</button><button class="device-action" on:click={cancelRename} disabled={renamingDeviceId === device.deviceId}>Cancel</button>{:else}<button class="device-action" on:click={() => startRename(device)} disabled={revokingDeviceId === device.deviceId}>Rename</button><button class="device-remove" on:click={() => removeDevice(device)} disabled={revokingDeviceId === device.deviceId}>{revokingDeviceId === device.deviceId ? 'Removing…' : 'Remove'}</button>{/if}</div>{/each}</div>{:else if devicesLoaded}<p class="device-empty">No desktops connected.</p>{/if}
-        </div>
-
-      {:else if tab === 'activity'}
-        <div class="panel-section">
-          <div class="device-section-head"><div><p class="account-label">Security activity</p><p class="panel-hint">A retained history of account-security changes. It never includes passwords, tokens, vault data, or IP addresses.</p></div><button class="button button-soft button-sm" type="button" on:click={loadActivity} disabled={activityLoading}>{activityLoading ? 'Checking…' : 'Refresh'}</button></div>
-          {#if activityError}<p class="auth-error" role="alert">{activityError}</p>{/if}
-          {#if activity.length > 0}<div class="device-list">{#each activity as event (event.id)}<div class="device-row"><div class="device-details"><strong>{event.type.replaceAll('_', ' ')}</strong><span>{event.label || 'Sesame account'}</span><small>{formatDate(event.createdAt)}</small></div></div>{/each}</div>{:else if activityLoaded}<p class="device-empty">No retained security activity.</p>{/if}
-        </div>
-
+    {#if tab === 'overview'}
+      {#if credentialSetupRequired}
+        <section class="group" aria-labelledby="setup-title">
+          <h2 class="section-title" id="setup-title">Set a password</h2>
+          <p class="group-note">This account has no password yet, so you cannot sign in again after this session ends. Choose one now, or add a passkey on the Security page.</p>
+          <PasswordSetupForm onComplete={() => { credentialSetupRequired = false; notice = 'Password set.' }} />
+        </section>
       {/if}
-    </div>
+      {#if step}
+        <section class="group next-step" aria-labelledby="next-step-title">
+          <h2 class="section-title" id="next-step-title">{step.title}</h2>
+          <p class="group-note">{step.body}</p>
+          {#if step.action || step.secondary}
+            <div class="button-row">
+              {#if step.action?.kind === 'verify-email'}
+                <button class="button" type="button" on:click={resendVerification} disabled={working}>{working ? 'Sending…' : step.action.label}</button>
+              {:else if step.action?.kind === 'tab'}
+                <button class="button" type="button" on:click={() => step.action?.kind === 'tab' && onSelectTab(step.action.tab)}>{step.action.label}</button>
+              {:else if step.action?.kind === 'link'}
+                <a class="button" href={step.action.path}>{step.action.label}</a>
+              {/if}
+              {#if step.secondary}<a class="button button-soft" href={`${siteOrigin}${step.secondary.path}`}>{step.secondary.label}</a>{/if}
+            </div>
+          {/if}
+        </section>
+      {/if}
+      <section class="group" aria-labelledby="details-title">
+        <h2 class="section-title" id="details-title">Account</h2>
+        <dl class="spec-rows">
+          <div><dt>Signed in as</dt><dd><span class="spec-value">{account.email}</span><span class={account.emailVerified ? 'tag tag-ok' : 'tag tag-warn'}>{account.emailVerified ? 'Email verified' : 'Email not verified'}</span></dd></div>
+          <div><dt>Beta access</dt><dd>{betaGranted ? 'Granted' : 'Not granted'}</dd></div>
+          <div><dt>Desktops</dt><dd>{desktopCount === 0 ? 'None connected' : `${desktopCount} connected`}<button class="button button-text button-sm spec-action" type="button" on:click={() => onSelectTab('devices')}>Manage</button></dd></div>
+          <div><dt>Support</dt><dd>{supportUnread > 0 ? `${supportUnread} unread` : 'Up to date'}<a class="button button-text button-sm spec-action" href="/support">Your requests and replies</a></dd></div>
+          <div><dt>Licences</dt><dd>{access?.licences.length ? access.licences.length : 'None yet'}{#if !access?.licences.length}<span class="spec-note">Purchases will show here when sales open.</span>{/if}</dd></div>
+        </dl>
+      </section>
+      <section class="group danger-zone" aria-labelledby="delete-title">
+        <h2 class="section-title" id="delete-title">Delete website account</h2>
+        <p class="group-note">Deletes sessions, eligibility, licences, and desktop links. Local vaults are untouched.</p>
+        {#if !deleteOpen}
+          <button class="button button-danger-text button-flush" type="button" on:click={() => { deleteOpen = true; deleteError = '' }}>Delete account</button>
+        {:else}
+          <form class="account-form" on:submit|preventDefault={confirmDelete}>
+            <label>Account password<input type="password" autocomplete="current-password" bind:value={deletePassword} required /></label>
+            <label>Type DELETE<input type="text" autocomplete="off" bind:value={deleteConfirm} /></label>
+            {#if deleteError}<p class="inline-notice inline-danger" role="alert"><Icon name="error" size={15} />{deleteError}</p>{/if}
+            <div class="button-row"><button class="button button-danger" type="submit" disabled={deleting || deleteConfirm !== 'DELETE' || !deletePassword}>{deleting ? 'Deleting…' : 'Delete permanently'}</button><button class="button button-secondary" type="button" on:click={() => { deleteOpen = false; deletePassword = ''; deleteConfirm = '' }}>Cancel</button></div>
+          </form>
+        {/if}
+      </section>
+
+    {:else if tab === 'security'}
+      <section class="group" aria-labelledby="signin-title">
+        <h2 class="section-title" id="signin-title">Sign-in</h2>
+        {#if passwordError}<p class="inline-notice inline-danger group-alert" role="alert"><Icon name="error" size={15} />{passwordError}</p>{/if}
+        <div class="rows">
+          <div class="settings-row">
+            <div class="row-text"><h3 class="row-title" id="email-title">Email address</h3><p class="row-meta">{account.email}</p></div>
+            <button class="button button-secondary button-sm" type="button" aria-expanded={emailFormOpen} aria-controls="email-form" on:click={() => (emailFormOpen = !emailFormOpen)}>Change email</button>
+            {#if emailFormOpen}
+              <form id="email-form" class="account-form row-form" aria-labelledby="email-title" on:submit|preventDefault={startEmailChange}>
+                <label>New email<input type="email" autocomplete="email" bind:value={newEmail} required maxlength="254" /></label>
+                <label>Account password<input type="password" autocomplete="current-password" bind:value={securityPassword} required /></label>
+                <div class="button-row"><button class="button button-secondary" type="submit" disabled={securityBusy}>Send confirmation to new email</button></div>
+              </form>
+            {/if}
+          </div>
+          <div class="settings-row">
+            <div class="row-text"><h3 class="row-title" id="password-title">Password</h3><p class="row-meta">Changing it signs out every other session.</p></div>
+            <button class="button button-secondary button-sm" type="button" aria-expanded={passwordFormOpen} aria-controls="password-form" on:click={() => (passwordFormOpen = !passwordFormOpen)}>Change password</button>
+            {#if passwordFormOpen}
+              <form id="password-form" class="account-form row-form" aria-labelledby="password-title" on:submit|preventDefault={submitPassword}>
+                <label>Current password<input type="password" autocomplete="current-password" bind:value={currentPassword} required /></label>
+                <label>New password<input type="password" autocomplete="new-password" bind:value={newPassword} minlength="12" required /></label>
+                <label>Confirm new password<input type="password" autocomplete="new-password" bind:value={confirmPassword} required /></label>
+                <div class="button-row"><button class="button" type="submit" disabled={passwordSaving}>{passwordSaving ? 'Saving…' : 'Update password and revoke other sessions'}</button></div>
+              </form>
+            {/if}
+          </div>
+        </div>
+      </section>
+      {#if canUsePasskey}
+        <section class="group" aria-labelledby="passkeys-title">
+          <h2 class="section-title" id="passkeys-title">Passkeys</h2>
+          <p class="group-note">Passkeys sign in to this website account. They do not unlock the desktop vault.</p>
+          {#if passkeyError}<p class="inline-notice inline-danger group-alert" role="alert"><Icon name="error" size={15} />{passkeyError}</p>{/if}
+          {#if passkeys.length > 0}
+            <ul class="rows">
+              {#each passkeys as passkey (passkey.id)}
+                <li class="list-row" class:confirming={passkeyConfirmId === passkey.id}>
+                  {#if passkeyConfirmId === passkey.id}
+                    <div class="row-text"><p class="row-title">Remove the passkey "{passkey.name}"?</p> <p class="row-meta">It can no longer sign in to this account.</p></div>
+                    <div class="row-actions"><label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={securityPassword} bind:this={passkeyPasswordInput} disabled={securityBusy} /></label><button class="button button-danger" type="button" on:click={() => removePasskey(passkey.id)} disabled={securityBusy}>{removingPasskeyId === passkey.id ? 'Removing…' : 'Remove passkey'}</button><button class="button button-secondary" type="button" on:click={keepPasskey} disabled={securityBusy}>Cancel</button></div>
+                    {#if passkeyRowError}<p class="inline-notice inline-danger row-error" role="alert"><Icon name="error" size={15} />{passkeyRowError}</p>{/if}
+                  {:else}
+                    <div class="row-text"><p class="row-name"><strong>{passkey.name}</strong></p><p class="row-meta row-facts">added {formatDate(passkey.createdAt)}</p></div>
+                    <div class="row-actions"><button class="button button-danger-text" type="button" on:click={() => askRemovePasskey(passkey.id)} disabled={securityBusy}>Remove</button></div>
+                  {/if}
+                </li>
+              {/each}
+            </ul>
+          {:else if passkeysLoaded}<p class="rows-empty">No passkeys.</p>{/if}
+          <form class="account-form inline-form" on:submit|preventDefault={addPasskey}>
+            <label>Name<input type="text" bind:value={newPasskeyName} maxlength="64" placeholder="This laptop" /></label>
+            <label>Account password<input type="password" autocomplete="current-password" bind:value={securityPassword} required /></label>
+            <button class="button button-secondary" type="submit" disabled={securityBusy}>Add passkey</button>
+          </form>
+        </section>
+      {/if}
+      <section class="group" aria-labelledby="notifications-title">
+        <h2 class="section-title" id="notifications-title">Email notifications</h2>
+        <p class="group-note">Security notices such as sign-ins and account changes are always sent. Choose optional updates below.</p>
+        {#if notificationPreferencesError}<p class="inline-notice inline-danger group-alert" role="alert"><Icon name="error" size={15} />{notificationPreferencesError}</p>{/if}
+        <div class="check-rows" role="group" aria-label="Optional email notifications">
+          <label class="check-row"><input class="check-input" type="checkbox" bind:checked={notificationPreferences.betaReleases} disabled={!notificationPreferencesLoaded} /><span class="check-box" aria-hidden="true"><Icon name="check" size={12} /></span><span>New beta releases</span></label>
+          <label class="check-row"><input class="check-input" type="checkbox" bind:checked={notificationPreferences.supportReplies} disabled={!notificationPreferencesLoaded} /><span class="check-box" aria-hidden="true"><Icon name="check" size={12} /></span><span>Support replies</span></label>
+          <label class="check-row"><input class="check-input" type="checkbox" bind:checked={notificationPreferences.productAnnouncements} disabled={!notificationPreferencesLoaded} /><span class="check-box" aria-hidden="true"><Icon name="check" size={12} /></span><span>Product announcements</span></label>
+        </div>
+        {#if supportReplyNoticeVisible}
+          <Notice title="Reply email is now on for this account." body="You get an email when support answers a request." role="status">
+            <button slot="action" class="button button-secondary button-sm" type="button" on:click={dismissSupportReplyNotice}>Got it</button>
+          </Notice>
+        {/if}
+        <div class="button-row"><button class="button button-secondary button-sm" type="button" on:click={saveNotificationPreferences} disabled={notificationPreferencesSaving || !notificationPreferencesLoaded}>{notificationPreferencesSaving ? 'Saving…' : 'Save preferences'}</button></div>
+      </section>
+
+    {:else if tab === 'sessions'}
+      <section class="group" aria-labelledby="sessions-title">
+        <div class="group-head"><div><h2 class="section-title" id="sessions-title">Website sessions</h2><p class="group-note">Browsers signed in to {siteHost}. Desktop links are listed separately.</p></div><button class="button button-secondary button-sm" type="button" on:click={loadSessions} disabled={sessionsBusy}>{sessionsLoading ? 'Checking…' : 'Refresh'}</button></div>
+        {#if sessionError}<p class="inline-notice inline-danger group-alert" role="alert"><Icon name="error" size={15} />{sessionError}</p>{/if}
+        {#if sessions.length > 0}
+          <ul class="rows">
+            {#each sessions as session (session.id)}
+              <li class="list-row" class:confirming={sessionConfirmId === session.id}>
+                {#if sessionConfirmId === session.id}
+                  <div class="row-text"><p class="row-title">{session.current ? 'Revoke this session?' : `Revoke ${session.label || 'this browser session'}?`}</p> <p class="row-meta">{session.current ? 'This browser is signed out and goes back to the sign-in page.' : 'That browser is signed out of this account.'}</p></div>
+                  <div class="row-actions"><label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={sessionsPassword} bind:this={sessionsPasswordInput} disabled={sessionsBusy} /></label><button class="button button-danger" type="button" on:click={() => removeSession(session)} disabled={sessionsBusy}>{revokingSession === session.id ? 'Revoking…' : 'Revoke session'}</button><button class="button button-secondary" type="button" on:click={keepSession} disabled={sessionsBusy}>Cancel</button></div>
+                  {#if sessionRowError}<p class="inline-notice inline-danger row-error" role="alert"><Icon name="error" size={15} />{sessionRowError}</p>{/if}
+                {:else}
+                  <div class="row-text"><p class="row-name"><strong>{session.label || 'Browser session'}</strong>{#if session.current}<span class="tag">This browser</span>{/if}</p><p class="row-meta row-facts"><span>last used {formatDate(session.lastSeenAt)}</span><span>expires {formatDate(session.expiresAt)}</span></p></div>
+                  <div class="row-actions"><button class="button button-danger-text" type="button" on:click={() => askRevokeSession(session)} disabled={sessionsBusy}>Revoke</button></div>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {:else if sessionsLoaded}<p class="rows-empty">No active website sessions.</p>{/if}
+        {#if sessions.length > 1}
+          {#if revokeAllConfirm}
+            <div class="list-row confirming" role="group" aria-labelledby="revoke-all-title">
+              <div class="row-text"><p class="row-title" id="revoke-all-title">Revoke every session?</p> <p class="row-meta">Every browser is signed out of this account, this one included, and this browser goes back to the sign-in page.</p></div>
+              <div class="row-actions"><label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={sessionsPassword} bind:this={revokeAllPasswordInput} disabled={sessionsBusy} /></label><button class="button button-danger" type="button" on:click={removeAllSessions} disabled={sessionsBusy}>{sessionsLoading ? 'Revoking…' : 'Revoke every session'}</button><button class="button button-secondary" type="button" on:click={keepAllSessions} disabled={sessionsBusy}>Cancel</button></div>
+              {#if revokeAllError}<p class="inline-notice inline-danger row-error" role="alert"><Icon name="error" size={15} />{revokeAllError}</p>{/if}
+            </div>
+          {:else}
+            <button class="button button-danger-text button-flush" type="button" on:click={askRevokeAllSessions} disabled={sessionsBusy}>Revoke every session</button>
+            <p class="field-hint">Revoking every session signs out each browser, this one included. It needs your account password.</p>
+          {/if}
+        {/if}
+      </section>
+
+    {:else if tab === 'devices'}
+      {#if deviceError && !renameDraftId}<p class="inline-notice inline-danger" role="alert"><Icon name="error" size={15} />{deviceError}</p>{/if}
+      <section class="group" aria-labelledby="connect-title">
+        <h2 class="section-title" id="connect-title">Connect a desktop</h2>
+        {#if !desktopLinkReady}
+          <Notice title={desktopLinkBlocker} role="status">
+            <svelte:fragment slot="action">{#if !account.emailVerified}<button class="button button-secondary button-sm" type="button" on:click={resendVerification} disabled={working}>{working ? 'Sending…' : 'Send verification email'}</button>{/if}</svelte:fragment>
+          </Notice>
+        {:else if link?.state === 'pending' && link.code && linkSeconds > 0}
+          <div class="code-card">
+            <div class="code-card-head">
+              <div><p class="code-card-title">Desktop code</p><p class="code-card-hint">Enter it in Sesame Settings before it expires.</p></div>
+              <p class="code-time" aria-label={`${linkSeconds} seconds remaining`}><span class="code-time-value">{linkCountdown}</span><span class="code-time-label">left</span></p>
+            </div>
+            <svg class="code-time-bar" viewBox="0 0 100 3" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="code-time-track" width="100" height="3" /><rect class="code-time-fill" width={linkFraction * 100} height="3" /></svg>
+            <code class="code-groups"><span class="visually-hidden">{link.code}</span><span class="code-group-row" aria-hidden="true">{#if desktopCode.prefix}<span class="code-prefix">{desktopCode.prefix}</span>{/if}{#each desktopCode.groups as group, index (index)}<span class="code-group">{group}</span>{/each}</span></code>
+            <div class="code-card-foot">
+              <p class="inline-notice inline-info"><Icon name="info" size={15} />Works once, for one desktop.</p>
+              <button class="button button-secondary button-sm" type="button" on:click={copyDesktopCode}><Icon name="copy" size={14} />{copied ? 'Copied' : 'Copy code'}</button>
+            </div>
+            <div class="code-card-manage">
+              <label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={devicesPassword} disabled={deviceRowBusy} /></label>
+              <div class="code-card-actions"><button class="button button-text button-sm" type="button" on:click={makeDesktopLink} disabled={deviceRowBusy || !devicesPassword}>Regenerate</button><button class="button button-danger-text button-sm" type="button" on:click={cancelLink} disabled={deviceRowBusy || !devicesPassword}>Cancel</button></div>
+            </div>
+          </div>
+        {:else if link?.state === 'connected'}
+          <Notice kind="ok" title="Desktop connected" body="The one-time code is closed. You can manage the desktop below." role="status" />
+          <div class="password-action">
+            <label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={devicesPassword} disabled={deviceRowBusy} /></label>
+            <button class="button button-secondary" type="button" on:click={makeDesktopLink} disabled={deviceRowBusy || !devicesPassword}>Connect another desktop</button>
+          </div>
+        {:else}
+          <div class="password-action">
+            <label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={devicesPassword} disabled={deviceRowBusy} /></label>
+            <button class="button" type="button" on:click={makeDesktopLink} disabled={deviceRowBusy || !devicesPassword}>{linking ? 'Creating…' : link?.state === 'expired' ? 'Create a new code' : 'Create desktop code'}</button>
+          </div>
+          <p class="field-hint">You enter the code in Sesame Settings, and a new code cancels the old one.</p>
+        {/if}
+      </section>
+      <section class="group" aria-labelledby="desktops-title">
+        <div class="group-head"><div><h2 class="section-title" id="desktops-title">Connected desktops</h2><p class="group-note">Removing a link does not remove or delete the local vault.</p></div><button class="button button-secondary button-sm" type="button" on:click={loadDevices} disabled={devicesLoading}>{devicesLoading ? 'Checking…' : 'Refresh'}</button></div>
+        {#if devices.length > 0}
+          <ul class="rows">
+            {#each devices as device (device.deviceId)}
+              <li class="list-row" class:confirming={deviceConfirmId === device.deviceId}>
+                {#if deviceConfirmId === device.deviceId}
+                  <div class="row-text"><p class="row-title">Remove {device.deviceName || 'this Sesame desktop'}?</p> <p class="row-meta">It is disconnected from this account until you connect it again with a new code. The vault on that computer is not touched.</p></div>
+                  <div class="row-actions"><label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={devicesPassword} bind:this={devicesPasswordInput} disabled={deviceRowBusy} /></label><button class="button button-danger" type="button" on:click={() => removeDevice(device)} disabled={deviceRowBusy}>{revokingDeviceId === device.deviceId ? 'Removing…' : 'Remove desktop'}</button><button class="button button-secondary" type="button" on:click={keepDevice} disabled={deviceRowBusy}>Cancel</button></div>
+                  {#if deviceRowError}<p class="inline-notice inline-danger row-error" role="alert"><Icon name="error" size={15} />{deviceRowError}</p>{/if}
+                {:else}
+                  <div class="row-text">
+                    {#if renameDraftId === device.deviceId}<label class="row-rename-label" for="device-rename-{device.deviceId}">Desktop name</label><input id="device-rename-{device.deviceId}" class="row-rename-input" type="text" bind:value={renameDraftValue} maxlength="64" disabled={deviceRowBusy} /><label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={devicesPassword} disabled={deviceRowBusy} /></label>{#if deviceError}<p class="inline-notice inline-danger" role="alert"><Icon name="error" size={15} />{deviceError}</p>{/if}{:else}<p class="row-name"><strong>{device.deviceName || 'Sesame desktop'}</strong></p>{/if}
+                    <p class="row-meta row-facts">{#if device.platform}<span>{platformName(device.platform)}</span>{/if}{#if device.appVersion}<span class="version">{device.appVersion}</span>{/if}<span>connected {formatDate(device.connectedAt)}</span><span>authorization expires {formatDate(device.expiresAt)}</span></p>
+                  </div>
+                  <div class="row-actions">{#if renameDraftId === device.deviceId}<button class="button button-text" type="button" on:click={() => renameDevice(device)} disabled={deviceRowBusy}>{renamingDeviceId === device.deviceId ? 'Saving…' : 'Save name'}</button><button class="button button-text" type="button" on:click={cancelRename} disabled={deviceRowBusy}>Cancel</button>{:else}<button class="button button-text" type="button" on:click={() => startRename(device)} disabled={deviceRowBusy}>Rename</button><button class="button button-danger-text" type="button" on:click={() => askRemoveDevice(device)} disabled={deviceRowBusy}>Remove</button>{/if}</div>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {:else if devicesLoaded}
+          <div class="empty-state"><h3>No desktops yet</h3><p>Connect the desktop app to see it here. Your vault stays on that computer either way.</p></div>
+        {/if}
+      </section>
+
+    {:else if tab === 'activity'}
+      <section class="group" aria-labelledby="activity-title">
+        <div class="group-head"><div><h2 class="section-title" id="activity-title">Security activity</h2><p class="group-note">A retained history of account-security changes. It never includes passwords, tokens, vault data, or IP addresses.</p></div><button class="button button-secondary button-sm" type="button" on:click={loadActivity} disabled={activityLoading}>{activityLoading ? 'Checking…' : 'Refresh'}</button></div>
+        {#if activityError}<Notice kind="danger" title={activityError} role="alert" />{/if}
+        {#if activity.length > 0}
+          <ul class="rows">
+            {#each activity as event (event.id)}
+              {@const described = describeActivity(event)}
+              <li class="list-row activity-row"><div class="row-text"><p class="row-name"><strong>{described.title}</strong></p>{#if described.detail}<p class="row-meta">{described.detail}</p>{/if}</div><time class="row-time" datetime={event.createdAt}>{formatDate(event.createdAt)}</time></li>
+            {/each}
+          </ul>
+        {:else if activityLoaded}<p class="rows-empty">No retained security activity.</p>{/if}
+      </section>
+    {/if}
   {:else if authState.state === 'loading'}
-    <div class="account-panel card account-loading" role="status"><span class="session-spinner" aria-hidden="true"></span><div><h2>Loading your account</h2></div></div>
+    <div class="page-loading" role="status"><span class="session-spinner" aria-hidden="true"></span><p>Loading your account</p></div>
   {:else if authState.state === 'offline' || authState.state === 'error'}
-    <div class="account-panel card signed-out" role="status"><h2>Account service unavailable</h2><p>{authState.state === 'offline' ? 'Reconnect and try again. Your session has not been signed out.' : authState.error.message}</p><button class="button button-soft" type="button" on:click={() => window.location.reload()}>Try again</button></div>
+    <Notice kind="danger" title="Account service unavailable" body={authState.state === 'offline' ? 'Reconnect and try again. Your session has not been signed out.' : authState.error.message} role="status">
+      <button slot="action" class="button button-secondary button-sm" type="button" on:click={() => window.location.reload()}>Try again</button>
+    </Notice>
   {:else}
-    <div class="account-panel card signed-out"><h2>You are signed out</h2><p>Sign in to manage website services.</p><a class="button" href="/login">Sign in</a></div>
+    <section class="group"><h2 class="section-title">You are signed out</h2><p class="group-note">Sign in to manage website services.</p><div class="button-row"><a class="button" href="/login">Sign in</a></div></section>
   {/if}
-</section>
+</div>

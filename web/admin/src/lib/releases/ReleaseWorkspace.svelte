@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Release } from '../types'
+  import { auditActor, releaseAudience, sentenceCase } from '../labels'
 
   type Command = 'publish' | 'rollout' | 'emergency-stop' | 'withdraw'
 
@@ -10,8 +11,17 @@
     return platform === 'linux' ? 'Linux' : 'Windows'
   }
 
-  function commandLabel(command: Command) {
-    return command === 'emergency-stop' ? 'emergency stop' : command.replace('-', ' ')
+  function confirmSentence(release: Release, command: Command) {
+    const audience = releaseAudience(release)
+    if (command === 'publish') return `Publish ${release.version}? ${audience} can then be offered it. This is written to the audit log.`
+    if (command === 'emergency-stop') return `Stop ${release.version} now? ${audience} stop being offered it at once. This is written to the audit log.`
+    return `Withdraw ${release.version}? ${audience} stop being offered it, and the release is marked withdrawn. This is written to the audit log.`
+  }
+
+  function confirmLabel(command: Command) {
+    if (command === 'publish') return 'Publish now'
+    if (command === 'emergency-stop') return 'Stop now'
+    return 'Withdraw release'
   }
 
   function requestCommand(release: Release, command: Command) {
@@ -35,7 +45,7 @@
       <header class="release-card-head">
         <div class="release-card-title">
           <strong>Sesame {release.version}</strong>
-          <span class="badge" data-status={release.status}>{release.status}</span>
+          <span class="badge" data-status={release.status}>{sentenceCase(release.status)}</span>
         </div>
         <div class="release-card-meta">
           <span>{platformLabel(release.platform)}</span>
@@ -59,7 +69,7 @@
             <h3>Recent activity</h3>
             <ul class="release-activity">
               {#each release.audit as entry (entry.id)}
-                <li>{entry.action.replace('release.', '').replaceAll('_', ' ')} by {entry.adminEmail || 'release pipeline'}</li>
+                <li>{entry.action.replace('release.', '').replaceAll('_', ' ')} by {entry.adminEmail || auditActor(entry).toLowerCase()}</li>
               {/each}
             </ul>
           {/if}
@@ -87,11 +97,11 @@
               <p class="empty">No commands for a release in this state.</p>
             {/if}
             {#if pending?.releaseID === release.id}
-              <div class="confirm-strip">
-                <p>Confirm {commandLabel(pending?.command ?? 'publish')} for {release.version}. This is written to the audit log.</p>
-                <div class="release-actions">
-                  <button class="danger" onclick={() => confirm(release)}>Confirm</button>
-                  <button onclick={() => (pending = null)}>Cancel</button>
+              <div class="confirm-strip" role="group" aria-label="Confirm the change">
+                <p>{confirmSentence(release, pending.command)}</p>
+                <div class="confirm-actions">
+                  <button class={pending.command === 'publish' ? 'primary' : 'destructive'} onclick={() => confirm(release)}>{confirmLabel(pending.command)}</button>
+                  <button class="quiet-button" onclick={() => (pending = null)}>Cancel</button>
                 </div>
               </div>
             {/if}

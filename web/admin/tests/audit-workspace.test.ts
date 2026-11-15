@@ -57,9 +57,9 @@ afterEach(() => {
   delete (URL as unknown as Record<string, unknown>).revokeObjectURL
 })
 
-test('loads the full audit log and renders deleted administrators', async () => {
+test('loads the full audit log and names actors without an administrator', async () => {
   mockApp((path) => path.startsWith('/v1/admin/audit?')
-    ? { entries: [entry(), entry({ id: 2, adminEmail: '', action: 'user.delete', targetType: 'user', targetId: undefined })] }
+    ? { entries: [entry(), entry({ id: 2, adminEmail: '', action: 'user.delete', targetType: 'user', targetId: undefined }), entry({ id: 3, adminEmail: '', action: 'release.candidate_accepted', targetType: 'release', targetId: 'release-test' })] }
     : {})
   render(App)
   await fireEvent.click(await screen.findByRole('button', { name: 'Audit log' }))
@@ -67,8 +67,10 @@ test('loads the full audit log and renders deleted administrators', async () => 
   expect(api.request).toHaveBeenCalledWith('/v1/admin/audit?size=100')
   expect(screen.getByText('ops@example.invalid', { selector: 'td' })).toBeTruthy()
   expect(screen.getByText('user user-test')).toBeTruthy()
-  expect(screen.getByText('Deleted admin')).toBeTruthy()
-  expect(screen.getByText('2 results on this page')).toBeTruthy()
+  expect(screen.getByText('System')).toBeTruthy()
+  expect(screen.getByText('Release pipeline')).toBeTruthy()
+  expect(screen.queryByText('Deleted admin')).toBeNull()
+  expect(screen.getByText('3 results on this page')).toBeTruthy()
 })
 
 test('scopes the audit log to the operator without full access', async () => {
