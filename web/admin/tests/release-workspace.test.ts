@@ -39,12 +39,26 @@ test('confirms publication and emergency stop', async () => {
   const { rerender } = render(ReleaseWorkspace, { releases: [release()], canManage: true, onCommand })
   await fireEvent.click(screen.getByRole('button', { name: 'Publish' }))
   expect(onCommand).not.toHaveBeenCalled()
-  await fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+  expect(screen.getByText('Publish 0.2.3? Windows devices on the beta channel can then be offered it. This is written to the audit log.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Publish now' }))
   expect(onCommand).toHaveBeenCalledWith(expect.objectContaining({ id: 'release-test' }), 'publish')
   rerender({ releases: [release({ status: 'published' })], canManage: true, onCommand })
   await fireEvent.click(screen.getByRole('button', { name: 'Emergency stop' }))
-  await fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+  expect(screen.getByText('Stop 0.2.3 now? Windows devices on the beta channel stop being offered it at once. This is written to the audit log.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Stop now' }))
   expect(onCommand).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'release-test' }), 'emergency-stop')
+})
+
+test('makes the confirming action the clear button and sends nothing on cancel', async () => {
+  const onCommand = vi.fn()
+  render(ReleaseWorkspace, { releases: [release({ status: 'published', platform: 'linux' })], canManage: true, onCommand })
+  await fireEvent.click(screen.getByRole('button', { name: 'Withdraw' }))
+  expect(screen.getByText('Withdraw 0.2.3? Linux devices on the beta channel stop being offered it, and the release is marked withdrawn. This is written to the audit log.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Withdraw release' }).className).toContain('destructive')
+  expect(screen.getByRole('button', { name: 'Cancel' }).className).toContain('quiet-button')
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('button', { name: 'Withdraw release' })).toBeNull()
+  expect(onCommand).not.toHaveBeenCalled()
 })
 
 test('sends rollout without immutable fields', async () => {

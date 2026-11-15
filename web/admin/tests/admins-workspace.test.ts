@@ -68,15 +68,32 @@ test('creates a one-time setup link for an invitation', async () => {
   expect(await screen.findByText('Administrator invited. Share the one-time link through a trusted channel.')).toBeTruthy()
 })
 
-test('changes an administrator role', async () => {
+test('stages a role change and sends it only after confirmation', async () => {
   mockApp((path) => path === '/v1/admin/admins' ? { admins: [admin(), other] } : {})
   api.mutate.mockResolvedValue({})
   render(App)
   await fireEvent.click(await screen.findByRole('button', { name: 'Administrators' }))
   const row = (await screen.findByText('support@example.invalid')).closest('.setting-row') as HTMLElement
-  await fireEvent.change(within(row).getByDisplayValue('support'), { target: { value: 'ops' } })
+  await fireEvent.change(within(row).getByDisplayValue('Support'), { target: { value: 'ops' } })
+  expect(api.mutate).not.toHaveBeenCalled()
+  expect(screen.getByText('Change support@example.invalid from Support to Operations? What they can see and change follows the new role at once.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Change role' }))
+  expect(api.mutate).toHaveBeenCalledTimes(1)
   expect(api.mutate).toHaveBeenCalledWith('/v1/admin/admins/admin-support', 'PATCH', { role: 'ops', suspended: false })
   expect(await screen.findByText('Administrator updated.')).toBeTruthy()
+})
+
+test('cancelling a staged role change sends nothing and restores the role', async () => {
+  mockApp((path) => path === '/v1/admin/admins' ? { admins: [admin(), other] } : {})
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Administrators' }))
+  const row = (await screen.findByText('support@example.invalid')).closest('.setting-row') as HTMLElement
+  const select = within(row).getByDisplayValue('Support') as HTMLSelectElement
+  await fireEvent.change(select, { target: { value: 'super' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(select.value).toBe('support')
+  expect(screen.queryByRole('button', { name: 'Change role' })).toBeNull()
+  expect(api.mutate).not.toHaveBeenCalled()
 })
 
 test('suspends and unsuspends another administrator', async () => {
@@ -105,7 +122,7 @@ test('disables self-service suspension and deletion', async () => {
   expect((within(row).getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
-test('deletes an administrator only after confirmation', async () => {
+test('deletes an administrator only after the inline confirmation', async () => {
   const confirmMock = vi.fn(() => true)
   vi.stubGlobal('confirm', confirmMock)
   mockApp((path) => path === '/v1/admin/admins' ? { admins: [admin(), other] } : {})
@@ -114,9 +131,23 @@ test('deletes an administrator only after confirmation', async () => {
   await fireEvent.click(await screen.findByRole('button', { name: 'Administrators' }))
   const row = (await screen.findByText('support@example.invalid')).closest('.setting-row') as HTMLElement
   await fireEvent.click(within(row).getByRole('button', { name: 'Delete' }))
-  expect(confirmMock).toHaveBeenCalledWith('Delete the administrator support@example.invalid? Their audit entries will remain.')
+  expect(api.mutate).not.toHaveBeenCalled()
+  expect(screen.getByText('Delete the administrator support@example.invalid? They lose access at once, and their audit entries remain.')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Delete administrator' }))
+  expect(confirmMock).not.toHaveBeenCalled()
   expect(api.mutate).toHaveBeenCalledWith('/v1/admin/admins/admin-support', 'DELETE')
   expect(await screen.findByText('Administrator deleted.')).toBeTruthy()
+})
+
+test('keeps the administrator when deletion is cancelled', async () => {
+  mockApp((path) => path === '/v1/admin/admins' ? { admins: [admin(), other] } : {})
+  render(App)
+  await fireEvent.click(await screen.findByRole('button', { name: 'Administrators' }))
+  const row = (await screen.findByText('support@example.invalid')).closest('.setting-row') as HTMLElement
+  await fireEvent.click(within(row).getByRole('button', { name: 'Delete' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('button', { name: 'Delete administrator' })).toBeNull()
+  expect(api.mutate).not.toHaveBeenCalled()
 })
 
 test('readonly staff see administrators without controls', async () => {
@@ -127,5 +158,5 @@ test('readonly staff see administrators without controls', async () => {
   expect(screen.queryByRole('heading', { name: 'Invite an administrator' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Delete' })).toBeNull()
-  expect((screen.getByDisplayValue('support') as HTMLSelectElement).disabled).toBe(true)
+  expect((screen.getByDisplayValue('Support') as HTMLSelectElement).disabled).toBe(true)
 })

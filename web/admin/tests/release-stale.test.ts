@@ -26,7 +26,7 @@ test('reloads releases after a stale command', async () => {
   render(App)
   await fireEvent.click(await screen.findByRole('button', { name: 'Releases' }))
   await fireEvent.click(await screen.findByRole('button', { name: 'Publish' }))
-  await fireEvent.click(await screen.findByRole('button', { name: 'Confirm' }))
+  await fireEvent.click(await screen.findByRole('button', { name: 'Publish now' }))
   expect(await screen.findByText('Release state reloaded. Try the command again.')).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('/v1/admin/releases')
 })

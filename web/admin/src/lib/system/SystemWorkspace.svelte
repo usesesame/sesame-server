@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { OperationalSnapshot, OperationalStatus, SystemMailConfig } from '../types'
+  import { sentenceCase } from '../labels'
 
   type Failure = '' | 'unavailable' | 'unauthorized'
   type State = { label: string; status: OperationalStatus; detail: string; action: string }
@@ -7,7 +8,7 @@
   const props: { snapshot: OperationalSnapshot | null; mail?: SystemMailConfig | null; failure: Failure } = $props()
 
   function statusText(status: OperationalStatus) {
-    return status.replace('_', ' ')
+    return sentenceCase(status)
   }
 
   function maintenanceAge(value?: string) {

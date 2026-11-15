@@ -59,6 +59,7 @@ async function triggerFlagChange() {
   render(App)
   await fireEvent.click(await screen.findByRole('button', { name: 'Feature flags' }))
   await fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'public' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Apply change' }))
   return screen.findByRole('dialog')
 }
 
