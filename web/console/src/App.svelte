@@ -46,8 +46,10 @@
   let unavailableMessage = $state('')
   let navMore = $state<'none' | 'start' | 'end' | 'both'>('none')
   let navNode = $state<HTMLElement>()
+  let navResizes = $state(0)
 
   $effect(() => {
+    void navResizes
     if (phase !== 'app' || !navNode) return
     const link = navNode.querySelector<HTMLElement>(`a[href="#/${view}"]`)
     if (!link || navNode.scrollWidth <= navNode.clientWidth) return
@@ -63,10 +65,16 @@
       const after = node.scrollLeft < max - 4
       navMore = max <= 4 ? 'none' : before && after ? 'both' : before ? 'start' : 'end'
     }
+    const resized = () => {
+      update()
+      navResizes += 1
+    }
     update()
     node.addEventListener('scroll', update, { passive: true })
-    window.addEventListener('resize', update)
-    return { destroy: () => { node.removeEventListener('scroll', update); window.removeEventListener('resize', update) } }
+    window.addEventListener('resize', resized)
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(resized) : null
+    observer?.observe(node)
+    return { destroy: () => { node.removeEventListener('scroll', update); window.removeEventListener('resize', resized); observer?.disconnect() } }
   }
 
   function readView(): ViewId {

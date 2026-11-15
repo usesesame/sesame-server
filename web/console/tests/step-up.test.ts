@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte'
 import { expect, test } from 'vitest'
 import { apiError, json } from './support/fake-api'
 import { openApp, useCleanApp } from './support/app'
+import { mutate } from '../src/lib/api'
 
 useCleanApp()
 
@@ -89,4 +90,53 @@ test('clears the password and code fields after the prompt closes', async () => 
   dialog = await screen.findByRole('dialog')
   expect((within(dialog).getByLabelText('Password') as HTMLInputElement).value).toBe('')
   expect((within(dialog).getByLabelText(/^Six-digit code/) as HTMLInputElement).value).toBe('')
+})
+
+test('names every pending action when a second gated request joins the open prompt', async () => {
+  let invites = 0
+  let syncPatches = 0
+  const { calls } = openApp('/', {
+    'POST /v1/owner/owners': () => (++invites === 1 ? stepUpNeeded() : json(invite, 201)),
+    'PATCH /v1/owner/flags/sync_enabled': () => (++syncPatches === 1 ? stepUpNeeded() : json({ key: 'sync_enabled', description: 'Sync between devices', enabled: false, updatedAt: '2026-11-15T00:00:00Z' })),
+    'POST /v1/owner/step-up': () => json({ ok: true }),
+  })
+  const dialog = await startInvite()
+  expect(within(dialog).getByText('Enter your password and a current code to invite Sam Okafor as an owner.')).toBeTruthy()
+  const syncOff = mutate('/v1/owner/flags/sync_enabled', 'PATCH', { enabled: false })
+  expect(await within(dialog).findByText('Enter your password and a current code to approve all of these actions:')).toBeTruthy()
+  expect(within(dialog).queryByText('Enter your password and a current code to invite Sam Okafor as an owner.')).toBeNull()
+  const items = within(dialog).getAllByRole('listitem').map((item) => item.textContent)
+  expect(items).toEqual(['Invite Sam Okafor as an owner', 'Turn off Sync for every device'])
+  await confirm(dialog)
+  await syncOff
+  expect(await screen.findByText('Setup link for Sam Okafor')).toBeTruthy()
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(calls.filter((call) => call.path === '/v1/owner/step-up')).toHaveLength(1)
+  expect(invites).toBe(2)
+  expect(syncPatches).toBe(2)
+})
+
+test('keeps the prompt open for a gated request that arrives while the confirmation is being checked', async () => {
+  let invites = 0
+  let syncPatches = 0
+  let releaseStepUp: () => void = () => {}
+  const { calls } = openApp('/', {
+    'POST /v1/owner/owners': () => (++invites === 1 ? stepUpNeeded() : json(invite, 201)),
+    'PATCH /v1/owner/flags/sync_enabled': () => (++syncPatches === 1 ? stepUpNeeded() : json({ key: 'sync_enabled', description: 'Sync between devices', enabled: false, updatedAt: '2026-11-15T00:00:00Z' })),
+    'POST /v1/owner/step-up': () => new Promise((done) => { releaseStepUp = () => done(json({ ok: true })) }),
+  })
+  const dialog = await startInvite()
+  await confirm(dialog)
+  await waitFor(() => expect(calls.some((call) => call.path === '/v1/owner/step-up')).toBe(true))
+  const syncOff = mutate('/v1/owner/flags/sync_enabled', 'PATCH', { enabled: false })
+  await waitFor(() => expect(syncPatches).toBe(1))
+  releaseStepUp()
+  expect(await screen.findByText('Setup link for Sam Okafor')).toBeTruthy()
+  const reopened = await screen.findByRole('dialog')
+  expect(within(reopened).getByText('Enter your password and a current code to turn off Sync for every device.')).toBeTruthy()
+  expect((within(reopened).getByLabelText('Password') as HTMLInputElement).value).toBe('')
+  expect(syncPatches).toBe(1)
+  await fireEvent.click(within(reopened).getByRole('button', { name: 'Cancel' }))
+  await expect(syncOff).rejects.toThrow('The action was cancelled.')
+  expect(syncPatches).toBe(1)
 })
