@@ -91,14 +91,12 @@ test('lists what needs attention and opens the queue with that filter', async ()
   expect(await screen.findByRole('heading', { name: 'Needs you' })).toBeTruthy()
   expect(screen.getByRole('button', { name: '1 urgent ticket' })).toBeTruthy()
   expect(screen.getByRole('button', { name: '5 unassigned tickets' })).toBeTruthy()
-  expect(screen.getByText('14 tickets are not closed yet.')).toBeTruthy()
-  expect(screen.queryByRole('button', { name: /not closed/ })).toBeNull()
-  expect(screen.getByRole('button', { name: 'Open the whole queue' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: '14 tickets not closed yet' })).toBeTruthy()
   expect(screen.getByText('1,284')).toBeTruthy()
   expect(screen.getByText('New this week')).toBeTruthy()
   await fireEvent.click(screen.getByRole('button', { name: '1 urgent ticket' }))
   expect(await screen.findByRole('heading', { name: 'Support' })).toBeTruthy()
-  expect(api.request).toHaveBeenCalledWith('/v1/admin/support?size=100&page=1&priority=urgent')
+  expect(api.request).toHaveBeenCalledWith('/v1/admin/support?size=100&page=1&status=not_closed&priority=urgent')
   expect((screen.getByLabelText('Filter by priority') as HTMLSelectElement).value).toBe('urgent')
 })
 
@@ -111,7 +109,7 @@ test('opens the unassigned queue from the overview', async () => {
   })
   render(App)
   await fireEvent.click(await screen.findByRole('button', { name: '5 unassigned tickets' }))
-  expect(api.request).toHaveBeenCalledWith('/v1/admin/support?size=100&page=1&assigned=unassigned')
+  expect(api.request).toHaveBeenCalledWith('/v1/admin/support?size=100&page=1&status=not_closed&assigned=unassigned')
 })
 
 test('shows one message when the overview cannot be loaded', async () => {
@@ -127,20 +125,24 @@ test('shows one message when the overview cannot be loaded', async () => {
   expect(screen.queryByRole('heading', { name: 'Needs you' })).toBeNull()
 })
 
-test('says the not closed count plainly and opens the whole queue without a filter', async () => {
+test('each Needs you line opens the queue without closed tickets', async () => {
   api.request.mockImplementation(async (path: string) => {
     if (path === '/v1/admin/auth/me') return { admin }
-    if (path === '/v1/admin/overview') return { overview: { ...overview, openTickets: 1, urgentTickets: 0, unassignedTickets: 0 } }
+    if (path === '/v1/admin/overview') return { overview: { ...overview, openTickets: 1, urgentTickets: 2, unassignedTickets: 3 } }
     if (path.startsWith('/v1/admin/support?')) return { tickets: [], total: 0 }
     return {}
   })
-  render(App)
-  const line = (await screen.findByText('1 ticket is not closed yet.')).closest('li') as HTMLElement
-  const link = screen.getByRole('button', { name: 'Open the whole queue' })
-  expect(line.contains(link)).toBe(true)
-  expect(line.textContent).toBe('1 ticket is not closed yet.Open the whole queue')
-  await fireEvent.click(link)
-  expect(await screen.findByRole('heading', { name: 'Support' })).toBeTruthy()
-  expect(api.request).toHaveBeenCalledWith('/v1/admin/support?size=100&page=1')
-  expect((screen.getByLabelText('Filter by status') as HTMLSelectElement).value).toBe('')
+  const cases: [string, string][] = [
+    ['1 ticket not closed yet', '/v1/admin/support?size=100&page=1&status=not_closed'],
+    ['2 urgent tickets', '/v1/admin/support?size=100&page=1&status=not_closed&priority=urgent'],
+    ['3 unassigned tickets', '/v1/admin/support?size=100&page=1&status=not_closed&assigned=unassigned'],
+  ]
+  for (const [name, path] of cases) {
+    const view = render(App)
+    await fireEvent.click(await screen.findByRole('button', { name }))
+    expect(await screen.findByRole('heading', { name: 'Support' })).toBeTruthy()
+    expect(api.request).toHaveBeenCalledWith(path)
+    expect((screen.getByLabelText('Filter by status') as HTMLSelectElement).value).toBe('not_closed')
+    view.unmount()
+  }
 })

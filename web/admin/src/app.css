@@ -109,8 +109,6 @@ details summary { cursor: pointer; }
 .need-link, .need-link:hover:not(:disabled), .need-link:active:not(:disabled) { width: 100%; min-height: 44px; justify-content: flex-start; border: 0; border-radius: 0; padding: 0; background: none; box-shadow: none; transform: none; color: var(--accent-link); font-size: var(--type-3); font-weight: var(--weight-medium); text-align: left; }
 .need-link:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 3px; }
 .need-link.urgent { color: var(--danger); }
-.need-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 var(--space-3); color: var(--text-heading); font-size: var(--type-3); }
-.need-row .need-link, .need-row .need-link:hover:not(:disabled), .need-row .need-link:active:not(:disabled) { width: auto; }
 .needs .empty { margin: 0; padding: var(--space-3) 0; border-block: 1px solid var(--border); }
 .figures { display: flex; flex-wrap: wrap; max-width: 640px; gap: var(--space-3) var(--space-6); margin: 0; padding: var(--space-3) 0; border-block: 1px solid var(--border); }
 .figures div { display: grid; gap: 2px; padding: 0; border: 0; }

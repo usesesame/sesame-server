@@ -15,9 +15,9 @@ func (s *Store) Overview(ctx context.Context) (Overview, error) {
 			(SELECT COUNT(*) FROM sesame_accounts WHERE email_verified_at IS NULL),
 			(SELECT COUNT(*) FROM sesame_accounts WHERE suspended_at IS NOT NULL),
 			(SELECT COUNT(*) FROM sesame_admin_sessions WHERE expires_at > NOW()),
-			(SELECT COUNT(*) FROM sesame_support_requests WHERE status IN ('open', 'in_progress', 'waiting')),
-			(SELECT COUNT(*) FROM sesame_support_requests WHERE status IN ('open', 'in_progress', 'waiting') AND assigned_admin_id IS NULL),
-			(SELECT COUNT(*) FROM sesame_support_requests WHERE status IN ('open', 'in_progress', 'waiting') AND priority = 'urgent')
+			(SELECT COUNT(*) FROM sesame_support_requests WHERE `+notClosedTicketCondition+`),
+			(SELECT COUNT(*) FROM sesame_support_requests WHERE `+notClosedTicketCondition+` AND assigned_admin_id IS NULL),
+			(SELECT COUNT(*) FROM sesame_support_requests WHERE `+notClosedTicketCondition+` AND priority = 'urgent')
 	`).Scan(&overview.Users, &overview.NewUsersThisWeek, &overview.BetaUsers, &overview.UnverifiedUsers, &overview.SuspendedUsers, &overview.ActiveAdminSessions, &overview.OpenTickets, &overview.UnassignedTickets, &overview.UrgentTickets)
 	return overview, err
 }

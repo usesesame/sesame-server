@@ -558,7 +558,7 @@
     try { await mutate(`/v1/admin/admins/${admin.id}`, 'DELETE'); await openPage('admins'); showNotice('Administrator deleted.') } catch (reason) { showError(reason) } finally { confirmBusy = false }
   }
 
-  type Need = { text: string; filter: { priority?: string; assigned?: string }; link?: string }
+  type Need = { text: string; filter: { priority?: string; assigned?: string } }
 
   function plural(count: number, one: string, many: string) { return `${formatCount(count)} ${count === 1 ? one : many}` }
 
@@ -569,7 +569,7 @@
     const list: Need[] = []
     if (value.urgentTickets > 0) list.push({ text: plural(value.urgentTickets, 'urgent ticket', 'urgent tickets'), filter: { priority: 'urgent' } })
     if (value.unassignedTickets > 0) list.push({ text: plural(value.unassignedTickets, 'unassigned ticket', 'unassigned tickets'), filter: { assigned: 'unassigned' } })
-    if (value.openTickets > 0) list.push({ text: `${plural(value.openTickets, 'ticket is', 'tickets are')} not closed yet.`, filter: {}, link: 'Open the whole queue' })
+    if (value.openTickets > 0) list.push({ text: `${plural(value.openTickets, 'ticket', 'tickets')} not closed yet`, filter: {} })
     return list
   }
 
@@ -580,7 +580,7 @@
   }
 
   function openQueue(filter: Need['filter']) {
-    ticketStatusFilter = ''
+    ticketStatusFilter = 'not_closed'
     ticketPriorityFilter = filter.priority ?? ''
     ticketCategoryFilter = ''
     ticketAssignedFilter = filter.assigned ?? ''
@@ -669,11 +669,7 @@
               {#if needs.length > 0}
                 <ul>
                   {#each needs as need (need.text)}
-                    {#if need.link}
-                      <li class="need-row"><span>{need.text}</span><button type="button" class="need-link" onclick={() => openQueue(need.filter)}>{need.link}</button></li>
-                    {:else}
-                      <li><button type="button" class="need-link" class:urgent={need.filter.priority === 'urgent'} onclick={() => openQueue(need.filter)}>{need.text}</button></li>
-                    {/if}
+                    <li><button type="button" class="need-link" class:urgent={need.filter.priority === 'urgent'} onclick={() => openQueue(need.filter)}>{need.text}</button></li>
                   {/each}
                 </ul>
               {:else}
@@ -691,7 +687,7 @@
         <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" aria-label="Support status">{supportAnnouncement}</p>
         <div class="toolbar">
           <input class="search" aria-label="Search tickets" placeholder="Search email or subject" bind:value={ticketQuery} oninput={onTicketSearch} />
-          <select aria-label="Filter by status" bind:value={ticketStatusFilter} onchange={loadTickets}><option value="">All statuses</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option></select>
+          <select aria-label="Filter by status" bind:value={ticketStatusFilter} onchange={loadTickets}><option value="">All statuses</option><option value="not_closed">Not closed</option><option value="open">Open</option><option value="in_progress">In progress</option><option value="waiting">Waiting</option><option value="closed">Closed</option></select>
           <select aria-label="Filter by priority" bind:value={ticketPriorityFilter} onchange={loadTickets}><option value="">All priorities</option><option value="urgent">Urgent</option><option value="high">High</option><option value="normal">Normal</option><option value="low">Low</option></select>
           <select aria-label="Filter by category" bind:value={ticketCategoryFilter} onchange={loadTickets}><option value="">All categories</option>{#each Object.entries(TICKET_CATEGORY_LABELS) as [value, label] (value)}<option {value}>{label}</option>{/each}</select>
           <select aria-label="Filter by assignment" bind:value={ticketAssignedFilter} onchange={loadTickets}><option value="">All assignments</option><option value="unassigned">Unassigned</option><option value={me?.id}>Assigned to me</option></select>

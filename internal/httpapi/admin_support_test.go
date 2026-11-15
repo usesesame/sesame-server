@@ -113,6 +113,82 @@ func TestAdminSupportListValidation(t *testing.T) {
 	}
 }
 
+func TestAdminSupportNotClosedFilterMatchesOverviewCounts(t *testing.T) {
+	env := newSupportTestEnv(t)
+	readonly := env.seedAdmin(t, "admin-readonly", "readonly@example.invalid", adminstore.RoleReadonly)
+	for _, id := range []string{"ticket-open-urgent", "ticket-waiting", "ticket-progress-assigned", "ticket-closed-urgent", "ticket-closed-plain"} {
+		env.seedTicket(t, id, "", id+"@example.invalid")
+	}
+	for _, statement := range []string{
+		`UPDATE sesame_support_requests SET priority = 'urgent' WHERE id IN ('ticket-open-urgent', 'ticket-closed-urgent')`,
+		`UPDATE sesame_support_requests SET status = 'waiting' WHERE id = 'ticket-waiting'`,
+		`UPDATE sesame_support_requests SET status = 'in_progress', assigned_admin_id = 'admin-readonly' WHERE id = 'ticket-progress-assigned'`,
+		`UPDATE sesame_support_requests SET status = 'closed', closed_at = NOW() WHERE id IN ('ticket-closed-urgent', 'ticket-closed-plain')`,
+	} {
+		if _, err := env.db.ExecContext(context.Background(), statement); err != nil {
+			t.Fatalf("prepare tickets: %v", err)
+		}
+	}
+
+	total := func(query string) int {
+		t.Helper()
+		response := env.adminRequest(t, readonly, http.MethodGet, "/v1/admin/support?"+query, nil)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s = %d: %s", query, response.Code, response.Body.String())
+		}
+		var payload struct {
+			Tickets []struct {
+				Status string `json:"status"`
+			} `json:"tickets"`
+			Total int `json:"total"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("decode %s: %v", query, err)
+		}
+		for _, ticket := range payload.Tickets {
+			if ticket.Status == "closed" {
+				t.Fatalf("%s returned a closed ticket", query)
+			}
+		}
+		return payload.Total
+	}
+
+	response := env.adminRequest(t, readonly, http.MethodGet, "/v1/admin/overview", nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("overview = %d: %s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Overview struct {
+			OpenTickets       int `json:"openTickets"`
+			UnassignedTickets int `json:"unassignedTickets"`
+			UrgentTickets     int `json:"urgentTickets"`
+		} `json:"overview"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode overview: %v", err)
+	}
+	overview := envelope.Overview
+	if overview.OpenTickets != 3 || overview.UnassignedTickets != 2 || overview.UrgentTickets != 1 {
+		t.Fatalf("overview = %+v, want 3 open, 2 unassigned, 1 urgent", overview)
+	}
+	if got := total("status=not_closed"); got != overview.OpenTickets {
+		t.Fatalf("not closed list = %d, overview says %d", got, overview.OpenTickets)
+	}
+	if got := total("status=not_closed&assigned=unassigned"); got != overview.UnassignedTickets {
+		t.Fatalf("unassigned list = %d, overview says %d", got, overview.UnassignedTickets)
+	}
+	if got := total("status=not_closed&priority=urgent"); got != overview.UrgentTickets {
+		t.Fatalf("urgent list = %d, overview says %d", got, overview.UrgentTickets)
+	}
+
+	for _, query := range []string{"status=not_closed%27%20OR%201%3D1", "status=NOT_CLOSED", "status=not_closed%20"} {
+		response := env.adminRequest(t, readonly, http.MethodGet, "/v1/admin/support?"+query, nil)
+		if response.Code != http.StatusBadRequest || errorCode(t, response) != "invalid_ticket_filter" {
+			t.Fatalf("%s = %d %q, want 400 invalid_ticket_filter", query, response.Code, errorCode(t, response))
+		}
+	}
+}
+
 func TestAdminSupportReplyValidation(t *testing.T) {
 	env := newSupportTestEnv(t)
 	support := env.seedAdmin(t, "admin-support", "support@example.invalid", adminstore.RoleSupport)
