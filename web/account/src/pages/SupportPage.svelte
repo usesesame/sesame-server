@@ -53,6 +53,7 @@
   let firstTicketOpened = false
   let formOpen = false
   let formFromLink = false
+  let ticketSelection = 0
 
   let draftReady = false
   let dismissedHelp: string[] = []
@@ -142,12 +143,13 @@
     if (!account) return
     ticketsLoading = true
     portalError = ''
+    const selectionAtStart = ticketSelection
     try {
       tickets = await getSupportTickets()
       ticketsLoaded = true
       const firstID = firstTicketOpened ? '' : (tickets.find((ticket) => ticket.unreadCount > 0) ?? tickets[0])?.id ?? ''
       firstTicketOpened = true
-      const nextID = selectID || selectedTicket?.id || firstID
+      const nextID = ticketSelection === selectionAtStart && !ticketLoading ? selectID || selectedTicket?.id || firstID : ''
       if (nextID && tickets.some((ticket) => ticket.id === nextID)) await selectTicket(nextID)
       else if (selectedTicket && !tickets.some((ticket) => ticket.id === selectedTicket?.id)) selectedTicket = null
     } catch (reason) {
@@ -158,16 +160,27 @@
   }
 
   async function selectTicket(id: string) {
+    const selection = ++ticketSelection
     ticketLoading = true
     portalError = ''
     try {
-      selectedTicket = await getSupportTicket(id)
+      const ticket = await getSupportTicket(id)
+      if (selection !== ticketSelection) return false
+      selectedTicket = ticket
       reply = ''
+      return true
     } catch (reason) {
-      portalError = reason instanceof Error ? reason.message : 'That support request could not be loaded.'
+      if (selection === ticketSelection) portalError = reason instanceof Error ? reason.message : 'That support request could not be loaded.'
+      return false
     } finally {
-      ticketLoading = false
+      if (selection === ticketSelection) ticketLoading = false
     }
+  }
+
+  async function viewReceipt(id: string) {
+    if (!(await selectTicket(id))) return
+    await tick()
+    document.getElementById('support-thread-title')?.focus()
   }
 
   async function submit() {
@@ -215,10 +228,13 @@
     portalError = ''
     if (replySecretSignal) { portalError = `Remove ${replySecretSignal} before sending.`; return }
     replySending = true
+    const selection = ticketSelection
     try {
-      selectedTicket = await replyToSupportTicket(selectedTicket.id, reply.trim())
+      const updated = await replyToSupportTicket(selectedTicket.id, reply.trim())
+      if (selection !== ticketSelection) { await loadTickets(); return }
+      selectedTicket = updated
       reply = ''
-      await loadTickets(selectedTicket.id)
+      await loadTickets(updated.id)
     } catch (reason) {
       portalError = reason instanceof Error ? reason.message : 'Your reply could not be sent.'
     } finally {
@@ -230,11 +246,14 @@
     if (!selectedTicket || lifecycleWorking) return
     lifecycleWorking = true
     portalError = ''
+    const selection = ticketSelection
     try {
-      selectedTicket = action === 'close'
+      const updated = action === 'close'
         ? await closeSupportTicket(selectedTicket.id)
         : await reopenSupportTicket(selectedTicket.id)
-      await loadTickets(selectedTicket.id)
+      if (selection !== ticketSelection) { await loadTickets(); return }
+      selectedTicket = updated
+      await loadTickets(updated.id)
     } catch (reason) {
       portalError = reason instanceof Error ? reason.message : 'That request could not be updated.'
     } finally {
@@ -275,7 +294,7 @@
               <p class="rows-empty">Loading request…</p>
             {:else if selectedTicket}
               <header class="support-thread-head">
-                <div><h3>{selectedTicket.subject}</h3><p class="row-meta row-facts"><span>{supportCategoryLabel(selectedTicket.category)}</span><span>Request {selectedTicket.id}</span><span>Opened {formatDate(selectedTicket.createdAt)}</span></p></div>
+                <div><h3 id="support-thread-title" tabindex="-1">{selectedTicket.subject}</h3><p class="row-meta row-facts"><span>{supportCategoryLabel(selectedTicket.category)}</span><span>Request {selectedTicket.id}</span><span>Opened {formatDate(selectedTicket.createdAt)}</span></p></div>
                 <span class={`status status-${statusKinds[selectedTicket.status]}`}>{statusLabels[selectedTicket.status]}</span>
               </header>
               <p class="support-email-note">{emailNotice}{#if showEmailSettingsLink}&nbsp;<a href="/account/security">Change your reply email setting</a>.{/if}</p>
@@ -319,7 +338,7 @@
       <div class="support-columns">
         <div class="support-intake">
           {#if receipt}
-            <div class="support-receipt" role="status"><h2 class="section-title" id="new-request-title" tabindex="-1">Request {receipt}</h2><p class="group-note">Added to the queue. {account ? 'The request is now in your support history. You can follow replies above.' : 'Keep this reference for any follow-up. Guest request contents are not exposed through the public website.'}</p><div class="button-row">{#if account}<button class="button" type="button" on:click={() => selectTicket(receipt)}>View request</button>{/if}<button class="button button-soft" type="button" on:click={() => { receipt = ''; formOpen = true }}>Send another report</button></div></div>
+            <div class="support-receipt" role="status"><h2 class="section-title" id="new-request-title" tabindex="-1">Request {receipt}</h2><p class="group-note">Added to the queue. {account ? 'The request is now in your support history. You can follow replies above.' : 'Keep this reference for any follow-up. Guest request contents are not exposed through the public website.'}</p><div class="button-row">{#if account}<button class="button" type="button" on:click={() => viewReceipt(receipt)}>View request</button>{/if}<button class="button button-soft" type="button" on:click={() => { receipt = ''; formOpen = true }}>Send another report</button></div></div>
           {:else}
             <div class="support-form-head"><h2 class="section-title" id="new-request-title" tabindex="-1">New request</h2><span class="tag">No attachments</span></div>
             <p class="support-response-expectation">We aim to reply within 3 business days.</p>

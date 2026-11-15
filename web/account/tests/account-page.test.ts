@@ -536,11 +536,159 @@ test('the Desktops header says a code is waiting while one is showing', async ()
 test('Sessions shows a password field only where a revoke needs it', async () => {
   await openSessions()
   const row = screen.getByText('Safari on macOS').closest('li') as HTMLElement
-  const revokeAll = screen.getByRole('button', { name: 'Revoke every session' }) as HTMLButtonElement
-  expect(revokeAll.disabled).toBe(true)
+  expect(screen.queryAllByLabelText('Account password')).toHaveLength(0)
+  await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }))
   expect(screen.getAllByLabelText('Account password')).toHaveLength(1)
+  expect(within(row).getByLabelText('Account password')).toBeTruthy()
+})
+
+function deferred<T = void>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
+
+test('a password typed for one session does not skip the confirmation for revoking every session', async () => {
+  const assign = vi.fn()
+  vi.stubGlobal('location', { assign, search: '', pathname: '/account', hash: '', origin: 'http://localhost', href: 'http://localhost/account' })
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.revokeAllSessions.mockResolvedValue(undefined)
+  await openSessions()
+  const row = screen.getByText('Safari on macOS').closest('li') as HTMLElement
   await fireEvent.click(within(row).getByRole('button', { name: 'Revoke' }))
   await fireEvent.input(within(row).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
-  expect(revokeAll.disabled).toBe(false)
+  await fireEvent.click(screen.getByRole('button', { name: 'Revoke every session' }))
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(auth.revokeAllSessions).not.toHaveBeenCalled()
+  expect(assign).not.toHaveBeenCalled()
+  expect(within(row).getByRole('button', { name: 'Revoke' })).toBeTruthy()
+  const confirm = screen.getByRole('group', { name: 'Revoke every session?' })
+  expect(confirm.textContent).toContain('Every browser is signed out of this account, this one included, and this browser goes back to the sign-in page.')
+  expect(screen.getAllByRole('button', { name: 'Revoke every session' })).toHaveLength(1)
+  await fireEvent.click(within(confirm).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('group', { name: 'Revoke every session?' })).toBeNull()
+  expect(auth.revokeAllSessions).not.toHaveBeenCalled()
+  await fireEvent.click(screen.getByRole('button', { name: 'Revoke every session' }))
+  const reopened = screen.getByRole('group', { name: 'Revoke every session?' })
+  await fireEvent.click(within(reopened).getByRole('button', { name: 'Revoke every session' }))
+  await vi.waitFor(() => expect(assign).toHaveBeenCalledWith('/login'))
+  expect(auth.reauthenticate).toHaveBeenCalledWith('fictional-account-password')
+  expect(auth.reauthenticate.mock.invocationCallOrder[0]).toBeLessThan(auth.revokeAllSessions.mock.invocationCallOrder[0])
+})
+
+test('confirming every session without the password explains it and sends nothing', async () => {
+  await openSessions()
+  await fireEvent.click(screen.getByRole('button', { name: 'Revoke every session' }))
+  const confirm = screen.getByRole('group', { name: 'Revoke every session?' })
+  await fireEvent.click(within(confirm).getByRole('button', { name: 'Revoke every session' }))
+  expect(within(confirm).getByRole('alert').textContent).toBe('Enter your account password, then revoke every session again.')
+  expect(document.activeElement).toBe(within(confirm).getByLabelText('Account password'))
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(auth.revokeAllSessions).not.toHaveBeenCalled()
+})
+
+const secondDesktop: DesktopDevice = {
+  deviceId: 'device-laptop',
+  deviceName: 'Travel laptop',
+  connectedAt: '2026-11-02T09:00:00Z',
+  expiresAt: '2027-11-02T09:00:00Z',
+} as DesktopDevice
+
+async function openTwoDesktops() {
+  mockAccess()
+  auth.listDesktopDevices.mockResolvedValue([desktop, secondDesktop])
+  auth.getDesktopLink.mockResolvedValue({ state: 'none' })
+  render(AccountPage, { account, authState: authenticated, onSignedOut: vi.fn(), tab: 'devices' })
+  const first = (await screen.findByText('Studio desktop')).closest('li') as HTMLElement
+  const second = screen.getByText('Travel laptop').closest('li') as HTMLElement
+  return { first, second }
+}
+
+test('another desktop row cannot be opened while a removal is in flight, and the result stays on its own row', async () => {
+  const removal = deferred()
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.revokeDesktopDevice.mockReturnValue(removal.promise)
+  const { first, second } = await openTwoDesktops()
+  await fireEvent.click(within(first).getByRole('button', { name: 'Remove' }))
+  await fireEvent.input(within(first).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(first).getByRole('button', { name: 'Remove desktop' }))
+  await vi.waitFor(() => expect(auth.revokeDesktopDevice).toHaveBeenCalledWith('device-studio'))
+  const otherRemove = within(second).getByRole('button', { name: 'Remove' }) as HTMLButtonElement
+  const otherRename = within(second).getByRole('button', { name: 'Rename' }) as HTMLButtonElement
+  expect(otherRemove.disabled).toBe(true)
+  expect(otherRename.disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Create desktop code' }) as HTMLButtonElement).disabled).toBe(true)
+  await fireEvent.click(otherRemove)
+  await fireEvent.click(otherRename)
+  expect(within(second).queryByRole('button', { name: 'Remove desktop' })).toBeNull()
+  expect(within(second).queryByLabelText('Desktop name')).toBeNull()
+  removal.resolve()
+  await vi.waitFor(() => expect(screen.queryByText('Studio desktop')).toBeNull())
+  expect(within(second).getByRole('button', { name: 'Remove' })).toBeTruthy()
+  await vi.waitFor(() => expect((within(second).getByRole('button', { name: 'Remove' }) as HTMLButtonElement).disabled).toBe(false))
+  expect(within(second).queryByRole('button', { name: 'Remove desktop' })).toBeNull()
+  expect(auth.revokeDesktopDevice).toHaveBeenCalledOnce()
+})
+
+test('a failed desktop removal is reported on its own row and leaves the other row closed', async () => {
+  const removal = deferred()
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.revokeDesktopDevice.mockReturnValue(removal.promise)
+  const { first, second } = await openTwoDesktops()
+  await fireEvent.click(within(first).getByRole('button', { name: 'Remove' }))
+  await fireEvent.input(within(first).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(first).getByRole('button', { name: 'Remove desktop' }))
+  await vi.waitFor(() => expect(auth.revokeDesktopDevice).toHaveBeenCalled())
+  await fireEvent.click(within(second).getByRole('button', { name: 'Remove' }))
+  removal.reject(new Error('That desktop could not be reached.'))
+  expect((await within(first).findByRole('alert')).textContent).toBe('That desktop could not be reached.')
+  expect(within(second).queryByRole('alert')).toBeNull()
+  expect(within(second).queryByRole('button', { name: 'Remove desktop' })).toBeNull()
+  expect((within(first).getByLabelText('Account password') as HTMLInputElement).value).toBe('fictional-account-password')
+})
+
+test('another desktop row cannot be opened while a rename is in flight', async () => {
+  const rename = deferred()
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.renameDesktopDevice.mockReturnValue(rename.promise)
+  const { first, second } = await openTwoDesktops()
+  await fireEvent.click(within(first).getByRole('button', { name: 'Rename' }))
+  await fireEvent.input(within(first).getByLabelText('Desktop name'), { target: { value: 'Studio tower' } })
+  await fireEvent.input(within(first).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(first).getByRole('button', { name: 'Save name' }))
+  await vi.waitFor(() => expect(auth.renameDesktopDevice).toHaveBeenCalledWith('device-studio', 'Studio tower'))
+  expect((within(second).getByRole('button', { name: 'Rename' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((within(second).getByRole('button', { name: 'Remove' }) as HTMLButtonElement).disabled).toBe(true)
+  await fireEvent.click(within(second).getByRole('button', { name: 'Remove' }))
+  expect(within(second).queryByRole('button', { name: 'Remove desktop' })).toBeNull()
+  rename.resolve()
+  expect(await screen.findByText('Studio tower')).toBeTruthy()
+  expect(within(second).queryByLabelText('Desktop name')).toBeNull()
+  expect(within(second).queryByRole('button', { name: 'Remove desktop' })).toBeNull()
+})
+
+test('another session row cannot be opened while a revocation is in flight', async () => {
+  const revocation = deferred()
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.revokeSession.mockReturnValue(revocation.promise)
+  await openSessions()
+  const other = screen.getByText('Safari on macOS').closest('li') as HTMLElement
+  const here = screen.getByText('Firefox on Linux').closest('li') as HTMLElement
+  await fireEvent.click(within(other).getByRole('button', { name: 'Revoke' }))
+  await fireEvent.input(within(other).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(other).getByRole('button', { name: 'Revoke session' }))
+  await vi.waitFor(() => expect(auth.revokeSession).toHaveBeenCalledWith('session-other'))
+  expect((within(here).getByRole('button', { name: 'Revoke' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Revoke every session' }) as HTMLButtonElement).disabled).toBe(true)
+  await fireEvent.click(within(here).getByRole('button', { name: 'Revoke' }))
+  await fireEvent.click(screen.getByRole('button', { name: 'Revoke every session' }))
+  expect(within(here).queryByRole('button', { name: 'Revoke session' })).toBeNull()
+  expect(screen.queryByRole('group', { name: 'Revoke every session?' })).toBeNull()
+  revocation.reject(new Error('That session could not be revoked right now.'))
+  expect((await within(other).findByRole('alert')).textContent).toBe('That session could not be revoked right now.')
+  expect(within(here).queryByRole('alert')).toBeNull()
+  expect(within(here).getByRole('button', { name: 'Revoke' })).toBeTruthy()
+  expect(auth.revokeSession).toHaveBeenCalledOnce()
   expect(auth.revokeAllSessions).not.toHaveBeenCalled()
 })

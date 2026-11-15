@@ -254,3 +254,45 @@ test('a half written request opens the form even when the person has requests', 
   render(SupportPage, { account })
   expect((await screen.findByLabelText('Short title') as HTMLInputElement).value).toBe('Draft title')
 })
+
+test('View request on the receipt selects the request and moves focus to its conversation heading', async () => {
+  support.getSupportTickets.mockResolvedValue([])
+  support.submitSupportRequest.mockResolvedValue({ requestId: 'ticket-new' })
+  render(SupportPage, { account })
+  await screen.findByText('No requests from this account yet. Use the form below when you need help.')
+  support.getSupportTickets.mockResolvedValue([ticketSummary({ id: 'ticket-new', subject: 'Import stops halfway' })])
+  support.getSupportTicket.mockResolvedValue(ticketDetail({ id: 'ticket-new', subject: 'Import stops halfway' }))
+  await fireEvent.input(screen.getByLabelText('Short title'), { target: { value: 'Import stops halfway' } })
+  await fireEvent.input(screen.getByLabelText('Message'), { target: { value: 'The import stops after the first hundred entries.' } })
+  await fireEvent.click(screen.getByRole('button', { name: 'Send request' }))
+  const view = await screen.findByRole('button', { name: 'View request' })
+  await screen.findByRole('heading', { level: 3, name: 'Import stops halfway' })
+  expect(document.activeElement).not.toBe(screen.getByRole('heading', { level: 3, name: 'Import stops halfway' }))
+  await fireEvent.click(view)
+  await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { level: 3, name: 'Import stops halfway' })))
+  expect(support.getSupportTicket).toHaveBeenLastCalledWith('ticket-new')
+  expect(screen.getByRole('button', { name: /Import stops halfway/ }).getAttribute('aria-current')).toBe('true')
+})
+
+test('a late response for the automatically opened request does not replace a newer selection or clear its draft reply', async () => {
+  let resolveFirst!: (ticket: SupportTicketDetail) => void
+  support.getSupportTickets.mockResolvedValue([
+    ticketSummary({ id: 'ticket-unread', subject: 'Desktop code expired', unreadCount: 1 }),
+    ticketSummary({ id: 'ticket-older', subject: 'Import stops halfway', unreadCount: 0 }),
+  ])
+  support.getSupportTicket.mockImplementation((id: string) => id === 'ticket-unread'
+    ? new Promise<SupportTicketDetail>((resolve) => { resolveFirst = resolve })
+    : Promise.resolve(ticketDetail({ id, subject: 'Import stops halfway' })))
+  render(SupportPage, { account })
+  await vi.waitFor(() => expect(support.getSupportTicket).toHaveBeenCalledWith('ticket-unread'))
+  await fireEvent.click(screen.getByRole('button', { name: /Import stops halfway/ }))
+  const reply = await screen.findByLabelText('Add a follow-up') as HTMLTextAreaElement
+  await fireEvent.input(reply, { target: { value: 'The import still stops after the update.' } })
+  resolveFirst(ticketDetail({ id: 'ticket-unread', subject: 'Desktop code expired' }))
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(screen.getByRole('heading', { level: 3, name: 'Import stops halfway' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { level: 3, name: 'Desktop code expired' })).toBeNull()
+  expect((screen.getByLabelText('Add a follow-up') as HTMLTextAreaElement).value).toBe('The import still stops after the update.')
+  expect(screen.getByRole('button', { name: /Import stops halfway/ }).getAttribute('aria-current')).toBe('true')
+  expect(screen.queryByText('Loading request…')).toBeNull()
+})
