@@ -21,6 +21,13 @@ import (
 
 const macPrefix = "sesame-artifact-gateway-v1\n"
 
+const (
+	shortWriteTimeout          = 30 * time.Second
+	minimumDownloadWriteTime   = 5 * time.Minute
+	maximumDownloadWriteTime   = 30 * time.Minute
+	slowestDownloadBytesPerSec = 128 << 10
+)
+
 func main() {
 	dataDir := strings.TrimSpace(os.Getenv("SESAME_ARTIFACT_GATEWAY_DATA_DIR"))
 	if dataDir == "" {
@@ -38,19 +45,34 @@ func main() {
 	if addr == "" {
 		addr = "127.0.0.1:8791"
 	}
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           livezHandler(ready, artifact),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	server := newServer(addr, livezHandler(ready, artifact))
 	slog.Info("Sesame artifact gateway listening", "address", addr, "enabled", ready)
 	if serveErr := server.ListenAndServe(); serveErr != nil {
 		slog.Error("Sesame artifact gateway stopped", "error", serveErr)
 		os.Exit(1)
 	}
+}
+
+func newServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      shortWriteTimeout,
+		IdleTimeout:       60 * time.Second,
+	}
+}
+
+func downloadWriteTime(size int64) time.Duration {
+	if size <= 0 {
+		return minimumDownloadWriteTime
+	}
+	seconds := size / slowestDownloadBytesPerSec
+	if seconds >= int64(maximumDownloadWriteTime/time.Second) {
+		return maximumDownloadWriteTime
+	}
+	return max(time.Duration(seconds)*time.Second, minimumDownloadWriteTime)
 }
 
 func livezHandler(ready bool, artifact http.Handler) http.Handler {
@@ -118,6 +140,7 @@ func handler(key, dataDir string) (http.Handler, bool, error) {
 			response.WriteHeader(http.StatusNotFound)
 			return
 		}
+		_ = http.NewResponseController(response).SetWriteDeadline(time.Now().Add(downloadWriteTime(info.Size())))
 		http.ServeContent(response, request, info.Name(), info.ModTime(), file)
 	})
 	return artifact, true, nil

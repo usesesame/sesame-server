@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -176,5 +177,110 @@ func TestValidObjectKey(t *testing.T) {
 		if got := validObjectKey(value); got != want {
 			t.Errorf("validObjectKey(%q) = %v, want %v", value, got, want)
 		}
+	}
+}
+
+func TestDownloadWriteTimeScalesWithTheFileSize(t *testing.T) {
+	cases := []struct {
+		size int64
+		want time.Duration
+	}{
+		{-1, minimumDownloadWriteTime},
+		{0, minimumDownloadWriteTime},
+		{1 << 20, minimumDownloadWriteTime},
+		{80 << 20, 640 * time.Second},
+		{200 << 20, 1600 * time.Second},
+		{300 << 20, maximumDownloadWriteTime},
+		{1 << 40, maximumDownloadWriteTime},
+		{1<<63 - 1, maximumDownloadWriteTime},
+	}
+	for _, tc := range cases {
+		if got := downloadWriteTime(tc.size); got != tc.want {
+			t.Errorf("downloadWriteTime(%d) = %s, want %s", tc.size, got, tc.want)
+		}
+	}
+}
+
+func TestServerKeepsTheShortWriteTimeout(t *testing.T) {
+	server := newServer("127.0.0.1:0", http.NotFoundHandler())
+	if server.WriteTimeout != 30*time.Second || server.ReadTimeout != 10*time.Second || server.ReadHeaderTimeout != 5*time.Second {
+		t.Fatalf("server timeouts = write %s read %s header %s", server.WriteTimeout, server.ReadTimeout, server.ReadHeaderTimeout)
+	}
+}
+
+func TestSlowClientReceivesTheWholeFile(t *testing.T) {
+	size := 32 << 20
+	gateway, _ := gatewayFor(t, testKeyRaw, map[string]string{"desktop/installer.bin": strings.Repeat("s", size)})
+	server := httptest.NewUnstartedServer(gateway)
+	server.Config.WriteTimeout = 100 * time.Millisecond
+	server.Start()
+	t.Cleanup(server.Close)
+
+	response, err := http.Get(server.URL + signedPath("desktop/installer.bin", time.Now().Add(time.Hour).Unix()))
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", response.StatusCode)
+	}
+	first := make([]byte, 1024)
+	if _, err := io.ReadFull(response.Body, first); err != nil {
+		t.Fatalf("read the first bytes: %v", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	rest, err := io.Copy(io.Discard, response.Body)
+	if err != nil || int(rest)+len(first) != size {
+		t.Fatalf("read %d of %d bytes, error %v", int(rest)+len(first), size, err)
+	}
+}
+
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadlines []time.Time
+}
+
+func (r *deadlineRecorder) SetWriteDeadline(deadline time.Time) error {
+	r.deadlines = append(r.deadlines, deadline)
+	return nil
+}
+
+func TestOnlyAServedFileExtendsTheWriteDeadline(t *testing.T) {
+	gateway, root := gatewayFor(t, testKeyRaw, map[string]string{"desktop/installer.bin": "fictional installer"})
+	if err := os.Symlink(filepath.Join(root, "desktop", "installer.bin"), filepath.Join(root, "desktop", "linked.bin")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	valid := time.Now().Add(time.Hour).Unix()
+	refused := []struct {
+		method string
+		target string
+	}{
+		{http.MethodGet, "/desktop/installer.bin"},
+		{http.MethodGet, "/desktop/installer.bin?expires=1&signature=invalid"},
+		{http.MethodGet, signedPath("desktop/installer.bin", time.Now().Add(-time.Minute).Unix())},
+		{http.MethodGet, signedPath("desktop/missing.bin", valid)},
+		{http.MethodGet, signedPath("desktop/linked.bin", valid)},
+		{http.MethodGet, signedPath("desktop", valid)},
+		{http.MethodGet, "/desktop/../secret.bin?expires=1&signature=x"},
+		{http.MethodPost, signedPath("desktop/installer.bin", valid)},
+	}
+	for _, tc := range refused {
+		recorder := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+		gateway.ServeHTTP(recorder, httptest.NewRequest(tc.method, "http://gateway"+tc.target, nil))
+		if recorder.Code == http.StatusOK {
+			t.Fatalf("%s %s was served", tc.method, tc.target)
+		}
+		if len(recorder.deadlines) != 0 {
+			t.Fatalf("%s %s extended the write deadline before refusing", tc.method, tc.target)
+		}
+	}
+	recorder := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	before := time.Now()
+	gateway.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "http://gateway"+signedPath("desktop/installer.bin", valid), nil))
+	if recorder.Code != http.StatusOK || len(recorder.deadlines) != 1 {
+		t.Fatalf("status %d with %d deadline changes, want 200 and one", recorder.Code, len(recorder.deadlines))
+	}
+	if extended := recorder.deadlines[0].Sub(before); extended < minimumDownloadWriteTime || extended > minimumDownloadWriteTime+time.Minute {
+		t.Fatalf("write deadline extended by %s, want about %s", extended, minimumDownloadWriteTime)
 	}
 }
