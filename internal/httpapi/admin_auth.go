@@ -481,5 +481,9 @@ func adminStoreError(response http.ResponseWriter, err error) {
 		writeError(response, http.StatusConflict, "admin_action_not_allowed", "That admin action is not allowed.")
 		return
 	}
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		writePasswordWorkBusy(response)
+		return
+	}
 	writeError(response, http.StatusServiceUnavailable, "admin_action_unavailable", "The admin action could not be completed and no change was committed.")
 }

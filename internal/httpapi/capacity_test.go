@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,6 +143,12 @@ func TestBusyPasswordWorkDuringEmailVerificationIsNotAWrongPassword(t *testing.T
 	response := httptest.NewRecorder()
 	service.confirmEmailVerification(response, jsonRequest(http.MethodPost, "/v1/auth/email/verification/confirm", `{"token":"`+strings.Repeat("a", 43)+`","password":"fictional password"}`))
 	assertPasswordWorkBusy(t, "email verification", response)
+}
+
+func TestBusyPasswordWorkDuringAnAdminActionAsksForARetry(t *testing.T) {
+	response := httptest.NewRecorder()
+	adminStoreError(response, fmt.Errorf("invite administrator: %w", accounts.ErrPasswordWorkBusy))
+	assertPasswordWorkBusy(t, "admin action", response)
 }
 
 func TestLoginStillAnswersAWrongPasswordAsWrong(t *testing.T) {

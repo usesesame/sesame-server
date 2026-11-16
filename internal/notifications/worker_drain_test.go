@@ -243,6 +243,49 @@ func TestPollClaimsActionMailBeforeSignInNotices(t *testing.T) {
 	}
 }
 
+func TestPollReturnsClaimedMessagesInPriorityOrder(t *testing.T) {
+	outbox, _, db := testOutbox(t)
+	ctx := context.Background()
+	const notices = 60
+	for index := range notices {
+		if _, err := outbox.Enqueue(ctx, httpapi.AccountEmail{
+			Kind: "security-sign-in", To: fmt.Sprintf("ordered-notice-%d@example.invalid", index),
+			Subject: "New sign-in", Body: "A new sign-in happened.", ExpiresAt: time.Now().UTC().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("enqueue notice: %v", err)
+		}
+	}
+	if _, err := db.ExecContext(ctx, `
+		UPDATE sesame_email_outbox AS message
+		SET created_at = now() - make_interval(mins => ordered.position::int), next_attempt_at = now() - make_interval(mins => ordered.position::int)
+		FROM (SELECT id, row_number() OVER (ORDER BY random()) AS position FROM sesame_email_outbox) AS ordered
+		WHERE message.id = ordered.id`); err != nil {
+		t.Fatalf("age the notices: %v", err)
+	}
+	if _, err := outbox.Enqueue(ctx, httpapi.AccountEmail{
+		Kind: "recover-password", To: outboxTestRecipient, ActionURL: "https://account.example.invalid/reset-password#token=fictional",
+		ExpiresAt: time.Now().UTC().Add(30 * time.Minute),
+	}); err != nil {
+		t.Fatalf("enqueue recovery: %v", err)
+	}
+
+	items, err := outbox.Poll(ctx, notices+1)
+	if err != nil {
+		t.Fatalf("poll: %v", err)
+	}
+	if len(items) != notices+1 {
+		t.Fatalf("poll returned %d messages, want %d", len(items), notices+1)
+	}
+	if items[0].Kind != "recover-password" {
+		t.Fatalf("poll returned %q first, want the recovery mail", items[0].Kind)
+	}
+	for index := 2; index < len(items); index++ {
+		if items[index].CreatedAt.Before(items[index-1].CreatedAt) {
+			t.Fatalf("notice %d was created at %s, before the notice ahead of it at %s", index, items[index].CreatedAt, items[index-1].CreatedAt)
+		}
+	}
+}
+
 func TestTwoDrainingWorkersDeliverEachMessageOnce(t *testing.T) {
 	outbox, sealer, _ := testOutbox(t)
 	for range 150 {

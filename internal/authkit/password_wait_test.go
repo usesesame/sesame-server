@@ -69,6 +69,47 @@ func TestPasswordWorkStopsWaitingWhenTheRequestEnds(t *testing.T) {
 	}
 }
 
+func TestPasswordWorkRefusesAnEndedRequestEvenWithAFreeSlot(t *testing.T) {
+	probe := installDerivationProbe(t, 8)
+	close(probe.release)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if ok, err := VerifyPasswordContext(ctx, fictionalEncodedHash, "fictional password"); ok || !errors.Is(err, ErrPasswordWorkBusy) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("verify after cancellation = %v, %v, want busy and canceled", ok, err)
+	}
+	if encoded, err := HashPasswordContext(ctx, "fictional password"); encoded != "" || !errors.Is(err, context.Canceled) {
+		t.Fatalf("hash after cancellation = %q, %v, want canceled", encoded, err)
+	}
+	if err := DummyVerifyPasswordContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("dummy verify after cancellation = %v, want canceled", err)
+	}
+	if calls := probe.calls.Load(); calls != 0 {
+		t.Fatalf("derivations = %d for an ended request, want 0", calls)
+	}
+	if held := len(argonSlots); held != 0 {
+		t.Fatalf("%d slots stayed taken after refusing an ended request", held)
+	}
+}
+
+func TestPasswordWorkGivesBackASlotThatFreesAfterTheRequestEnds(t *testing.T) {
+	for attempt := range 50 {
+		release := occupyArgonSlots(t, time.Hour)
+		ctx, cancel := context.WithCancel(context.Background())
+		result := make(chan error, 1)
+		go func() { result <- acquireArgonSlot(ctx) }()
+		time.Sleep(time.Millisecond)
+		cancel()
+		release()
+		if err := <-result; !errors.Is(err, ErrPasswordWorkBusy) || !errors.Is(err, context.Canceled) {
+			t.Fatalf("attempt %d: acquire after cancellation = %v, want busy and canceled", attempt, err)
+		}
+		if held := len(argonSlots); held != 0 {
+			t.Fatalf("attempt %d: %d slots stayed taken after refusing an ended request", attempt, held)
+		}
+	}
+}
+
 func TestPasswordWorkTakesASlotThatFreesWithinTheWait(t *testing.T) {
 	probe := installDerivationProbe(t, 8)
 	close(probe.release)

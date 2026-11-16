@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -10,12 +11,17 @@ import (
 	adminstore "usesesame.app/backend/internal/admin"
 )
 
+func assertSyncFlagPassed(t *testing.T, name string, response *httptest.ResponseRecorder) {
+	t.Helper()
+	if response.Code >= http.StatusInternalServerError || response.Code == http.StatusForbidden || strings.Contains(response.Body.String(), "sync_unavailable") {
+		t.Fatalf("%s = %d %s, want a request that passed the Sync flag", name, response.Code, response.Body.String())
+	}
+}
+
 func TestTurningSyncOffThroughTheAdminRouteClosesSyncAtOnce(t *testing.T) {
 	env := newSyncHostEnv(t)
 	alpha := env.newAccount("sync-flag-admin", true)
-	if state := env.read(alpha, "/v1/sync/state"); state.Code == http.StatusForbidden {
-		t.Fatalf("Sync was closed while the flag was on: %s", state.Body.String())
-	}
+	assertSyncFlagPassed(t, "Sync while the flag was on", env.read(alpha, "/v1/sync/state"))
 	if _, err := env.db.ExecContext(context.Background(), `
 		INSERT INTO sesame_admin_accounts (id, email, password_hash, role, totp_verified)
 		VALUES ('super-sync-flag', 'sync-flag-super@example.invalid', 'test', 'super', TRUE)
@@ -35,13 +41,9 @@ func TestTheSyncFlagIsReadAgainAfterItsCacheWindow(t *testing.T) {
 	shortenSyncFlagCache(t, 300*time.Millisecond)
 	env := newSyncHostEnv(t)
 	alpha := env.newAccount("sync-flag-window", true)
-	if state := env.read(alpha, "/v1/sync/state"); state.Code == http.StatusForbidden {
-		t.Fatalf("Sync was closed while the flag was on: %s", state.Body.String())
-	}
+	assertSyncFlagPassed(t, "Sync while the flag was on", env.read(alpha, "/v1/sync/state"))
 	env.setSyncFlag("false")
-	if state := env.read(alpha, "/v1/sync/state"); state.Code == http.StatusForbidden {
-		t.Fatalf("the flag was read again inside the cache window: %s", state.Body.String())
-	}
+	assertSyncFlagPassed(t, "Sync inside the cache window", env.read(alpha, "/v1/sync/state"))
 	time.Sleep(350 * time.Millisecond)
 	if state := env.read(alpha, "/v1/sync/state"); state.Code != http.StatusForbidden || !strings.Contains(state.Body.String(), "sync_unavailable") {
 		t.Fatalf("Sync after the cache window = %d %s", state.Code, state.Body.String())

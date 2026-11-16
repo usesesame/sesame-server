@@ -41,6 +41,9 @@ func deriveArgon2id(password, salt []byte, iterations, memory uint32, parallelis
 }
 
 func acquireArgonSlot(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("%w: %w", ErrPasswordWorkBusy, err)
+	}
 	select {
 	case argonSlots <- struct{}{}:
 		return nil
@@ -50,6 +53,10 @@ func acquireArgonSlot(ctx context.Context) error {
 	defer timer.Stop()
 	select {
 	case argonSlots <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-argonSlots
+			return fmt.Errorf("%w: %w", ErrPasswordWorkBusy, err)
+		}
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("%w: %w", ErrPasswordWorkBusy, ctx.Err())

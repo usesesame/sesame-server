@@ -151,15 +151,21 @@ func (o *PostgresOutbox) Poll(ctx context.Context, limit int) ([]OutboxItem, err
 			         next_attempt_at ASC, created_at ASC
 			LIMIT $1
 			FOR UPDATE SKIP LOCKED
+		),
+		claimed AS (
+			UPDATE sesame_email_outbox AS message
+			SET status = 'processing',
+			    lease_until = now() + make_interval(secs => $2),
+			    updated_at = now()
+			FROM candidates
+			WHERE message.id = candidates.id
+			RETURNING message.id, message.kind, message.to_email, message.action_url, message.subject, message.body,
+			          message.expires_at, message.attempts, message.created_at, message.updated_at, message.next_attempt_at
 		)
-		UPDATE sesame_email_outbox AS message
-		SET status = 'processing',
-		    lease_until = now() + make_interval(secs => $2),
-		    updated_at = now()
-		FROM candidates
-		WHERE message.id = candidates.id
-		RETURNING message.id, message.kind, message.to_email, message.action_url, message.subject, message.body,
-		          message.expires_at, message.attempts, message.created_at, message.updated_at`,
+		SELECT id, kind, to_email, action_url, subject, body, expires_at, attempts, created_at, updated_at
+		FROM claimed
+		ORDER BY CASE WHEN kind IN ('verify-email', 'recover-password', 'change-email') THEN 0 ELSE 1 END,
+		         next_attempt_at ASC, created_at ASC`,
 		limit, o.leaseDuration.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("poll email outbox: %w", err)

@@ -3,7 +3,9 @@ package accounts
 import (
 	"context"
 	"errors"
+	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,6 +42,39 @@ func serviceTestDatabaseURL(t *testing.T) string {
 	return databaseURL
 }
 
+func withoutSessionTimeouts(databaseURL string) string {
+	names := []string{"statement_timeout", "idle_in_transaction_session_timeout"}
+	if parsed, err := url.Parse(databaseURL); err == nil && parsed.Scheme != "" {
+		query := parsed.Query()
+		for _, name := range names {
+			query.Del(name)
+		}
+		parsed.RawQuery = query.Encode()
+		return parsed.String()
+	}
+	kept := []string{}
+	for _, field := range strings.Fields(databaseURL) {
+		if !slices.ContainsFunc(names, func(name string) bool { return strings.HasPrefix(field, name+"=") }) {
+			kept = append(kept, field)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
+func plainConnectionSetting(t *testing.T, databaseURL, name string) string {
+	t.Helper()
+	conn, err := pgx.Connect(context.Background(), databaseURL)
+	if err != nil {
+		t.Fatalf("open a plain connection: %v", err)
+	}
+	defer conn.Close(context.Background())
+	var value string
+	if err := conn.QueryRow(context.Background(), "SHOW "+name).Scan(&value); err != nil {
+		t.Fatalf("show %s on a plain connection: %v", name, err)
+	}
+	return value
+}
+
 func showSetting(t *testing.T, store *PostgresStore, name string) string {
 	t.Helper()
 	var value string
@@ -50,7 +85,7 @@ func showSetting(t *testing.T, store *PostgresStore, name string) string {
 }
 
 func TestTheServicePoolBoundsStatementsAndIdleTransactions(t *testing.T) {
-	databaseURL := serviceTestDatabaseURL(t)
+	databaseURL := withoutSessionTimeouts(serviceTestDatabaseURL(t))
 	ctx := context.Background()
 	service, err := OpenService(ctx, databaseURL)
 	if err != nil {
@@ -72,13 +107,15 @@ func TestTheServicePoolBoundsStatementsAndIdleTransactions(t *testing.T) {
 		t.Fatalf("open migration store: %v", err)
 	}
 	t.Cleanup(func() { _ = migrations.Close() })
-	if got := showSetting(t, migrations, "statement_timeout"); got != "0" {
-		t.Fatalf("migration statement_timeout = %q, want no limit so long migrations finish", got)
+	for _, name := range []string{"statement_timeout", "idle_in_transaction_session_timeout"} {
+		if got, want := showSetting(t, migrations, name), plainConnectionSetting(t, databaseURL, name); got != want {
+			t.Fatalf("migration %s = %q, want the connection's own %q so long migrations finish", name, got, want)
+		}
 	}
 }
 
 func TestTheServicePoolCancelsAStatementPastItsTimeout(t *testing.T) {
-	databaseURL := serviceTestDatabaseURL(t)
+	databaseURL := withoutSessionTimeouts(serviceTestDatabaseURL(t))
 	separator := "?"
 	if strings.Contains(databaseURL, "?") {
 		separator = "&"

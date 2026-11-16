@@ -779,19 +779,19 @@ func (s *Store) InviteAdmin(ctx context.Context, actor Account, email string, ro
 	if !ValidRole(role) {
 		return Account{}, "", errors.New("invalid role")
 	}
+	id, err := newID()
+	if err != nil {
+		return Account{}, "", err
+	}
+	placeholder, err := accounts.HashPasswordContext(ctx, "disabled-"+id)
+	if err != nil {
+		return Account{}, "", err
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Account{}, "", err
 	}
 	defer tx.Rollback()
-	id, err := newID()
-	if err != nil {
-		return Account{}, "", err
-	}
-	placeholder, err := accounts.HashPassword("disabled-" + id)
-	if err != nil {
-		return Account{}, "", err
-	}
 	secret, err := NewTOTPSecret()
 	if err != nil {
 		return Account{}, "", err
