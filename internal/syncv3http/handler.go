@@ -13,15 +13,41 @@ type Host interface {
 }
 
 type Handler struct {
-	service *syncsvc.Service
-	host    Host
+	service   *syncsvc.Service
+	host      Host
+	transfers *transferGate
 }
 
-func New(service *syncsvc.Service, host Host) *Handler {
-	return &Handler{service: service, host: host}
+type Option func(*Handler)
+
+const (
+	transferRetryAfter = "5"
+	transferDeadline   = 3 * time.Minute
+)
+
+func WithTransferLimits(uploadBudgetBytes int64, downloads int) Option {
+	return func(handler *Handler) {
+		handler.transfers = newTransferGate(uploadBudgetBytes, downloads)
+	}
 }
 
-const transferDeadline = 3 * time.Minute
+func New(service *syncsvc.Service, host Host, options ...Option) *Handler {
+	handler := &Handler{service: service, host: host, transfers: newTransferGate(defaultUploadBudgetBytes, defaultDownloadLimit)}
+	for _, option := range options {
+		option(handler)
+	}
+	return handler
+}
+
+func startTransfer(response http.ResponseWriter, release func(), admitted bool) (func(), bool) {
+	if !admitted {
+		response.Header().Set("Retry-After", transferRetryAfter)
+		writeError(response, codeUnavailable)
+		return nil, false
+	}
+	allowLongTransfer(response)
+	return release, true
+}
 
 func allowLongTransfer(response http.ResponseWriter) {
 	controller := http.NewResponseController(response)
@@ -376,7 +402,12 @@ func (handler *Handler) Upload(response http.ResponseWriter, request *http.Reque
 	if !ok {
 		return
 	}
-	allowLongTransfer(response)
+	release, admitted := handler.transfers.beginUpload(caller.OwnerKey, request.ContentLength)
+	release, ok = startTransfer(response, release, admitted)
+	if !ok {
+		return
+	}
+	defer release()
 	input, signed, ok := readSignedJSON[uploadRequest](response, request, snapshotBodyBytes)
 	if !ok {
 		return
@@ -424,19 +455,27 @@ func (handler *Handler) Download(response http.ResponseWriter, request *http.Req
 	if !ok {
 		return
 	}
-	allowLongTransfer(response)
+	release, admitted := handler.transfers.beginDownload(caller.OwnerKey)
+	release, ok = startTransfer(response, release, admitted)
+	if !ok {
+		return
+	}
+	defer release()
 	snapshot, err := handler.service.Snapshot(request.Context(), caller)
 	if err != nil {
 		writeServiceError(response, err)
 		return
 	}
-	writeJSON(response, http.StatusOK, snapshotResponse{
+	writeSnapshot(response, snapshot)
+}
+
+func writeSnapshot(response http.ResponseWriter, snapshot syncsvc.Snapshot) {
+	writeJSONWithTrailingBase64(response, http.StatusOK, snapshotResponse{
 		Header:     snapshot.Header.Header,
 		Digest:     snapshot.Header.Digest,
 		Receipt:    snapshot.Header.Receipt,
 		AcceptedAt: formatTime(snapshot.Header.AcceptedAt),
-		Ciphertext: encodeBase64(snapshot.Ciphertext),
-	})
+	}, "ciphertext", snapshot.Ciphertext)
 }
 
 func (handler *Handler) PutCheckpoint(response http.ResponseWriter, request *http.Request) {

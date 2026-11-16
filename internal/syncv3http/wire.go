@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -203,12 +204,37 @@ func readSignature(response http.ResponseWriter, request *http.Request) (syncsvc
 }
 
 func readBody(response http.ResponseWriter, request *http.Request, limit int64) ([]byte, bool) {
-	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, limit))
+	if request.ContentLength > limit {
+		writeError(response, codeTooLarge)
+		return nil, false
+	}
+	body, err := readAllSized(http.MaxBytesReader(response, request.Body, limit), request.ContentLength)
 	if err != nil {
-		writeError(response, codeInvalid)
+		writeError(response, bodyReadErrorCode(err))
 		return nil, false
 	}
 	return body, true
+}
+
+func readAllSized(reader io.Reader, size int64) ([]byte, error) {
+	if size < 0 {
+		return io.ReadAll(reader)
+	}
+	buffer := bytes.NewBuffer(make([]byte, 0, size+bytes.MinRead))
+	_, err := buffer.ReadFrom(reader)
+	return buffer.Bytes(), err
+}
+
+func bodyReadErrorCode(err error) string {
+	var tooLarge *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooLarge):
+		return codeTooLarge
+	case errors.Is(err, os.ErrDeadlineExceeded), errors.Is(err, io.ErrUnexpectedEOF):
+		return codeUnavailable
+	default:
+		return codeInvalid
+	}
 }
 
 func decodeJSON(response http.ResponseWriter, body []byte, target any) bool {
@@ -259,8 +285,11 @@ func readSignedEmpty(response http.ResponseWriter, request *http.Request) (syncs
 }
 
 func canonicalBase64(value string) ([]byte, bool) {
+	if strings.ContainsAny(value, "\r\n") {
+		return nil, false
+	}
 	decoded, err := base64.RawURLEncoding.Strict().DecodeString(value)
-	if err != nil || base64.RawURLEncoding.EncodeToString(decoded) != value {
+	if err != nil {
 		return nil, false
 	}
 	return decoded, true
