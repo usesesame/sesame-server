@@ -17,6 +17,7 @@ const syncRateWindow = time.Minute
 
 func (a *api) registerSyncRoutes(mux *http.ServeMux) {
 	sync := routePolicy{audience: audienceDesktopClient}
+	transfer := routePolicy{audience: audienceDesktopClient, streamsBody: true}
 	a.route(mux, sync, "GET /v1/sync/state", a.syncState)
 	a.route(mux, sync, "POST /v1/sync/vault", a.syncCreateVault)
 	a.route(mux, sync, "GET /v1/sync/device-list", a.syncDeviceList)
@@ -32,9 +33,9 @@ func (a *api) registerSyncRoutes(mux *http.ServeMux) {
 	a.route(mux, sync, "POST /v1/sync/devices/rotate", a.syncRotate)
 	a.route(mux, sync, "GET /v1/sync/key-package", a.syncKeyPackage)
 	a.route(mux, sync, "POST /v1/sync/activate", a.syncActivate)
-	a.route(mux, sync, "POST /v1/sync/snapshots", a.syncUpload)
+	a.route(mux, transfer, "POST /v1/sync/snapshots", a.syncUpload)
 	a.route(mux, sync, "GET /v1/sync/headers", a.syncHeaders)
-	a.route(mux, sync, "GET /v1/sync/snapshot", a.syncDownload)
+	a.route(mux, transfer, "GET /v1/sync/snapshot", a.syncDownload)
 	a.route(mux, sync, "POST /v1/sync/checkpoints", a.syncPutCheckpoint)
 	a.route(mux, sync, "GET /v1/sync/checkpoints", a.syncCheckpoints)
 	a.route(mux, sync, "POST /v1/sync/reset", a.syncReset)
@@ -72,11 +73,13 @@ func (a *api) syncFlagState(ctx context.Context) (enabled, unreadable bool) {
 	if a.config.Admin == nil {
 		return false, false
 	}
-	value, err := a.config.Admin.FeatureFlag(ctx, "cloud_sync_available")
-	if err != nil {
-		return false, !errors.Is(err, adminstore.ErrNotFound)
-	}
-	return value == "true", false
+	return a.syncFlag.read(time.Now(), func() (bool, bool) {
+		value, err := a.config.Admin.FeatureFlag(ctx, "cloud_sync_available")
+		if err != nil {
+			return false, !errors.Is(err, adminstore.ErrNotFound)
+		}
+		return value == "true", false
+	})
 }
 
 func (a *api) syncState(response http.ResponseWriter, request *http.Request) {

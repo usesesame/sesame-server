@@ -480,10 +480,16 @@ func (s *PostgresStore) VerifyEmail(ctx context.Context, input TokenSessionRotat
 	keepPassword := false
 	if !wasVerified && input.ConfirmPassword != "" {
 		if registrationHash == "" {
-			DummyVerifyPassword()
+			if err := DummyVerifyPasswordContext(ctx); err != nil {
+				return User{}, err
+			}
 			return User{}, ErrPasswordIncorrect
 		}
-		if !VerifyPassword(registrationHash, input.ConfirmPassword) {
+		matched, err := VerifyPasswordContext(ctx, registrationHash, input.ConfirmPassword)
+		if err != nil {
+			return User{}, err
+		}
+		if !matched {
 			return User{}, ErrPasswordIncorrect
 		}
 		keepPassword = true

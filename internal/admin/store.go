@@ -43,6 +43,7 @@ func Open(ctx context.Context, databaseURL string, encryptionKey []byte) (*Store
 	if err != nil {
 		return nil, errors.New("database URL is invalid")
 	}
+	accounts.ApplyServiceTimeouts(config)
 	db := stdlib.OpenDB(*config)
 	db.SetMaxOpenConns(6)
 	db.SetMaxIdleConns(3)

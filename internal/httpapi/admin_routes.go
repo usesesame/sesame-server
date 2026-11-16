@@ -222,7 +222,11 @@ func (a *api) adminFlag(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusBadRequest, "invalid_feature_flag", "That feature flag value is not allowed.")
 		return
 	}
-	if err := a.config.Admin.UpdateFeatureFlag(request.Context(), actor, key, input.Value, a.adminIPHash(request)); err != nil {
+	err := a.config.Admin.UpdateFeatureFlag(request.Context(), actor, key, input.Value, a.adminIPHash(request))
+	if key == syncFlagKey {
+		a.syncFlag.forget()
+	}
+	if err != nil {
 		adminStoreError(response, err)
 		return
 	}

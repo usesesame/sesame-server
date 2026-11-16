@@ -33,7 +33,8 @@ test('Sync is off by default: the operator flag falls back to false and gates ev
   assert.match(flagState[1], /FeatureFlag\(ctx, "cloud_sync_available"\)/, 'the route gate must read the operator flag')
   assert.match(flagState[1], /return value == "true", false/, 'only the value true turns Sync on')
   assert.match(flagState[1], /if a\.config\.Admin == nil \{\n\t\treturn false, false/, 'Sync stays off without a flag store')
-  const registered = [...routes.matchAll(/a\.route\(mux, sync, "/g)].length
+  const registered = [...routes.matchAll(/a\.route\(mux, (?:sync|transfer), "/g)].length
+  assert.equal([...routes.matchAll(/a\.route\(mux, transfer, "/g)].length, 2, 'only the snapshot upload and download run without the request deadline')
   assert.ok(registered > 0, 'no Sync routes were found')
   assert.equal([...routes.matchAll(/a\.withSync\(response, request,/g)].length, registered, 'every registered Sync route goes through withSync')
 

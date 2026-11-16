@@ -23,7 +23,10 @@ const (
 type routePolicy struct {
 	audience         routeAudience
 	requireWebOrigin bool
+	streamsBody      bool
 }
+
+const requestDeadline = 15 * time.Second
 
 type routeRegistry struct {
 	policies  map[string]routePolicy
@@ -254,6 +257,11 @@ func (a *api) secureMux(mux *http.ServeMux) http.Handler {
 		loggedPattern := pattern
 		if !matched {
 			loggedPattern = ""
+		}
+		if !policy.streamsBody {
+			ctx, cancel := context.WithTimeout(request.Context(), requestDeadline)
+			defer cancel()
+			request = request.WithContext(ctx)
 		}
 		completed := false
 		defer func() {

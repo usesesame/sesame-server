@@ -88,7 +88,10 @@ func (a *api) register(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusBadRequest, "legal_documents_not_accepted", "Read and accept the current Terms of Use and acknowledge the Privacy Policy to create an account.")
 		return
 	}
-	passwordHash, err := accounts.HashPassword(input.Password)
+	passwordHash, err := hashPassword(response, request, input.Password)
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		return
+	}
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, "registration_unavailable", "Account registration is temporarily unavailable.")
 		return
@@ -144,11 +147,17 @@ func (a *api) login(response http.ResponseWriter, request *http.Request) {
 	}
 	user, passwordHash, err := a.config.Accounts.FindByEmail(request.Context(), email)
 	if err != nil {
-		accounts.DummyVerifyPassword()
+		if !spendDummyPassword(response, request) {
+			return
+		}
 		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Email or password is incorrect.")
 		return
 	}
-	if !accounts.VerifyPassword(passwordHash, input.Password) {
+	matched, decided := checkPassword(response, request, passwordHash, input.Password)
+	if !decided {
+		return
+	}
+	if !matched {
 		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Email or password is incorrect.")
 		return
 	}
@@ -157,7 +166,7 @@ func (a *api) login(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if accounts.NeedsRehash(passwordHash) {
-		if newHash, hashErr := accounts.HashPassword(input.Password); hashErr == nil {
+		if newHash, hashErr := hashPasswordWork(request.Context(), input.Password); hashErr == nil {
 			_ = a.config.Accounts.UpdatePassword(request.Context(), user.ID, newHash)
 		}
 	}
@@ -215,7 +224,15 @@ func (a *api) changePassword(response http.ResponseWriter, request *http.Request
 		return
 	}
 	_, passwordHash, err := a.config.Accounts.FindByID(request.Context(), user.ID)
-	if err != nil || !accounts.VerifyPassword(passwordHash, input.CurrentPassword) {
+	if err != nil {
+		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Your current password is incorrect.")
+		return
+	}
+	matched, decided := checkPassword(response, request, passwordHash, input.CurrentPassword)
+	if !decided {
+		return
+	}
+	if !matched {
 		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Your current password is incorrect.")
 		return
 	}
@@ -223,11 +240,18 @@ func (a *api) changePassword(response http.ResponseWriter, request *http.Request
 		writeError(response, http.StatusBadRequest, "invalid_password", "Use a new password of 12 to 1024 characters.")
 		return
 	}
-	if accounts.VerifyPassword(passwordHash, input.NewPassword) {
+	unchanged, decided := checkPassword(response, request, passwordHash, input.NewPassword)
+	if !decided {
+		return
+	}
+	if unchanged {
 		writeError(response, http.StatusBadRequest, "password_unchanged", "Choose a password different from your current one.")
 		return
 	}
-	newHash, err := accounts.HashPassword(input.NewPassword)
+	newHash, err := hashPassword(response, request, input.NewPassword)
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		return
+	}
 	token, tokenHash, tokenErr := accounts.NewSessionToken()
 	if err != nil || tokenErr != nil {
 		writeError(response, http.StatusServiceUnavailable, "password_update_unavailable", "Changing your password is temporarily unavailable.")
@@ -271,7 +295,10 @@ func (a *api) setupPassword(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusBadRequest, "invalid_password", "Use a new password of 12 to 1024 characters.")
 		return
 	}
-	passwordHash, err := accounts.HashPassword(input.NewPassword)
+	passwordHash, err := hashPassword(response, request, input.NewPassword)
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		return
+	}
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, "password_setup_unavailable", "Setting your password is temporarily unavailable.")
 		return
@@ -315,7 +342,15 @@ func (a *api) deleteAccount(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	_, passwordHash, err := a.config.Accounts.FindByID(request.Context(), user.ID)
-	if err != nil || !accounts.VerifyPassword(passwordHash, input.Password) {
+	if err != nil {
+		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Your password is incorrect.")
+		return
+	}
+	matched, decided := checkPassword(response, request, passwordHash, input.Password)
+	if !decided {
+		return
+	}
+	if !matched {
 		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Your password is incorrect.")
 		return
 	}

@@ -33,6 +33,11 @@ services:
       - no-new-privileges:true
     pids_limit: 128
     mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   api:
     image: ${SESAME_API_IMAGE:?set to an immutable API digest}
@@ -87,6 +92,7 @@ services:
       # store address out of GET /v1/extensions.
       SESAME_CHROME_EXTENSION_ID: ${SESAME_CHROME_EXTENSION_ID:-}
       DATABASE_URL: postgres://sesame_app:${SESAME_DATABASE_APP_PASSWORD:?set in the env file}@db:5432/sesame?sslmode=disable
+      GOMEMLIMIT: 800MiB
     extra_hosts:
       - "${SESAME_SMTP_HOST_GATEWAY:-sesame-smtp-gateway.invalid}:host-gateway"
     ports:
@@ -111,7 +117,12 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 256
-    mem_limit: 256m
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   account:
     image: ${SESAME_ACCOUNT_IMAGE:?set to an immutable account image digest}
@@ -138,6 +149,11 @@ services:
       - no-new-privileges:true
     pids_limit: 128
     mem_limit: 64m
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   admin:
     image: ${SESAME_ADMIN_IMAGE:?set to an immutable admin image digest}
@@ -164,9 +180,20 @@ services:
       - no-new-privileges:true
     pids_limit: 128
     mem_limit: 64m
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   db:
     image: postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
     environment:
       POSTGRES_DB: sesame
       POSTGRES_USER: sesame
@@ -189,6 +216,11 @@ services:
       - no-new-privileges:true
     pids_limit: 256
     mem_limit: 1g
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
   # Serves release files that the API has signed a short-lived download URL
   # for. Disabled without the signing key; every other request is refused.
@@ -216,6 +248,11 @@ services:
       - no-new-privileges:true
     pids_limit: 128
     mem_limit: 128m
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
 
 volumes:
   database:
