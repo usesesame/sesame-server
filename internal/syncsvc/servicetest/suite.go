@@ -20,6 +20,7 @@ func Run(t *testing.T, factory Factory) {
 	t.Run("a signed request that failed after verification is spent", func(t *testing.T) { testFailedRequestIsSpent(t, factory) })
 	t.Run("uploads refuse every break in the history", func(t *testing.T) { testUploadRules(t, factory) })
 	t.Run("old ciphertext ages out by size and never the previous head", func(t *testing.T) { testRetentionBySize(t, factory) })
+	t.Run("only the newest two snapshots are kept and every header stays", func(t *testing.T) { testRetentionByCount(t, factory) })
 	t.Run("removing a device rekeys the vault", func(t *testing.T) { testRemove(t, factory) })
 	t.Run("a device replaces its own package key with a hybrid key", func(t *testing.T) { testUpgradeKey(t, factory) })
 	t.Run("a rotation rekeys the vault without removing a device", func(t *testing.T) { testRotate(t, factory) })
@@ -30,6 +31,12 @@ func Run(t *testing.T, factory Factory) {
 	t.Run("headers outlive ciphertext and are served in order", func(t *testing.T) { testHeaders(t, factory) })
 	t.Run("checkpoints let devices compare what each saw", func(t *testing.T) { testCheckpoints(t, factory) })
 	t.Run("checkpoints refuse forgery, rollback and strangers", func(t *testing.T) { testCheckpointRules(t, factory) })
+	t.Run("the last device leaving deletes the vault", func(t *testing.T) { testLastDeviceLeaves(t, factory) })
+	t.Run("expired pairings neither count nor block and other vaults keep theirs", func(t *testing.T) { testExpiredPairings(t, factory) })
+	t.Run("a live pairing belongs to the session that began it", func(t *testing.T) { testPairingClaim(t, factory) })
+	t.Run("a revoked device cannot list devices", func(t *testing.T) { testDevicesNeedApproval(t, factory) })
+	t.Run("checkpoints stay inside the stored range and the vault head", func(t *testing.T) { testCheckpointBounds(t, factory) })
+	t.Run("the device list stops growing at its cap except for removals", func(t *testing.T) { testDeviceListCap(t, factory) })
 }
 
 func expect(t *testing.T, err, want error) {
@@ -246,7 +253,7 @@ func testUploadRules(t *testing.T, factory Factory) {
 }
 
 func testRetentionBySize(t *testing.T, factory Factory) {
-	e := newEnv(t, factory, syncsvc.Config{ByteBudget: 3 * 1024})
+	e := newEnv(t, factory, syncsvc.Config{ByteBudget: 3 * 1024, CiphertextRetention: 6})
 	laptop := e.newDevice("laptop")
 	e.createVault(laptop)
 	var previous *syncproto.Header
@@ -254,15 +261,7 @@ func testRetentionBySize(t *testing.T, factory Factory) {
 		accepted := e.mustUpload(laptop, revision, previous, content(byte(revision)))
 		previous = &accepted.Header.Header
 	}
-	var kept []uint64
-	_ = e.storage.View(context.Background(), func(tx syncsvc.Tx) error {
-		for revision := uint64(1); revision <= 6; revision++ {
-			if _, err := tx.Ciphertext(e.vaultID, revision); err == nil {
-				kept = append(kept, revision)
-			}
-		}
-		return nil
-	})
+	kept := e.keptCiphertexts(6)
 	if len(kept) != 3 || kept[0] != 4 || kept[2] != 6 {
 		t.Fatalf("kept ciphertexts %v, want 4 5 6", kept)
 	}
@@ -279,6 +278,66 @@ func testRetentionBySize(t *testing.T, factory Factory) {
 	expect(t, err, syncsvc.ErrQuota)
 	if small.vault(laptop).CurrentRevision != 1 {
 		t.Fatal("a refused upload moved the vault")
+	}
+}
+
+func (e *env) keptCiphertexts(through uint64) []uint64 {
+	var kept []uint64
+	_ = e.storage.View(context.Background(), func(tx syncsvc.Tx) error {
+		for revision := uint64(1); revision <= through; revision++ {
+			if _, err := tx.Ciphertext(e.vaultID, revision); err == nil {
+				kept = append(kept, revision)
+			}
+		}
+		return nil
+	})
+	return kept
+}
+
+func testRetentionByCount(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	laptop := e.newDevice("laptop")
+	e.createVault(laptop)
+	var previous *syncproto.Header
+	for revision := uint64(1); revision <= 5; revision++ {
+		accepted := e.mustUpload(laptop, revision, previous, content(byte(revision)))
+		previous = &accepted.Header.Header
+		if revision == 1 {
+			if kept := e.keptCiphertexts(5); len(kept) != 1 || kept[0] != 1 {
+				t.Fatalf("after the first upload kept ciphertexts %v, want 1", kept)
+			}
+		}
+	}
+	if kept := e.keptCiphertexts(5); len(kept) != 2 || kept[0] != 4 || kept[1] != 5 {
+		t.Fatalf("kept ciphertexts %v, want 4 5", kept)
+	}
+	var stored int64
+	_ = e.storage.View(context.Background(), func(tx syncsvc.Tx) error {
+		stored, _ = tx.CiphertextBytes(e.vaultID)
+		return nil
+	})
+	if stored != 2*int64(len(content(0))) {
+		t.Fatalf("stored ciphertext bytes = %d, want two snapshots", stored)
+	}
+	snapshot, err := e.svc.Snapshot(context.Background(), e.caller(laptop))
+	if err != nil || snapshot.Header.Revision != 5 || !bytes.Equal(snapshot.Ciphertext, content(5)) {
+		t.Fatalf("snapshot = %d, %v", snapshot.Header.Revision, err)
+	}
+	if err := snapshot.Header.VerifyCiphertext(snapshot.Ciphertext); err != nil {
+		t.Fatalf("served ciphertext does not match its header: %v", err)
+	}
+	headers, err := e.svc.Headers(context.Background(), e.caller(laptop), 0, 0)
+	if err != nil || len(headers) != 5 || headers[0].Revision != 1 || headers[4].Revision != 5 {
+		t.Fatalf("headers = %d, %v, want all five", len(headers), err)
+	}
+
+	single := newEnv(t, factory, syncsvc.Config{CiphertextRetention: 1})
+	laptop = single.newDevice("laptop")
+	single.createVault(laptop)
+	first := single.mustUpload(laptop, 1, nil, content(1))
+	single.mustUpload(laptop, 2, &first.Header.Header, content(2))
+	if kept := single.keptCiphertexts(2); len(kept) != 1 || kept[0] != 2 {
+		t.Fatalf("with one kept, kept ciphertexts %v, want 2", kept)
 	}
 }
 
@@ -720,4 +779,261 @@ func testRotate(t *testing.T, factory Factory) {
 		t.Fatalf("epoch = %d", second.Header.VaultEpoch)
 	}
 	e.mustUpload(laptop, 3, &second.Header.Header, content(3))
+}
+
+func (e *env) beginPairing(caller device, offered device) error {
+	offer := syncsvc.PairingOffer{DeviceID: offered.id, SigningKey: offered.signingKey(), PackageKey: offered.packageKey(), Message: []byte("offer")}
+	return e.svc.BeginPairing(context.Background(), e.caller(caller), e.sign(offered, "POST", "/v1/sync/pairings", []byte("offer")), offer)
+}
+
+func (e *env) storedPairings(vaultID string) []syncsvc.Pairing {
+	e.t.Helper()
+	var pairings []syncsvc.Pairing
+	if err := e.storage.View(context.Background(), func(tx syncsvc.Tx) error {
+		var err error
+		pairings, err = tx.Pairings(vaultID)
+		return err
+	}); err != nil {
+		e.t.Fatalf("pairings: %v", err)
+	}
+	return pairings
+}
+
+func testLastDeviceLeaves(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	ctx := context.Background()
+	laptop, tablet := e.newDevice("laptop"), e.newDevice("tablet")
+	e.createVault(laptop)
+	e.mustUpload(laptop, 1, nil, content(1))
+	if _, err := e.putCheckpoint(laptop, e.checkpointFor(laptop, e.now())); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.beginPairing(tablet, tablet); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := e.remove(laptop, laptop); err != nil {
+		t.Fatalf("the only device could not leave: %v", err)
+	}
+	_, _, err := e.svc.VaultState(ctx, e.caller(laptop))
+	expect(t, err, syncsvc.ErrNoVault)
+	_ = e.storage.View(ctx, func(tx syncsvc.Tx) error {
+		if _, err := tx.VaultByID(e.vaultID); !errors.Is(err, syncsvc.ErrNotFound) {
+			t.Fatalf("the emptied vault is still stored: %v", err)
+		}
+		devices, _ := tx.Devices(e.vaultID)
+		entries, _ := tx.DeviceListEntries(e.vaultID, 0, syncsvc.MaxEntriesPerPage)
+		headers, _ := tx.Headers(e.vaultID, 0, syncsvc.MaxHeadersPerPage)
+		checkpoints, _ := tx.Checkpoints(e.vaultID)
+		pairings, _ := tx.Pairings(e.vaultID)
+		bytes, _ := tx.CiphertextBytes(e.vaultID)
+		if len(devices)+len(entries)+len(headers)+len(checkpoints)+len(pairings) != 0 || bytes != 0 {
+			t.Fatalf("records outlived the vault: %d devices, %d entries, %d headers, %d checkpoints, %d pairings, %d bytes",
+				len(devices), len(entries), len(headers), len(checkpoints), len(pairings), bytes)
+		}
+		if _, err := tx.KeyPackage(e.vaultID, laptop.id); !errors.Is(err, syncsvc.ErrNotFound) {
+			t.Fatalf("a key package outlived the vault: %v", err)
+		}
+		return nil
+	})
+
+	e.createVault(laptop)
+	vault := e.vault(laptop)
+	if vault.HeadIndex != 1 || vault.Epoch != 1 || vault.CurrentRevision != 0 {
+		t.Fatalf("the new vault = %+v", vault)
+	}
+	e.pair(laptop, e.newDevice("phone"))
+}
+
+func testExpiredPairings(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	ctx := context.Background()
+	laptop := e.newDevice("laptop")
+	e.createVault(laptop)
+
+	other := *e
+	other.owner, other.vaultID = "owner-two", "vaultBBBBBBBBBBBB01"
+	otherLaptop, otherGuest := other.newDevice("otherlaptop"), other.newDevice("otherguest")
+	other.createVault(otherLaptop)
+	if err := other.beginPairing(otherGuest, otherGuest); err != nil {
+		t.Fatal(err)
+	}
+
+	expired := []device{e.newDevice("alpha"), e.newDevice("bravo"), e.newDevice("charlie")}
+	for _, newcomer := range expired {
+		if err := e.beginPairing(newcomer, newcomer); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.clock.Advance(syncsvc.PairingLifetime + time.Second)
+
+	fresh := []device{e.newDevice("delta"), e.newDevice("echo"), e.newDevice("foxtrot")}
+	for index, newcomer := range fresh {
+		if err := e.beginPairing(newcomer, newcomer); err != nil {
+			t.Fatalf("pairing %d beside three expired ones: %v", index, err)
+		}
+	}
+	expect(t, e.beginPairing(e.newDevice("golf"), e.newDevice("golf")), syncsvc.ErrQuota)
+
+	if len(e.storedPairings(other.vaultID)) != 1 {
+		t.Fatal("beginning a pairing purged another vault's pairing")
+	}
+
+	if err := e.svc.CancelPairing(ctx, e.caller(laptop), e.sign(laptop, "DELETE", "/v1/sync/pairings/x", []byte("cancel")), fresh[0].id); err != nil {
+		t.Fatal(err)
+	}
+	sameToken := expired[0]
+	sameToken.id = e.newDevice("hotel").id
+	if err := e.beginPairing(sameToken, sameToken); err != nil {
+		t.Fatalf("a session with an expired pairing could not begin again: %v", err)
+	}
+	if status, err := e.svc.PairingStatus(ctx, e.caller(sameToken)); err != nil || status.DeviceID != sameToken.id {
+		t.Fatalf("the new pairing = %+v, %v", status, err)
+	}
+
+	e.clock.Advance(syncsvc.PairingLifetime + time.Second)
+	takeover := expired[1]
+	takeover.tokenID, takeover.token = "desktop-india", "token-india"
+	if err := e.beginPairing(takeover, takeover); err != nil {
+		t.Fatalf("an expired pairing for the same device id blocked a new one: %v", err)
+	}
+	status, err := e.svc.PairingStatus(ctx, e.caller(takeover))
+	if err != nil || status.TokenDeviceID != takeover.tokenID || status.State != syncsvc.PairingOffered || len(status.Answer) != 0 {
+		t.Fatalf("the replaced pairing = %+v, %v", status, err)
+	}
+	_, err = e.svc.PairingStatus(ctx, e.caller(expired[1]))
+	expect(t, err, syncsvc.ErrForbidden)
+	e.approveConfirmed(laptop, takeover)
+}
+
+func (e *env) approveConfirmed(approver, newcomer device) {
+	e.t.Helper()
+	ctx := context.Background()
+	if err := e.svc.AnswerPairing(ctx, e.caller(approver), e.sign(approver, "POST", "/v1/sync/pair/answer", []byte("answer")), newcomer.id, []byte("answer")); err != nil {
+		e.t.Fatalf("answer pairing: %v", err)
+	}
+	if err := e.svc.ConfirmPairing(ctx, e.caller(newcomer), e.sign(newcomer, "POST", "/v1/sync/pair/confirm", []byte("confirm")), []byte("confirm")); err != nil {
+		e.t.Fatalf("confirm pairing: %v", err)
+	}
+	e.approve(approver, newcomer)
+}
+
+func testPairingClaim(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	ctx := context.Background()
+	laptop, phone := e.newDevice("laptop"), e.newDevice("phone")
+	e.createVault(laptop)
+	if err := e.beginPairing(phone, phone); err != nil {
+		t.Fatal(err)
+	}
+	intruder := phone
+	intruder.tokenID, intruder.token = "desktop-intruder", "token-intruder"
+	expect(t, e.beginPairing(intruder, intruder), syncsvc.ErrConflict)
+	status, err := e.svc.PairingStatus(ctx, e.caller(phone))
+	if err != nil || status.TokenDeviceID != phone.tokenID {
+		t.Fatalf("the first session lost its pairing: %+v, %v", status, err)
+	}
+	_, err = e.svc.PairingStatus(ctx, e.caller(intruder))
+	expect(t, err, syncsvc.ErrForbidden)
+
+	if err := e.beginPairing(phone, phone); err != nil {
+		t.Fatalf("the owning session could not begin its pairing again: %v", err)
+	}
+	e.approveConfirmed(laptop, phone)
+}
+
+func testDevicesNeedApproval(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	ctx := context.Background()
+	laptop, phone, tablet := e.newDevice("laptop"), e.newDevice("phone"), e.newDevice("tablet")
+	e.createVault(laptop)
+	e.pair(laptop, phone)
+	if _, devices, err := e.svc.Devices(ctx, e.caller(phone)); err != nil || len(devices) != 2 {
+		t.Fatalf("an approved device listed %d devices: %v", len(devices), err)
+	}
+	if err := e.beginPairing(tablet, tablet); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := e.svc.Devices(ctx, e.caller(tablet))
+	expect(t, err, syncsvc.ErrForbidden)
+
+	if err := e.remove(laptop, phone); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = e.svc.Devices(ctx, e.caller(phone))
+	expect(t, err, syncsvc.ErrForbidden)
+	if _, actor, err := e.svc.VaultState(ctx, e.caller(phone)); err != nil || actor.Device.State != syncsvc.DeviceRevoked {
+		t.Fatalf("a revoked device lost its state view: %+v, %v", actor.Device, err)
+	}
+}
+
+func testCheckpointBounds(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{})
+	laptop := e.newDevice("laptop")
+	e.createVault(laptop)
+	e.mustUpload(laptop, 1, nil, content(1))
+	good := e.checkpointFor(laptop, e.now())
+	resign := func(change func(*syncproto.Checkpoint)) syncproto.Checkpoint {
+		checkpoint := good
+		change(&checkpoint)
+		return syncproto.SignCheckpoint(laptop.key, checkpoint)
+	}
+
+	for name, checkpoint := range map[string]syncproto.Checkpoint{
+		"device list index": resign(func(c *syncproto.Checkpoint) { c.DeviceListIndex = 1 << 63 }),
+		"header revision":   resign(func(c *syncproto.Checkpoint) { c.HeaderRevision = ^uint64(0) }),
+		"both at the top":   resign(func(c *syncproto.Checkpoint) { c.DeviceListIndex, c.HeaderRevision = ^uint64(0), ^uint64(0) }),
+	} {
+		if _, err := e.putCheckpoint(laptop, checkpoint); !errors.Is(err, syncsvc.ErrInvalid) {
+			t.Fatalf("a checkpoint with an unstorable %s = %v, want %v", name, err, syncsvc.ErrInvalid)
+		}
+	}
+	for name, checkpoint := range map[string]syncproto.Checkpoint{
+		"device list index": resign(func(c *syncproto.Checkpoint) { c.DeviceListIndex = 2 }),
+		"header revision":   resign(func(c *syncproto.Checkpoint) { c.HeaderRevision = 2 }),
+	} {
+		if _, err := e.putCheckpoint(laptop, checkpoint); !errors.Is(err, syncsvc.ErrConflict) {
+			t.Fatalf("a checkpoint past the vault %s = %v, want %v", name, err, syncsvc.ErrConflict)
+		}
+	}
+	stored, err := e.svc.Checkpoints(context.Background(), e.caller(laptop))
+	if err != nil || len(stored) != 0 {
+		t.Fatalf("a refused checkpoint was stored: %+v, %v", stored, err)
+	}
+	if _, err := e.putCheckpoint(laptop, good); err != nil {
+		t.Fatalf("a checkpoint at the vault head was refused: %v", err)
+	}
+}
+
+func testDeviceListCap(t *testing.T, factory Factory) {
+	e := newEnv(t, factory, syncsvc.Config{MaxDeviceListEntries: 3})
+	ctx := context.Background()
+	laptop, desktop, phone, tablet := e.newDevice("laptop"), e.newDevice("desktop"), e.newDevice("phone"), e.newDevice("tablet")
+	e.createVault(laptop)
+	e.pair(laptop, desktop)
+	e.pair(laptop, phone)
+
+	e.confirmPairing(laptop, tablet)
+	entry := e.addEntry(laptop, tablet)
+	approve := syncsvc.ApproveInput{Entry: entry, Package: e.keyPackage(laptop, tablet, 1, entry.Digest())}
+	expect(t, e.svc.Approve(ctx, e.caller(laptop), e.sign(laptop, "POST", "/v1/sync/devices", []byte("approve")), approve), syncsvc.ErrQuota)
+	expect(t, e.rotate(laptop, e.rotateEntry(laptop), desktop, phone), syncsvc.ErrQuota)
+	expect(t, e.upgradeKey(desktop, desktop, e.upgradeEntry(desktop, hybridPackageKey())), syncsvc.ErrQuota)
+	if e.vault(laptop).HeadIndex != 3 {
+		t.Fatal("a refused entry grew the device list")
+	}
+
+	if err := e.remove(laptop, phone, desktop); err != nil {
+		t.Fatalf("a removal past the cap was refused: %v", err)
+	}
+	e.activate(desktop)
+	if err := e.remove(laptop, desktop); err != nil {
+		t.Fatalf("a second removal past the cap was refused: %v", err)
+	}
+	if head := e.vault(laptop).HeadIndex; head != 5 {
+		t.Fatalf("head after removals = %d", head)
+	}
+	if syncsvc.MaxDeviceListEntries != 2000 {
+		t.Fatalf("the default device list cap = %d", syncsvc.MaxDeviceListEntries)
+	}
 }

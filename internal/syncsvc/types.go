@@ -35,6 +35,7 @@ const (
 	MaxPendingPairings     = 3
 	MaxHeadersPerPage      = 500
 	MaxEntriesPerPage      = 500
+	MaxDeviceListEntries   = 2000
 	MaxHeaderRetention     = syncproto.MaxHeaderRetention
 )
 
