@@ -1,17 +1,19 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import type { Account, AccountBootstrap, AccountSession, DesktopDevice } from '../src/lib/auth'
+import type { Account, AccountBootstrap, AccountSession, DesktopDevice, SyncVaultStatus } from '../src/lib/auth'
 
 const auth = vi.hoisted(() => ({
   cancelDesktopLink: vi.fn(),
   changePassword: vi.fn(),
   createDesktopLink: vi.fn(),
   deleteAccount: vi.fn(),
+  deleteSyncVault: vi.fn(),
   getAccountBootstrap: vi.fn(),
   getAccountActivity: vi.fn(),
   getNotificationPreferences: vi.fn(),
   updateNotificationPreferences: vi.fn(),
   getDesktopLink: vi.fn(),
+  getSyncVault: vi.fn(),
   listDesktopDevices: vi.fn(),
   listSessions: vi.fn(),
   reauthenticate: vi.fn(),
@@ -691,4 +693,85 @@ test('another session row cannot be opened while a revocation is in flight', asy
   expect(within(here).getByRole('button', { name: 'Revoke' })).toBeTruthy()
   expect(auth.revokeSession).toHaveBeenCalledOnce()
   expect(auth.revokeAllSessions).not.toHaveBeenCalled()
+})
+
+const syncedVault: SyncVaultStatus = { available: true, hasVault: true, approvedDevices: 2, updatedAt: '2026-11-14T08:30:00Z' }
+
+async function openSyncedVault(status: SyncVaultStatus = syncedVault) {
+  auth.getSyncVault.mockResolvedValue(status)
+  await openDesktops()
+  return (await screen.findByText('Encrypted copy kept by Sesame')).closest('.list-row') as HTMLElement
+}
+
+test('the Desktops page shows the synced vault only when the server has one for this account', async () => {
+  for (const status of [
+    { available: false, hasVault: false, approvedDevices: 0 },
+    { available: true, hasVault: false, approvedDevices: 0 },
+  ]) {
+    auth.getSyncVault.mockResolvedValue(status)
+    await openDesktops()
+    await vi.waitFor(() => expect(auth.getSyncVault).toHaveBeenCalled())
+    expect(screen.queryByRole('heading', { name: 'Synced vault' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Delete synced vault' })).toBeNull()
+    cleanup()
+    auth.getSyncVault.mockReset()
+  }
+  auth.getSyncVault.mockRejectedValue(new Error('Your synced vault could not be checked. Try again shortly.'))
+  await openDesktops()
+  await vi.waitFor(() => expect(auth.getSyncVault).toHaveBeenCalled())
+  expect(screen.queryByRole('heading', { name: 'Synced vault' })).toBeNull()
+})
+
+test('the synced vault row states its devices and last change and has one delete action', async () => {
+  const row = await openSyncedVault()
+  expect(screen.getByRole('heading', { level: 2, name: 'Synced vault' })).toBeTruthy()
+  expect(row.textContent).toContain('2 approved devices')
+  expect(row.textContent).toContain('changed')
+  expect(within(row).getAllByRole('button').map((button) => button.textContent)).toEqual(['Delete synced vault'])
+  expect(within(row).getByRole('button', { name: 'Delete synced vault' }).className).toContain('button-danger-text')
+  expect(screen.getAllByLabelText('Account password')).toHaveLength(1)
+})
+
+test('deleting the synced vault asks first, says what stays, and sends nothing on the first click', async () => {
+  const row = await openSyncedVault()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Delete synced vault' }))
+  expect(row.textContent).toContain('Delete the synced vault? This removes the encrypted copy kept by Sesame. The vault on each of your devices stays, and a device can turn Sync on again afterwards.')
+  await fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }))
+  expect(within(row).queryByLabelText('Account password')).toBeNull()
+  expect(auth.reauthenticate).not.toHaveBeenCalled()
+  expect(auth.deleteSyncVault).not.toHaveBeenCalled()
+})
+
+test('confirming the synced vault deletion without the password explains it and moves focus to the field', async () => {
+  const row = await openSyncedVault()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Delete synced vault' }))
+  await fireEvent.click(within(row).getByRole('button', { name: 'Delete synced vault' }))
+  expect(within(row).getByRole('alert').textContent).toBe('Enter your account password, then delete the synced vault again.')
+  expect(document.activeElement).toBe(within(row).getByLabelText('Account password'))
+  expect(auth.deleteSyncVault).not.toHaveBeenCalled()
+})
+
+test('confirming with the password checks it, deletes the synced vault and removes the row', async () => {
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.deleteSyncVault.mockResolvedValue(undefined)
+  const row = await openSyncedVault()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Delete synced vault' }))
+  await fireEvent.input(within(row).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(row).getByRole('button', { name: 'Delete synced vault' }))
+  expect(await screen.findByText('Synced vault deleted.')).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'Synced vault' })).toBeNull()
+  expect(auth.reauthenticate).toHaveBeenCalledWith('fictional-account-password')
+  expect(auth.reauthenticate.mock.invocationCallOrder[0]).toBeLessThan(auth.deleteSyncVault.mock.invocationCallOrder[0])
+  expect(screen.getByText('Studio desktop')).toBeTruthy()
+})
+
+test('a failed synced vault deletion is reported on its row and keeps the row', async () => {
+  auth.reauthenticate.mockResolvedValue(undefined)
+  auth.deleteSyncVault.mockRejectedValue(new Error('Your synced vault could not be deleted. Try again shortly.'))
+  const row = await openSyncedVault()
+  await fireEvent.click(within(row).getByRole('button', { name: 'Delete synced vault' }))
+  await fireEvent.input(within(row).getByLabelText('Account password'), { target: { value: 'fictional-account-password' } })
+  await fireEvent.click(within(row).getByRole('button', { name: 'Delete synced vault' }))
+  expect((await within(row).findByRole('alert')).textContent).toBe('Your synced vault could not be deleted. Try again shortly.')
+  expect(screen.getByRole('heading', { name: 'Synced vault' })).toBeTruthy()
 })

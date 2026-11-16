@@ -238,7 +238,7 @@ not stored.
 
 Recent authentication is required before password changes, passkey add/remove,
 desktop-link creation/cancellation, connected-device revocation, email changes,
-and browser-session revocation. A stale request receives
+synced vault deletion, and browser-session revocation. A stale request receives
 `403 recent_auth_required`; the website should reauthenticate and retry the
 original operation once.
 
@@ -276,6 +276,17 @@ refuses the sign-in instead of creating a session.
   switched off. Security mail cannot be switched off.
 - `POST /v1/account/delete` with `{password}` deletes the account. Requires
   recent authentication and re-verifies the password.
+- `GET /v1/account/sync-vault` returns
+  `{available,hasVault,approvedDevices,updatedAt?}`. `available` is false when
+  this server has no Sync store, and the response never holds ciphertext,
+  device ids or keys.
+- `DELETE /v1/account/sync-vault` with no body deletes the account's synced
+  vault and returns `204`, also when there was none. It requires recent
+  authentication, records a `sync_vault_deleted` activity event, and answers
+  `503 sync_vault_unavailable` with `Retry-After` when the Sync store fails. It
+  removes only the encrypted copy on the server, so a device keeps its local
+  vault, gets `404 sync_vault_not_found` from `/v1/sync/*`, and can create a new
+  synced vault.
 
 ## Beta access, licences, and verified private-beta downloads
 
@@ -489,6 +500,12 @@ attach, or a newer link.
 while the `cloud_sync_available` runtime flag is false, which is its default.
 Turning the flag on needs no code change. Sync has not had an independent
 security review.
+
+A client should retry later when a Sync route answers `503` with a
+`Retry-After` header. That happens when the flag or the desktop link cannot be
+read, and when too many snapshot transfers are running at once. A request body
+over the route's limit gets `413 sync_too_large`. Deleting an account also
+deletes its synced vault.
 
 Authentication is the desktop device token (`Authorization: Sesame <token>`),
 never a website session, and every route that changes state also needs a

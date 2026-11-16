@@ -31,6 +31,7 @@ test('the label names the desktop or passkey and generic labels are left out', (
   expect(describeActivity({ type: 'desktop_linked', label: 'Studio desktop' })).toEqual({ title: 'Connected a desktop', detail: 'Studio desktop' })
   expect(describeActivity({ type: 'email_changed', label: 'Sesame account' })).toEqual({ title: 'Changed the account email', detail: '' })
   expect(describeActivity({ type: 'passkey_added', label: 'Work laptop' })).toEqual({ title: 'Added a passkey', detail: 'Work laptop' })
+  expect(describeActivity({ type: 'sync_vault_deleted', label: 'Sesame Sync' })).toEqual({ title: 'Deleted the synced vault', detail: '' })
 })
 
 test('download events name the release instead of the generic label', () => {

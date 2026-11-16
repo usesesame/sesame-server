@@ -40,6 +40,7 @@ export const API_ROUTES = {
   sessions: '/v1/account/sessions',
   desktopLink: '/v1/account/desktop-link',
   devices: '/v1/account/devices',
+  syncVault: '/v1/account/sync-vault',
   access: '/v1/account/access',
   bootstrap: '/v1/account/bootstrap',
   activity: '/v1/account/activity',

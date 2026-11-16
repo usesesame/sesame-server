@@ -16,13 +16,14 @@ import (
 	"usesesame.app/backend/internal/activity"
 	adminstore "usesesame.app/backend/internal/admin"
 	"usesesame.app/backend/internal/syncsvc"
+	"usesesame.app/backend/internal/syncv3http"
 )
 
 const (
 	sessionCookieName = "sesame_session"
 	csrfCookieName    = "sesame_csrf"
 	maxAuthBodyBytes  = 16 * 1024
-	desktopSessionTTL = 90 * 24 * time.Hour
+	desktopSessionTTL = accounts.DesktopConnectionLifetime
 	desktopLinkTTL    = 10 * time.Minute
 )
 
@@ -176,9 +177,11 @@ func (s *MaintenanceState) Snapshot() OperationalMaintenance {
 }
 
 type api struct {
-	config Config
-	limits *authLimiter
-	routes *routeRegistry
+	config   Config
+	limits   *authLimiter
+	routes   *routeRegistry
+	syncOnce sync.Once
+	sync     *syncv3http.Handler
 }
 
 func New(config Config) http.Handler {
@@ -280,6 +283,8 @@ func New(config Config) http.Handler {
 	service.route(mux, privateWebRead, "GET /v1/account/devices", service.accountDevices)
 	service.route(mux, web, "DELETE /v1/account/devices/{deviceID}", service.revokeAccountDevice)
 	service.route(mux, web, "PATCH /v1/account/devices/{deviceID}", service.renameAccountDevice)
+	service.route(mux, privateWebRead, "GET /v1/account/sync-vault", service.accountSyncVault)
+	service.route(mux, web, "DELETE /v1/account/sync-vault", service.removeAccountSyncVault)
 	service.route(mux, web, "POST /v1/account/password", service.changePassword)
 	service.route(mux, web, "POST /v1/account/password/setup", service.setupPassword)
 	service.route(mux, web, "POST /v1/account/delete", service.deleteAccount)
