@@ -9,6 +9,7 @@ const (
 	PairingCodeMinLength     = 32
 	PairingCodeMaxLength     = 128
 	DeviceTokenTTL           = 90 * 24 * time.Hour
+	DeviceTokenRenewBelow    = 60 * 24 * time.Hour
 	SetupTokenTTL            = 24 * time.Hour
 	RecentAuthWindow         = 10 * time.Minute
 	DefaultSessionTTL        = 12 * time.Hour

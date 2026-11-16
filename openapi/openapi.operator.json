@@ -1374,6 +1374,74 @@
         "x-sesame-registration-pattern": "/v1/account/support/{ticketID}/reply"
       }
     },
+    "/v1/account/sync-vault": {
+      "get": {
+        "operationId": "getV1AccountSyncVault",
+        "summary": "GET account sync vault",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "accountSyncVault",
+        "x-sesame-registration-pattern": "/v1/account/sync-vault"
+      },
+      "delete": {
+        "operationId": "deleteV1AccountSyncVault",
+        "summary": "DELETE remove account sync vault",
+        "tags": [
+          "account"
+        ],
+        "security": [
+          {
+            "browserSession": [],
+            "browserCsrfCookie": [],
+            "browserCsrfHeader": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "2XX": {
+            "description": "Successful response. Exact status and body are defined in API.md and handler tests."
+          },
+          "default": {
+            "description": "Error response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        },
+        "x-sesame-auth": "browser-session-csrf",
+        "x-sesame-availability": "shipped",
+        "x-sesame-handler": "removeAccountSyncVault",
+        "x-sesame-registration-pattern": "/v1/account/sync-vault"
+      }
+    },
     "/v1/admin/admins": {
       "get": {
         "operationId": "getV1AdminAdmins",
@@ -5109,5 +5177,5 @@
     "internal/httpapi/sync_routes.go"
   ],
   "x-sesame-deployment-profile": "operator",
-  "x-sesame-operation-count": 126
+  "x-sesame-operation-count": 128
 }

@@ -138,7 +138,8 @@ func (a *api) login(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	// The budget is spent for an unregistered address too, so a refusal says nothing about whether the account exists.
-	if !a.allowIdentity(response, request, "login", email, identityGuessLimit, identityGuessWindow) {
+	if !a.allowIdentityFromClient(response, request, "login-client", email, identityGuessLimit, identityGuessWindow) ||
+		!a.allowIdentity(response, request, "login", email, identityCeilingLimit, identityCeilingWindow) {
 		return
 	}
 	user, passwordHash, err := a.config.Accounts.FindByEmail(request.Context(), email)
@@ -318,10 +319,15 @@ func (a *api) deleteAccount(response http.ResponseWriter, request *http.Request)
 		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Your password is incorrect.")
 		return
 	}
-	if err := a.config.Accounts.DeleteAccount(request.Context(), user.ID); err != nil {
+	if err := a.deleteAccountSyncVault(request.Context(), user.ID); err != nil {
 		writeError(response, http.StatusServiceUnavailable, "account_delete_unavailable", "Deleting your account is temporarily unavailable.")
 		return
 	}
+	if err := a.config.Accounts.DeleteAccount(request.Context(), user.ID); err != nil {
+		writeError(response, http.StatusServiceUnavailable, "account_delete_unavailable", "Deleting your account did not finish, and your synced vault may already be deleted. Try again to finish.")
+		return
+	}
+	a.sweepDeletedAccountSyncVault(request.Context(), user.ID)
 	a.clearSessionCookie(response)
 	response.WriteHeader(http.StatusNoContent)
 }

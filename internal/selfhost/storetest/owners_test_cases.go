@@ -155,8 +155,16 @@ func testLogin(t *testing.T, h Harness) {
 		f.step()
 		_, err = f.login("Avery", "wrong password entirely")
 		f.expect(err, selfhost.ErrInvalidCredentials)
+		if errors.Is(err, selfhost.ErrInvalidCode) {
+			t.Fatal("a wrong password was reported as a wrong code")
+		}
+		_, err = f.store.Login(f.ctx, selfhost.LoginInput{Name: "Avery", Password: "wrong password entirely", Code: "000000"})
+		if !errors.Is(err, selfhost.ErrInvalidCredentials) || errors.Is(err, selfhost.ErrInvalidCode) {
+			t.Fatalf("a wrong password and code gave %v", err)
+		}
 		_, err = f.store.Login(f.ctx, selfhost.LoginInput{Name: "Avery", Password: testPassword, Code: "000000"})
 		f.expect(err, selfhost.ErrInvalidCredentials)
+		f.expect(err, selfhost.ErrInvalidCode)
 		_, err = f.store.Login(f.ctx, selfhost.LoginInput{Name: "Nobody", Password: testPassword, Code: "000000"})
 		f.expect(err, selfhost.ErrInvalidCredentials)
 		for _, name := range []string{"", strings.Repeat("a", 500), "Avery\x00"} {

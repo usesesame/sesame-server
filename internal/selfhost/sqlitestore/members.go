@@ -121,6 +121,9 @@ func (s *Store) DeleteMember(ctx context.Context, by selfhost.Actor, id string) 
 		if err := cancelPairingsWhere(ctx, tx, now, "member_id", id); err != nil {
 			return err
 		}
+		if err := deleteSyncVault(ctx, tx, selfhost.HolderMember, id); err != nil {
+			return err
+		}
 		return s.audit(ctx, tx, by, "member.deleted", id, map[string]string{"revokedDevices": fmt.Sprint(count)})
 	})
 	if err != nil {
@@ -139,5 +142,25 @@ func revokeDevicesWhere(ctx context.Context, tx *sql.Tx, now int64, column, id s
 
 func cancelPairingsWhere(ctx context.Context, tx *sql.Tx, now int64, column, id string) error {
 	_, err := tx.ExecContext(ctx, `UPDATE pairings SET cancelled_at = ? WHERE `+column+` = ? AND used_at IS NULL AND cancelled_at IS NULL`, now, id)
+	return err
+}
+
+func syncOwnerKey(kind selfhost.HolderKind, id string) string {
+	return string(kind) + ":" + id
+}
+
+func deleteSyncVault(ctx context.Context, tx *sql.Tx, kind selfhost.HolderKind, id string) error {
+	_, err := tx.ExecContext(ctx, `DELETE FROM sync_vaults WHERE owner_key = ?`, syncOwnerKey(kind, id))
+	return err
+}
+
+func deleteOrphanSyncVaults(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, `
+		DELETE FROM sync_vaults WHERE
+			(substr(owner_key, 1, length(?1)) = ?1 AND NOT EXISTS (
+				SELECT 1 FROM owners WHERE ?1 || owners.id = sync_vaults.owner_key AND owners.removed_at IS NULL))
+			OR (substr(owner_key, 1, length(?2)) = ?2 AND NOT EXISTS (
+				SELECT 1 FROM members WHERE ?2 || members.id = sync_vaults.owner_key AND members.removed_at IS NULL))
+	`, syncOwnerKey(selfhost.HolderOwner, ""), syncOwnerKey(selfhost.HolderMember, ""))
 	return err
 }

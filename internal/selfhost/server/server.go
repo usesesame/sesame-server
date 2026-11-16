@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -96,6 +97,8 @@ type server struct {
 	fingerprint string
 	keyID       string
 	metrics     *metrics
+	refused     *refusals
+	ownerLogin  sync.Mutex
 	forwarded   atomic.Bool
 }
 
@@ -150,6 +153,7 @@ func newServer(cfg Config) *server {
 		fingerprint: fingerprint,
 		keyID:       cfg.CapabilityKeyID,
 		metrics:     newMetrics(),
+		refused:     newRefusals(),
 	}
 	return s
 }

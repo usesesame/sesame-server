@@ -2,11 +2,13 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	adminstore "usesesame.app/backend/internal/admin"
 	"usesesame.app/backend/internal/syncsvc"
 	"usesesame.app/backend/internal/syncv3http"
 )
@@ -42,16 +44,39 @@ func (a *api) syncHandler() *syncv3http.Handler {
 	if a.config.Sync == nil || !syncOwnerPepperUsable(a.config.SyncOwnerPepper) {
 		return nil
 	}
-	return syncv3http.New(a.config.Sync, hostedSyncHost{api: a})
+	a.syncOnce.Do(func() {
+		a.sync = syncv3http.New(a.config.Sync, hostedSyncHost{api: a})
+	})
+	return a.sync
 }
 
 func (a *api) withSync(response http.ResponseWriter, request *http.Request, serve func(*syncv3http.Handler) http.HandlerFunc) {
 	handler := a.syncHandler()
-	if handler == nil || !a.syncEnabled(request.Context()) {
+	if handler == nil {
+		writeError(response, http.StatusForbidden, "sync_unavailable", "Sesame Sync is not available.")
+		return
+	}
+	enabled, unreadable := a.syncFlagState(request.Context())
+	if unreadable {
+		writeTemporarilyUnavailable(response, "sync_unavailable", "Sesame Sync is temporarily unavailable.")
+		return
+	}
+	if !enabled {
 		writeError(response, http.StatusForbidden, "sync_unavailable", "Sesame Sync is not available.")
 		return
 	}
 	serve(handler)(response, request)
+}
+
+func (a *api) syncFlagState(ctx context.Context) (enabled, unreadable bool) {
+	if a.config.Admin == nil {
+		return false, false
+	}
+	value, err := a.config.Admin.FeatureFlag(ctx, "cloud_sync_available")
+	if err != nil {
+		return false, !errors.Is(err, adminstore.ErrNotFound)
+	}
+	return value == "true", false
 }
 
 func (a *api) syncState(response http.ResponseWriter, request *http.Request) {
@@ -59,7 +84,28 @@ func (a *api) syncState(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) syncCreateVault(response http.ResponseWriter, request *http.Request) {
-	a.withSync(response, request, func(h *syncv3http.Handler) http.HandlerFunc { return h.CreateVault })
+	a.withSync(response, request, func(h *syncv3http.Handler) http.HandlerFunc {
+		return func(response http.ResponseWriter, request *http.Request) {
+			creator := &syncVaultCreator{}
+			h.CreateVault(response, request.WithContext(context.WithValue(request.Context(), syncVaultCreatorKey{}, creator)))
+			a.dropVaultOfDeletedAccount(context.WithoutCancel(request.Context()), creator.accountID)
+		}
+	})
+}
+
+type syncVaultCreatorKey struct{}
+
+type syncVaultCreator struct {
+	accountID string
+}
+
+func (a *api) dropVaultOfDeletedAccount(ctx context.Context, accountID string) {
+	if accountID == "" {
+		return
+	}
+	if _, _, err := a.config.Accounts.FindByID(ctx, accountID); errors.Is(err, accounts.ErrNotFound) {
+		a.sweepDeletedAccountSyncVault(ctx, accountID)
+	}
 }
 
 func (a *api) syncDeviceList(response http.ResponseWriter, request *http.Request) {
@@ -144,12 +190,12 @@ type syncLimit struct {
 }
 
 var syncLimits = map[string]syncLimit{
-	"state":           {200, 60, 30, false},
+	"state":           {200, 120, 60, false},
 	"vault":           {30, 10, 5, true},
 	"device-list":     {200, 60, 30, false},
 	"devices":         {200, 60, 30, false},
 	"pairing-begin":   {30, 10, 5, true},
-	"pairing-mine":    {200, 60, 30, false},
+	"pairing-mine":    {200, 60, 60, false},
 	"pairing-answer":  {60, 20, 10, false},
 	"pairing-confirm": {60, 20, 10, false},
 	"pairing-cancel":  {60, 20, 10, false},
@@ -162,7 +208,7 @@ var syncLimits = map[string]syncLimit{
 	"upload":          {180, 60, 30, true},
 	"headers":         {300, 120, 60, false},
 	"download":        {300, 120, 60, false},
-	"checkpoint-put":  {60, 20, 10, false},
+	"checkpoint-put":  {60, 60, 30, false},
 	"checkpoints":     {200, 60, 30, false},
 	"reset":           {10, 5, 3, false},
 }
@@ -197,6 +243,9 @@ func (host hostedSyncHost) Authenticate(response http.ResponseWriter, request *h
 	if limit.needsEntitlement && !a.syncEntitled(response, request, connection.AccountID) {
 		return syncsvc.Caller{}, false
 	}
+	if creator, ok := request.Context().Value(syncVaultCreatorKey{}).(*syncVaultCreator); ok {
+		creator.accountID = connection.AccountID
+	}
 	token := strings.TrimPrefix(request.Header.Get("Authorization"), "Sesame ")
 	return syncsvc.Caller{OwnerKey: syncOwnerKey(a.config.SyncOwnerPepper, connection.AccountID), TokenDeviceID: connection.DeviceID, Token: token}, true
 }
@@ -222,4 +271,21 @@ func (a *api) syncEntitled(response http.ResponseWriter, request *http.Request, 
 		return false
 	}
 	return true
+}
+
+func (a *api) deleteAccountSyncVault(ctx context.Context, accountID string) error {
+	if a.config.Sync == nil || !syncOwnerPepperUsable(a.config.SyncOwnerPepper) {
+		return nil
+	}
+	err := a.config.Sync.AdminReset(ctx, syncOwnerKey(a.config.SyncOwnerPepper, accountID))
+	if errors.Is(err, syncsvc.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+func (a *api) sweepDeletedAccountSyncVault(ctx context.Context, accountID string) {
+	if err := a.deleteAccountSyncVault(ctx, accountID); err != nil {
+		requestLog(ctx).Warn("Sesame Sync vault of a deleted account could not be removed", "error", err)
+	}
 }

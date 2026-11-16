@@ -331,6 +331,75 @@ func testDevices(t *testing.T, h Harness) {
 			t.Fatal("expired device is listed as active")
 		}
 	})
+	each(t, h, "a token used with less than sixty days left is renewed for ninety days from that use", func(f *fixture) {
+		owner := f.firstOwner("Avery")
+		device := f.pair(actorOf(owner), ownerHolder(owner), "Laptop")
+		f.clock.Advance(40 * 24 * time.Hour)
+		usedAt := f.clock.Now()
+		renewed, err := f.store.AuthenticateDevice(f.ctx, device.Token)
+		f.must(err)
+		if want := usedAt.Add(selfhost.DeviceTokenTTL); !renewed.ExpiresAt.Equal(want) {
+			t.Fatalf("expiry %v, want %v", renewed.ExpiresAt, want)
+		}
+		if renewed.ID != device.Device.ID {
+			t.Fatalf("renewal changed the device id to %s", renewed.ID)
+		}
+		f.clock.Advance(selfhost.DeviceTokenTTL - time.Second)
+		devices, err := f.store.ListDevices(f.ctx, selfhost.DeviceFilter{})
+		f.must(err)
+		if len(devices) != 1 || !devices[0].ExpiresAt.Equal(usedAt.Add(selfhost.DeviceTokenTTL)) {
+			t.Fatalf("listing alone moved the expiry %+v", devices)
+		}
+		f.clock.Advance(time.Second)
+		_, err = f.store.AuthenticateDevice(f.ctx, device.Token)
+		f.expect(err, selfhost.ErrDeviceInvalid)
+		_, err = f.store.Heartbeat(f.ctx, device.Token, selfhost.DeviceMeta{ProtocolVersion: 1})
+		f.expect(err, selfhost.ErrDeviceInvalid)
+	})
+	each(t, h, "a token used with more than sixty days left keeps its expiry", func(f *fixture) {
+		owner := f.firstOwner("Avery")
+		device := f.pair(actorOf(owner), ownerHolder(owner), "Laptop")
+		f.clock.Advance(10 * 24 * time.Hour)
+		used, err := f.store.AuthenticateDevice(f.ctx, device.Token)
+		f.must(err)
+		if !used.ExpiresAt.Equal(device.Device.ExpiresAt) {
+			t.Fatalf("expiry moved from %v to %v", device.Device.ExpiresAt, used.ExpiresAt)
+		}
+		f.clock.Advance(selfhost.DeviceTokenTTL - 10*24*time.Hour)
+		_, err = f.store.AuthenticateDevice(f.ctx, device.Token)
+		f.expect(err, selfhost.ErrDeviceInvalid)
+	})
+	each(t, h, "expired, revoked and removed holders' tokens are not renewed", func(f *fixture) {
+		owner := f.firstOwner("Avery")
+		by := actorOf(owner)
+		member := f.member(by, "Sam")
+		expired := f.pair(by, ownerHolder(owner), "Old laptop")
+		f.clock.Advance(selfhost.DeviceTokenTTL)
+		revoked := f.pair(by, ownerHolder(owner), "Revoked laptop")
+		removed := f.pair(by, memberHolder(member), "Sam laptop")
+		f.clock.Advance(40 * 24 * time.Hour)
+		f.must(f.store.RevokeDevice(f.ctx, by, revoked.Device.ID))
+		_, err := f.store.DeleteMember(f.ctx, by, member.ID)
+		f.must(err)
+		for _, token := range []string{expired.Token, revoked.Token, removed.Token} {
+			_, err = f.store.AuthenticateDevice(f.ctx, token)
+			f.expect(err, selfhost.ErrDeviceInvalid)
+			_, err = f.store.Heartbeat(f.ctx, token, selfhost.DeviceMeta{ProtocolVersion: 1})
+			f.expect(err, selfhost.ErrDeviceInvalid)
+		}
+		all, err := f.store.ListDevices(f.ctx, selfhost.DeviceFilter{IncludeInactive: true})
+		f.must(err)
+		original := map[string]time.Time{
+			expired.Device.ID: expired.Device.ExpiresAt,
+			revoked.Device.ID: revoked.Device.ExpiresAt,
+			removed.Device.ID: removed.Device.ExpiresAt,
+		}
+		for _, device := range all {
+			if want, tracked := original[device.ID]; tracked && !device.ExpiresAt.Equal(want) {
+				t.Fatalf("device %s expiry moved from %v to %v", device.Name, want, device.ExpiresAt)
+			}
+		}
+	})
 	each(t, h, "revoked and stale tokens stop working", func(f *fixture) {
 		owner := f.firstOwner("Avery")
 		by := actorOf(owner)

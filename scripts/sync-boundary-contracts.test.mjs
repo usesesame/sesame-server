@@ -25,7 +25,14 @@ test('Sync is off by default: the operator flag falls back to false and gates ev
   assert.match(definition[1], /a\.config\.Sync != nil/, 'a configured service is required as well as the flag')
 
   const routes = read('internal', 'httpapi', 'sync_routes.go')
-  assert.match(routes, /handler == nil \|\| !a\.syncEnabled\(request\.Context\(\)\)/, 'every Sync route must check the flag before it reaches a handler')
+  const gate = routes.match(/func \(a \*api\) withSync\([^{]*\{([\s\S]*?)\n\}/)
+  assert.ok(gate, 'withSync is no longer a single function this test can read')
+  assert.match(gate[1], /enabled, unreadable := a\.syncFlagState\(request\.Context\(\)\)[\s\S]*if !enabled \{[\s\S]*StatusForbidden[\s\S]*return\n\t\}\n\tserve\(handler\)/, 'every Sync route must check the flag before it reaches a handler')
+  const flagState = routes.match(/func \(a \*api\) syncFlagState\([^{]*\{([\s\S]*?)\n\}/)
+  assert.ok(flagState, 'syncFlagState is no longer a single function this test can read')
+  assert.match(flagState[1], /FeatureFlag\(ctx, "cloud_sync_available"\)/, 'the route gate must read the operator flag')
+  assert.match(flagState[1], /return value == "true", false/, 'only the value true turns Sync on')
+  assert.match(flagState[1], /if a\.config\.Admin == nil \{\n\t\treturn false, false/, 'Sync stays off without a flag store')
   const registered = [...routes.matchAll(/a\.route\(mux, sync, "/g)].length
   assert.ok(registered > 0, 'no Sync routes were found')
   assert.equal([...routes.matchAll(/a\.withSync\(response, request,/g)].length, registered, 'every registered Sync route goes through withSync')

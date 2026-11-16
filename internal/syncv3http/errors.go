@@ -1,8 +1,11 @@
 package syncv3http
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 
@@ -11,6 +14,7 @@ import (
 
 const (
 	codeInvalid          = "sync_invalid"
+	codeTooLarge         = "sync_too_large"
 	codeSignatureInvalid = "sync_signature_invalid"
 	codeForbidden        = "sync_forbidden"
 	codeNotActivated     = "sync_not_activated"
@@ -30,6 +34,7 @@ type errorSpec struct {
 
 var errorSpecs = map[string]errorSpec{
 	codeInvalid:          {http.StatusBadRequest, "The sync request is invalid."},
+	codeTooLarge:         {http.StatusRequestEntityTooLarge, "That sync request is too large."},
 	codeSignatureInvalid: {http.StatusUnauthorized, "The sync request signature is invalid."},
 	codeForbidden:        {http.StatusForbidden, "This device is not allowed to do that."},
 	codeNotActivated:     {http.StatusForbidden, "This device has not activated its vault key yet."},
@@ -93,6 +98,37 @@ func writeError(response http.ResponseWriter, code string) {
 		spec = errorSpecs[codeUnavailable]
 	}
 	writeJSON(response, spec.status, errorResponse{Error: errorBody{Code: code, Message: spec.message}})
+}
+
+var errNoTrailingField = errors.New("the response does not end with the expected empty string field")
+
+func writeJSONWithTrailingBase64(response http.ResponseWriter, status int, value any, field string, trailing []byte) {
+	encoded, err := json.Marshal(value)
+	emptyField := `"` + field + `":""}`
+	if err == nil && !bytes.HasSuffix(encoded, []byte(emptyField)) {
+		err = errNoTrailingField
+	}
+	if err != nil {
+		slog.Error("sync response encoding failed", "status", status, "error", err)
+		writeError(response, codeUnavailable)
+		return
+	}
+	response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	response.WriteHeader(status)
+	encoder := base64.NewEncoder(base64.RawURLEncoding, response)
+	_, err = response.Write(encoded[:len(encoded)-len(`"}`)])
+	if err == nil {
+		_, err = encoder.Write(trailing)
+	}
+	if err == nil {
+		err = encoder.Close()
+	}
+	if err == nil {
+		_, err = io.WriteString(response, "\"}\n")
+	}
+	if err != nil {
+		slog.Error("sync response write failed", "status", status, "error", err)
+	}
 }
 
 func writeJSON(response http.ResponseWriter, status int, value any) {

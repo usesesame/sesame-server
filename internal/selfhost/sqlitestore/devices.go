@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"time"
 
 	"usesesame.app/backend/internal/authkit"
 	"usesesame.app/backend/internal/selfhost"
@@ -64,10 +65,37 @@ func (s *Store) AuthenticateDevice(ctx context.Context, token string) (selfhost.
 	if err != nil {
 		return selfhost.Device{}, err
 	}
-	device, err := readDevice(ctx, db, `d.token_hash = ? AND `+activeDevice, authkit.HashToken(token), s.clock().Unix())
+	now := s.clock()
+	device, err := readDevice(ctx, db, `d.token_hash = ? AND `+activeDevice, authkit.HashToken(token), now.Unix())
 	if errors.Is(err, selfhost.ErrNotFound) {
 		return selfhost.Device{}, selfhost.ErrDeviceInvalid
 	}
+	if err != nil || device.ExpiresAt.Sub(now) >= selfhost.DeviceTokenRenewBelow {
+		return device, err
+	}
+	return s.renewDevice(ctx, token, now)
+}
+
+func (s *Store) renewDevice(ctx context.Context, token string, now time.Time) (selfhost.Device, error) {
+	var device selfhost.Device
+	err := s.write(ctx, func(tx *sql.Tx) error {
+		renewed := now.Add(selfhost.DeviceTokenTTL).Unix()
+		result, err := tx.ExecContext(ctx, `
+			UPDATE devices SET expires_at = MAX(expires_at, ?)
+			WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ?
+		`, renewed, authkit.HashToken(token), now.Unix())
+		if err != nil {
+			return err
+		}
+		if changed, err := result.RowsAffected(); err != nil || changed != 1 {
+			if err != nil {
+				return err
+			}
+			return selfhost.ErrDeviceInvalid
+		}
+		device, err = readDevice(ctx, tx, `d.token_hash = ?`, authkit.HashToken(token))
+		return err
+	})
 	return device, err
 }
 

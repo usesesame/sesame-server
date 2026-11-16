@@ -263,6 +263,26 @@ test('the reverse proxy recipes still hold the lines the proxy check rewrites', 
   assert.match(read('deploy', 'selfhost', 'compose.traefik.yaml'), /traefik\.http\.routers\.sesame\.entrypoints: websecure/)
 })
 
+test('the nginx recipe keeps small bodies by default and lets Sync carry a vault', () => {
+  const nginx = read('deploy', 'selfhost', 'nginx.conf')
+  const locations = Object.fromEntries([...nginx.matchAll(/^    location (\S+) \{\n([\s\S]*?)^    \}$/gm)].map((match) => [match[1], match[2]]))
+  assert.deepEqual(Object.keys(locations).sort(), ['/', '/v1/sync/'])
+  const serverLevel = nginx.replace(/^    location [\s\S]*?^    \}$/gm, '')
+  assert.match(serverLevel, /^    client_max_body_size 64k;$/m, 'the server block must keep the 64 KiB default')
+  assert.doesNotMatch(locations['/'], /client_max_body_size/, 'the main location must not raise the body limit')
+  const sync = locations['/v1/sync/']
+  assert.match(sync, /^        client_max_body_size 16m;$/m, 'Sync needs room for a 15 MiB snapshot')
+  for (const timeout of ['proxy_read_timeout', 'proxy_send_timeout']) {
+    const value = sync.match(new RegExp(`^        ${timeout} (\\d+)s;$`, 'm'))
+    assert.ok(value && Number(value[1]) >= 180, `${timeout} must cover the 3 minute Sync transfer window`)
+  }
+  const proxyLines = (block) => block.split('\n').map((line) => line.trim()).filter((line) => /^proxy_(?:pass|http_version|set_header) /.test(line))
+  assert.deepEqual(proxyLines(sync), proxyLines(locations['/']), 'Sync must reach the server with the same proxy headers as the main location')
+
+  const guide = read('SELF-HOSTING.md')
+  assert.match(guide, /limits request bodies to 64 KiB\. Sync requests under `\/v1\/sync\/` may be up to 16 MiB and get 3 minutes/)
+})
+
 test('the proxy check images are pinned by digest', () => {
   const dockerfile = read('scripts', 'selfhost-proxy-images', 'Dockerfile')
   const bases = [...dockerfile.matchAll(/^FROM (\S+) AS (\w+)$/gm)]

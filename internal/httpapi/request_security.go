@@ -20,11 +20,13 @@ import (
 )
 
 const (
-	identityGuessLimit  = 10
-	identityGuessWindow = 5 * time.Minute
-	identityMailLimit   = 5
-	identityMailWindow  = time.Hour
-	recoveryPeerLimit   = 2
+	identityGuessLimit    = 10
+	identityGuessWindow   = 5 * time.Minute
+	identityCeilingLimit  = 300
+	identityCeilingWindow = time.Hour
+	identityMailLimit     = 5
+	identityMailWindow    = time.Hour
+	recoveryPeerLimit     = 2
 )
 
 type authLimiter struct {
@@ -70,8 +72,12 @@ func (a *api) desktopConnectionForRequest(response http.ResponseWriter, request 
 		return accounts.DesktopConnection{}, false
 	}
 	connection, err := store.DesktopConnectionForToken(request.Context(), accounts.HashSessionToken(token))
-	if err != nil {
+	if errors.Is(err, accounts.ErrNotFound) {
 		writeError(response, http.StatusUnauthorized, "not_authenticated", "This desktop is no longer linked.")
+		return accounts.DesktopConnection{}, false
+	}
+	if err != nil {
+		writeTemporarilyUnavailable(response, "desktop_link_check_unavailable", "The desktop link could not be checked. Try again shortly.")
 		return accounts.DesktopConnection{}, false
 	}
 	if connection.AccountSuspended {
@@ -133,6 +139,10 @@ func (a *api) consumeKeyed(request *http.Request, key string, limit int, window 
 // an address or account id in the clear.
 func (a *api) allowIdentity(response http.ResponseWriter, request *http.Request, operation, identity string, limit int, window time.Duration) bool {
 	return a.allowKeyed(response, request, identityBudgetKey(operation, identity, a.config.AdminIPPepper), limit, window)
+}
+
+func (a *api) allowIdentityFromClient(response http.ResponseWriter, request *http.Request, operation, identity string, limit int, window time.Duration) bool {
+	return a.allowIdentity(response, request, operation, identity+"\x00"+a.clientLimitKey(request), limit, window)
 }
 
 func (a *api) identityWithinBudget(request *http.Request, operation, identity string, limit int, window time.Duration) bool {
@@ -337,6 +347,13 @@ func requestIP(request *http.Request) string {
 		return request.RemoteAddr
 	}
 	return host
+}
+
+const temporarilyUnavailableRetrySeconds = 15
+
+func writeTemporarilyUnavailable(response http.ResponseWriter, code, message string) {
+	response.Header().Set("Retry-After", strconv.Itoa(temporarilyUnavailableRetrySeconds))
+	writeError(response, http.StatusServiceUnavailable, code, message)
 }
 
 func writeError(response http.ResponseWriter, status int, code, message string) {

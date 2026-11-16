@@ -23,6 +23,7 @@ var (
 	ErrRecoveryGenerationMismatch = errors.New("selfhost: recovery generation does not match")
 	ErrRecoverySelectionInvalid   = errors.New("selfhost: recovery selection is invalid")
 	ErrRecoveryOwnerRequired      = errors.New("selfhost: at least one complete owner must be retained")
+	ErrInvalidCode                = fmt.Errorf("%w: the password matched but the code did not", ErrInvalidCredentials)
 )
 
 type SchemaTooNewError struct {

@@ -45,6 +45,13 @@ export type DesktopDevice = {
   browserHelperLastObservedAt?: string
 }
 
+export type SyncVaultStatus = {
+  available: boolean
+  hasVault: boolean
+  approvedDevices: number
+  updatedAt?: string
+}
+
 export type AccountSession = {
   id: string
   label: string
@@ -289,6 +296,17 @@ export async function renameDesktopDevice(deviceId: string, deviceName: string):
   const response = await apiRequest(`${API_ROUTES.devices}/${encodeURIComponent(deviceId)}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ deviceName }),
   })
+  if (!response.ok) throw await requestError(response)
+}
+
+export async function getSyncVault(): Promise<SyncVaultStatus> {
+  const response = await apiRequest(API_ROUTES.syncVault)
+  if (!response.ok) throw await requestError(response)
+  return await response.json() as SyncVaultStatus
+}
+
+export async function deleteSyncVault(): Promise<void> {
+  const response = await apiRequest(API_ROUTES.syncVault, { method: 'DELETE' })
   if (!response.ok) throw await requestError(response)
 }
 

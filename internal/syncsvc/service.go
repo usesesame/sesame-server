@@ -6,18 +6,24 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"usesesame.app/backend/internal/syncproto"
 )
 
-const defaultByteBudget = 128 * 1024 * 1024
+const (
+	defaultByteBudget          = 128 * 1024 * 1024
+	defaultCiphertextRetention = 2
+)
 
 type Config struct {
-	ReceiptKey      ed25519.PrivateKey
-	Now             func() time.Time
-	ByteBudget      int64
-	HeaderRetention uint64
+	ReceiptKey           ed25519.PrivateKey
+	Now                  func() time.Time
+	ByteBudget           int64
+	HeaderRetention      uint64
+	CiphertextRetention  uint64
+	MaxDeviceListEntries uint64
 }
 
 type Service struct {
@@ -37,6 +43,12 @@ func New(storage Storage, config Config) (*Service, error) {
 	}
 	if config.HeaderRetention == 0 {
 		config.HeaderRetention = MaxHeaderRetention
+	}
+	if config.CiphertextRetention == 0 {
+		config.CiphertextRetention = defaultCiphertextRetention
+	}
+	if config.MaxDeviceListEntries == 0 {
+		config.MaxDeviceListEntries = MaxDeviceListEntries
 	}
 	return &Service{storage: nonceKeeper{inner: storage}, config: config}, nil
 }
@@ -122,6 +134,13 @@ func (s *Service) signedActor(tx Tx, caller Caller, request SignedRequest) (Acto
 		return Actor{}, err
 	}
 	return actor, nil
+}
+
+func (s *Service) requireListRoom(index uint64) error {
+	if index > s.config.MaxDeviceListEntries {
+		return ErrQuota
+	}
+	return nil
 }
 
 func requireApproved(actor Actor) error {
@@ -251,6 +270,14 @@ func (s *Service) BeginPairing(ctx context.Context, caller Caller, request Signe
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
 		}
+		now := s.now()
+		if claimed, err := tx.Pairing(vault.ID, offer.DeviceID); err == nil {
+			if claimed.TokenDeviceID != caller.TokenDeviceID && now.Before(claimed.ExpiresAt) {
+				return ErrConflict
+			}
+		} else if !errors.Is(err, ErrNotFound) {
+			return err
+		}
 		if previous, err := tx.PairingByToken(vault.ID, caller.TokenDeviceID); err == nil {
 			if err := tx.DeletePairing(vault.ID, previous.DeviceID); err != nil {
 				return err
@@ -258,17 +285,19 @@ func (s *Service) BeginPairing(ctx context.Context, caller Caller, request Signe
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
 		}
-		if err := tx.PurgeExpired(s.now()); err != nil {
-			return err
-		}
 		pairings, err := tx.Pairings(vault.ID)
 		if err != nil {
 			return err
 		}
-		if len(pairings) >= MaxPendingPairings {
+		live := 0
+		for _, pairing := range pairings {
+			if now.Before(pairing.ExpiresAt) {
+				live++
+			}
+		}
+		if live >= MaxPendingPairings {
 			return ErrQuota
 		}
-		now := s.now()
 		return tx.PutPairing(Pairing{
 			VaultID: vault.ID, DeviceID: offer.DeviceID, TokenDeviceID: caller.TokenDeviceID,
 			SigningKey: offer.SigningKey, PackageKey: offer.PackageKey, Offer: offer.Message,
@@ -412,6 +441,9 @@ func (s *Service) Approve(ctx context.Context, caller Caller, request SignedRequ
 		if entry.Index != actor.Vault.HeadIndex+1 {
 			return ErrConflict
 		}
+		if err := s.requireListRoom(entry.Index); err != nil {
+			return err
+		}
 		list, err := loadList(tx, actor.Vault.ID)
 		if err != nil {
 			return err
@@ -529,6 +561,11 @@ func (s *Service) rekey(ctx context.Context, caller Caller, request SignedReques
 		if entry.Index != actor.Vault.HeadIndex+1 {
 			return ErrConflict
 		}
+		if kind != syncproto.EntryRemove {
+			if err := s.requireListRoom(entry.Index); err != nil {
+				return err
+			}
+		}
 		list, err := loadList(tx, actor.Vault.ID)
 		if err != nil {
 			return err
@@ -544,6 +581,9 @@ func (s *Service) rekey(ctx context.Context, caller Caller, request SignedReques
 		}
 		if len(packages) != len(expected) {
 			return fmt.Errorf("%w: the survivor set is incomplete", ErrInvalid)
+		}
+		if kind == syncproto.EntryRemove && len(list.Current()) == 0 {
+			return tx.DeleteVault(actor.Vault.ID)
 		}
 		now := s.now()
 		if err := tx.DeleteKeyPackages(actor.Vault.ID); err != nil {
@@ -621,6 +661,9 @@ func (s *Service) UpgradeKey(ctx context.Context, caller Caller, request SignedR
 		}
 		if entry.Index != actor.Vault.HeadIndex+1 {
 			return ErrConflict
+		}
+		if err := s.requireListRoom(entry.Index); err != nil {
+			return err
 		}
 		list, err := loadList(tx, actor.Vault.ID)
 		if err != nil {
@@ -715,8 +758,12 @@ func (s *Service) Upload(ctx context.Context, caller Caller, request SignedReque
 		if err := tx.PutCiphertext(vault.ID, header.Revision, input.Ciphertext); err != nil {
 			return err
 		}
+		keepFrom := s.oldestKeptCiphertext(header.Revision)
 		if previous != nil && previous.VaultEpoch < header.VaultEpoch {
-			if err := tx.DeleteCiphertextsBefore(vault.ID, header.Revision); err != nil {
+			keepFrom = header.Revision
+		}
+		if keepFrom > 1 {
+			if err := tx.DeleteCiphertextsBefore(vault.ID, keepFrom); err != nil {
 				return err
 			}
 		}
@@ -755,6 +802,12 @@ func (s *Service) PutCheckpoint(ctx context.Context, caller Caller, request Sign
 		if !syncproto.WithinRequestSkew(checkpoint.ObservedAt, s.unix()) {
 			return fmt.Errorf("%w: the checkpoint time is not close to the service clock", ErrInvalid)
 		}
+		if checkpoint.DeviceListIndex > math.MaxInt64 || checkpoint.HeaderRevision > math.MaxInt64 {
+			return fmt.Errorf("%w: the checkpoint names a position beyond the stored range", ErrInvalid)
+		}
+		if checkpoint.DeviceListIndex > actor.Vault.HeadIndex || checkpoint.HeaderRevision > actor.Vault.CurrentRevision {
+			return ErrConflict
+		}
 		previous, err := tx.Checkpoint(actor.Vault.ID, actor.Device.DeviceID)
 		if err == nil {
 			if checkpoint.ObservedAt <= previous.ObservedAt || checkpoint.DeviceListIndex < previous.DeviceListIndex ||
@@ -784,6 +837,13 @@ func (s *Service) Checkpoints(ctx context.Context, caller Caller) ([]StoredCheck
 		return err
 	})
 	return out, err
+}
+
+func (s *Service) oldestKeptCiphertext(revision uint64) uint64 {
+	if revision < s.config.CiphertextRetention {
+		return 1
+	}
+	return revision - s.config.CiphertextRetention + 1
 }
 
 func (s *Service) makeRoom(tx Tx, vault Vault, incoming int64) error {
@@ -887,8 +947,8 @@ func (s *Service) Devices(ctx context.Context, caller Caller) (Vault, []Device, 
 		if err != nil {
 			return err
 		}
-		if actor.Pairing != nil {
-			return ErrForbidden
+		if err := requireApproved(actor); err != nil {
+			return err
 		}
 		vault = actor.Vault
 		devices, err = tx.Devices(actor.Vault.ID)

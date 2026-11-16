@@ -61,7 +61,7 @@ func (s *Store) Maintain(ctx context.Context) (selfhost.MaintenanceReport, error
 			}
 			report.Holders += removed
 		}
-		return nil
+		return deleteOrphanSyncVaults(ctx, tx)
 	})
 	return report, err
 }

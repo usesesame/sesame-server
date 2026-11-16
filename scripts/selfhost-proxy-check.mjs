@@ -261,9 +261,16 @@ async function main() {
   })
 
   if (options.proxy === 'nginx') {
-    await check('nginx refuses a request body above 64 KiB before the server sees it', async () => {
+    await check('nginx refuses a request body above 64 KiB outside Sync before the server sees it', async () => {
       const response = await request(instance, 'POST', '/v1/owner/login', { headers: { origin: instance.origin }, json: { name: 'x'.repeat(70 * 1024), password: 'x', code: '000000' } })
       assert.equal(response.status, 413)
+      assert.equal(response.json, null, 'the 413 came from the server and not from nginx')
+    })
+
+    await check('nginx passes a Sync request body above 64 KiB through to the server', async () => {
+      const response = await request(instance, 'POST', '/v1/sync/snapshots', { json: { header: {}, ciphertext: 'A'.repeat(200 * 1024) } })
+      assert.notEqual(response.status, 413, `nginx refused a ${200 * 1024} byte Sync body: ${response.text.slice(0, 200)}`)
+      assert.equal(typeof response.json?.error?.code, 'string', `the server did not answer the Sync request: ${response.status} ${response.text.slice(0, 200)}`)
     })
   }
 

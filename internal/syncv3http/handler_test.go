@@ -13,7 +13,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -109,7 +111,7 @@ type fixture struct {
 	receiptKey ed25519.PublicKey
 }
 
-func newFixture(t *testing.T) *fixture {
+func newFixture(t *testing.T, options ...syncv3http.Option) *fixture {
 	t.Helper()
 	receiptKey := ed25519.NewKeyFromSeed(seed("receipt"))
 	store := &storage{inner: memstore.New()}
@@ -122,7 +124,7 @@ func newFixture(t *testing.T) *fixture {
 	}
 	host := &fakeHost{}
 	mux := http.NewServeMux()
-	syncv3http.New(service, host).Register(mux)
+	syncv3http.New(service, host, options...).Register(mux)
 	return &fixture{t: t, mux: mux, storage: store, host: host, receiptKey: receiptKey.Public().(ed25519.PublicKey)}
 }
 
@@ -532,7 +534,7 @@ func TestOversizeBodyIsRejectedWithoutReadingIt(t *testing.T) {
 	reader := &endlessBody{}
 	signature := f.sign(owner.key, owner.token, http.MethodPost, target, nil)
 	recorder := f.serve(owner, http.MethodPost, target, reader, signature)
-	expectError(t, recorder, http.StatusBadRequest, "sync_invalid")
+	expectError(t, recorder, http.StatusRequestEntityTooLarge, "sync_too_large")
 	if reader.read > smallBodyLimit+1 {
 		t.Fatalf("handler read %d bytes from a body limited to %d", reader.read, smallBodyLimit)
 	}
@@ -911,4 +913,165 @@ func (f *fixture) deliveredDigest(d device) string {
 		RecipientDeviceID: delivered.Package.RecipientDeviceID, VaultEpoch: delivered.Package.VaultEpoch,
 		EntryDigest: delivered.Package.EntryDigest, Ciphertext: delivered.Package.Ciphertext, Signature: delivered.Package.Signature,
 	}.Digest()
+}
+
+func (f *fixture) serveRequest(d device, request *http.Request, signature string) *httptest.ResponseRecorder {
+	f.t.Helper()
+	request.Header.Set("X-Test-Owner", testOwner)
+	request.Header.Set("X-Test-Token", d.token)
+	request.Header.Set("X-Test-Token-Device", d.tokenID)
+	if signature != "" {
+		request.Header.Set(signatureHeader, signature)
+	}
+	recorder := httptest.NewRecorder()
+	f.mux.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func TestDeclaredOversizeBodyIsRejectedBeforeReading(t *testing.T) {
+	routes := map[string]int64{
+		"/v1/sync/vault":     smallBodyLimit,
+		"/v1/sync/devices":   1 << 20,
+		"/v1/sync/snapshots": 15 << 20,
+	}
+	for target, limit := range routes {
+		t.Run(target, func(t *testing.T) {
+			f := newFixture(t)
+			owner := newDevice(deviceAID, "a")
+			reader := &endlessBody{}
+			request := httptest.NewRequest(http.MethodPost, target, reader)
+			request.ContentLength = limit + 1
+			recorder := f.serveRequest(owner, request, f.sign(owner.key, owner.token, http.MethodPost, target, nil))
+			expectError(t, recorder, http.StatusRequestEntityTooLarge, "sync_too_large")
+			if reader.read != 0 {
+				t.Fatalf("handler read %d bytes of a body declared larger than %d", reader.read, limit)
+			}
+			if f.storage.calls != 0 {
+				t.Fatalf("service was called %d times for an oversize body", f.storage.calls)
+			}
+		})
+	}
+}
+
+func TestStreamedOversizeSnapshotIsRejectedAsTooLarge(t *testing.T) {
+	f := newFixture(t)
+	owner := newDevice(deviceAID, "a")
+	target := "/v1/sync/snapshots"
+	reader := &endlessBody{}
+	recorder := f.serve(owner, http.MethodPost, target, reader, f.sign(owner.key, owner.token, http.MethodPost, target, nil))
+	expectError(t, recorder, http.StatusRequestEntityTooLarge, "sync_too_large")
+	if reader.read > 15<<20+1 {
+		t.Fatalf("handler read %d bytes from a body limited to %d", reader.read, 15<<20)
+	}
+	if f.storage.calls != 0 {
+		t.Fatalf("service was called %d times for an oversize body", f.storage.calls)
+	}
+}
+
+type failingBody struct {
+	err error
+}
+
+func (body failingBody) Read([]byte) (int, error) {
+	return 0, body.err
+}
+
+func TestInterruptedBodyIsNotReportedAsInvalid(t *testing.T) {
+	cases := map[string]struct {
+		err    error
+		status int
+		code   string
+	}{
+		"read deadline passed": {fmt.Errorf("read tcp: %w", os.ErrDeadlineExceeded), http.StatusServiceUnavailable, "sync_unavailable"},
+		"client went away":     {io.ErrUnexpectedEOF, http.StatusServiceUnavailable, "sync_unavailable"},
+		"malformed transfer":   {errors.New("malformed chunked encoding"), http.StatusBadRequest, "sync_invalid"},
+	}
+	for name, test := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			owner := newDevice(deviceAID, "a")
+			target := "/v1/sync/snapshots"
+			signature := f.sign(owner.key, owner.token, http.MethodPost, target, nil)
+			recorder := f.serve(owner, http.MethodPost, target, failingBody{err: test.err}, signature)
+			expectError(t, recorder, test.status, test.code)
+			if f.storage.calls != 0 {
+				t.Fatalf("service was called %d times for an interrupted body", f.storage.calls)
+			}
+		})
+	}
+}
+
+type blockingBody struct {
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (body *blockingBody) Read([]byte) (int, error) {
+	body.once.Do(func() { close(body.entered) })
+	<-body.release
+	return 0, io.EOF
+}
+
+type countingBody struct {
+	reader io.Reader
+	read   int
+}
+
+func (body *countingBody) Read(buffer []byte) (int, error) {
+	count, err := body.reader.Read(buffer)
+	body.read += count
+	return count, err
+}
+
+func (f *fixture) uploadBody(owner device, revision uint64) []byte {
+	f.t.Helper()
+	list := f.verifiedList(owner)
+	ciphertext := bytes.Repeat([]byte{9}, 1024)
+	digest := sha256.Sum256(ciphertext)
+	header := syncproto.SignHeader(owner.key, syncproto.Header{
+		Version: syncproto.VersionV3, VaultID: testVaultID, DeviceID: owner.id, Revision: revision,
+		VaultEpoch: list.Epoch(), DeviceListIndex: list.Head(), DeviceListDigest: list.HeadDigest(),
+		CiphertextDigest: encodeBase64(digest[:]), CiphertextLength: uint64(len(ciphertext)),
+		Nonce: randomBase64(f.t, syncproto.XChaChaNonceBytes),
+	})
+	return mustJSON(f.t, map[string]any{"header": header, "ciphertext": encodeBase64(ciphertext)})
+}
+
+func TestTransferLimitRefusesAtOnceWithoutReadingTheBody(t *testing.T) {
+	f := newFixture(t, syncv3http.WithTransferLimits(15<<20, 1))
+	owner := newDevice(deviceAID, "a")
+	f.createVault(owner)
+	target := "/v1/sync/snapshots"
+
+	blocked := &blockingBody{entered: make(chan struct{}), release: make(chan struct{})}
+	firstDone := make(chan *httptest.ResponseRecorder)
+	firstSignature := f.sign(owner.key, owner.token, http.MethodPost, target, nil)
+	go func() {
+		firstDone <- f.serve(owner, http.MethodPost, target, blocked, firstSignature)
+	}()
+	<-blocked.entered
+
+	body := f.uploadBody(owner, 1)
+	waiting := &countingBody{reader: bytes.NewReader(body)}
+	refused := f.serve(owner, http.MethodPost, target, waiting, f.sign(owner.key, owner.token, http.MethodPost, target, body))
+	expectError(t, refused, http.StatusServiceUnavailable, "sync_unavailable")
+	if retry := refused.Header().Get("Retry-After"); retry != "5" {
+		t.Fatalf("Retry-After %q, want 5", retry)
+	}
+	if refused.Header().Get("Connection") != "close" {
+		t.Fatal("a refused upload keeps the connection open for its unread body")
+	}
+	if waiting.read != 0 {
+		t.Fatalf("a refused upload read %d bytes of its body", waiting.read)
+	}
+	close(blocked.release)
+	expectError(t, <-firstDone, http.StatusBadRequest, "sync_invalid")
+
+	accepted := f.signed(owner, http.MethodPost, target, body)
+	expectStatus(t, accepted, http.StatusCreated)
+	if accepted.Header().Get("Retry-After") != "" {
+		t.Fatal("an accepted upload carries Retry-After")
+	}
+	expectStatus(t, f.get(owner, "/v1/sync/snapshot"), http.StatusOK)
 }

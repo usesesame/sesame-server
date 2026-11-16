@@ -14,6 +14,7 @@ const titles: Record<string, string> = {
   desktop_linked: 'Connected a desktop',
   desktop_renamed: 'Renamed a desktop',
   desktop_revoked: 'Removed a desktop',
+  sync_vault_deleted: 'Deleted the synced vault',
   passkey_added: 'Added a passkey',
   passkey_removed: 'Removed a passkey',
   passkey_clone_warning: 'Refused a passkey that may have been copied',
@@ -21,7 +22,7 @@ const titles: Record<string, string> = {
   download_redeemed: 'Downloaded Sesame',
 }
 
-const genericLabels = new Set(['', 'Sesame account', 'Sesame desktop', 'Passkey', 'Browser', 'Verified private-beta download'])
+const genericLabels = new Set(['', 'Sesame account', 'Sesame desktop', 'Passkey', 'Browser', 'Verified private-beta download', 'Sesame Sync'])
 
 export const knownActivityTypes = Object.keys(titles)
 

@@ -5,11 +5,13 @@
     changePassword,
     createDesktopLink,
     deleteAccount,
+    deleteSyncVault,
     getAccountBootstrap,
     getAccountActivity,
     getNotificationPreferences,
     updateNotificationPreferences,
     getDesktopLink,
+    getSyncVault,
     listDesktopDevices,
     listSessions,
     reauthenticate,
@@ -27,6 +29,7 @@
     type AccountSession,
     type DesktopDevice,
     type DesktopLink,
+    type SyncVaultStatus,
   } from '../lib/auth'
   import { deletePasskey, listPasskeys, passkeysSupported, registerPasskey, type PasskeyInfo } from '../lib/passkey'
   import { siteOrigin } from '../lib/runtime-config'
@@ -112,6 +115,12 @@
   let deviceRowError = ''
   let devicesPasswordInput: HTMLInputElement | undefined
 
+  let syncVault: SyncVaultStatus | null = null
+  let syncVaultConfirm = false
+  let syncVaultDeleting = false
+  let syncVaultError = ''
+  let syncVaultPasswordInput: HTMLInputElement | undefined
+
   let activity: AccountActivityEvent[] = []
   let activityLoaded = false
   let activityLoading = false
@@ -131,7 +140,7 @@
   let deleteError = ''
 
   $: sessionsBusy = Boolean(revokingSession) || sessionsLoading
-  $: deviceRowBusy = Boolean(revokingDeviceId || renamingDeviceId) || linking
+  $: deviceRowBusy = Boolean(revokingDeviceId || renamingDeviceId) || linking || syncVaultDeleting
   $: linkSeconds = link?.expiresAt ? Math.max(0, Math.ceil((new Date(link.expiresAt).getTime() - now) / 1000)) : 0
   $: linkCountdown = `${Math.floor(linkSeconds / 60)}:${String(linkSeconds % 60).padStart(2, '0')}`
   $: desktopCode = link?.code ? splitDesktopCode(link.code) : { prefix: '', groups: [] as string[] }
@@ -464,7 +473,45 @@
     } catch (reason) { if (showError) deviceError = reason instanceof Error ? reason.message : 'Link status is unavailable.' }
   }
 
-  async function loadDevicesAndLink() { await Promise.all([loadDevices(), refreshDesktopLink(false)]) }
+  async function loadDevicesAndLink() { await Promise.all([loadDevices(), refreshDesktopLink(false), loadSyncVault()]) }
+
+  async function refreshDevices() { await Promise.all([loadDevices(), loadSyncVault()]) }
+
+  async function loadSyncVault() {
+    try { syncVault = await getSyncVault() ?? null }
+    catch { syncVault = null }
+  }
+
+  function askDeleteSyncVault() {
+    if (deviceRowBusy) return
+    deviceConfirmId = ''; deviceRowError = ''; renameDraftId = ''; renameDraftValue = ''
+    syncVaultConfirm = true; syncVaultError = ''; deviceError = ''
+  }
+
+  function keepSyncVault() {
+    if (deviceRowBusy) return
+    syncVaultConfirm = false; syncVaultError = ''
+  }
+
+  async function removeSyncVault() {
+    if (deviceRowBusy || !syncVaultConfirm) return
+    syncVaultError = ''
+    if (!devicesPassword) {
+      syncVaultError = 'Enter your account password, then delete the synced vault again.'
+      askForPassword(syncVaultPasswordInput)
+      return
+    }
+    syncVaultDeleting = true
+    try {
+      await confirmSensitive(devicesPassword)
+      await deleteSyncVault()
+      devicesPassword = ''
+      syncVaultConfirm = false
+      syncVault = syncVault ? { ...syncVault, hasVault: false, approvedDevices: 0, updatedAt: undefined } : null
+      notice = 'Synced vault deleted.'
+    } catch (reason) { syncVaultError = reason instanceof Error ? reason.message : 'The synced vault could not be deleted.' }
+    finally { syncVaultDeleting = false }
+  }
 
   async function loadDevices() {
     devicesLoading = true; deviceError = ''
@@ -755,7 +802,7 @@
         {/if}
       </section>
       <section class="group" aria-labelledby="desktops-title">
-        <div class="group-head"><div><h2 class="section-title" id="desktops-title">Connected desktops</h2><p class="group-note">Removing a link does not remove or delete the local vault.</p></div><button class="button button-secondary button-sm" type="button" on:click={loadDevices} disabled={devicesLoading}>{devicesLoading ? 'Checking…' : 'Refresh'}</button></div>
+        <div class="group-head"><div><h2 class="section-title" id="desktops-title">Connected desktops</h2><p class="group-note">Removing a link does not remove or delete the local vault.</p></div><button class="button button-secondary button-sm" type="button" on:click={refreshDevices} disabled={devicesLoading}>{devicesLoading ? 'Checking…' : 'Refresh'}</button></div>
         {#if devices.length > 0}
           <ul class="rows">
             {#each devices as device (device.deviceId)}
@@ -778,6 +825,23 @@
           <div class="empty-state"><h3>No desktops yet</h3><p>Connect the desktop app to see it here. Your vault stays on that computer either way.</p></div>
         {/if}
       </section>
+      {#if syncVault?.available && syncVault.hasVault}
+        <section class="group" aria-labelledby="sync-vault-title">
+          <h2 class="section-title" id="sync-vault-title">Synced vault</h2>
+          <div class="rows">
+            <div class="list-row" class:confirming={syncVaultConfirm} role="group" aria-labelledby="sync-vault-row-title">
+              {#if syncVaultConfirm}
+                <div class="row-text"><p class="row-title" id="sync-vault-row-title">Delete the synced vault?</p> <p class="row-meta">This removes the encrypted copy kept by Sesame. The vault on each of your devices stays, and a device can turn Sync on again afterwards.</p></div>
+                <div class="row-actions"><label class="row-password">Account password<input type="password" autocomplete="current-password" bind:value={devicesPassword} bind:this={syncVaultPasswordInput} disabled={deviceRowBusy} /></label><button class="button button-danger" type="button" on:click={removeSyncVault} disabled={deviceRowBusy}>{syncVaultDeleting ? 'Deleting…' : 'Delete synced vault'}</button><button class="button button-secondary" type="button" on:click={keepSyncVault} disabled={deviceRowBusy}>Cancel</button></div>
+                {#if syncVaultError}<p class="inline-notice inline-danger row-error" role="alert"><Icon name="error" size={15} />{syncVaultError}</p>{/if}
+              {:else}
+                <div class="row-text"><p class="row-name" id="sync-vault-row-title"><strong>Encrypted copy kept by Sesame</strong></p><p class="row-meta row-facts"><span>{plural(syncVault.approvedDevices, 'approved device')}</span><span>changed {formatDate(syncVault.updatedAt)}</span></p></div>
+                <div class="row-actions"><button class="button button-danger-text" type="button" on:click={askDeleteSyncVault} disabled={deviceRowBusy}>Delete synced vault</button></div>
+              {/if}
+            </div>
+          </div>
+        </section>
+      {/if}
 
     {:else if tab === 'activity'}
       <section class="group" aria-labelledby="activity-title">

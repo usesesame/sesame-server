@@ -75,6 +75,7 @@ type fakeStore struct {
 	flags                             map[string]bool
 	audit                             []selfhost.AuditEntry
 	limits                            map[string][]time.Time
+	windows                           map[string]time.Duration
 	counter                           int
 	pingErr                           error
 	panicPing                         bool
@@ -83,6 +84,8 @@ type fakeStore struct {
 	systemErr                         error
 	auditErr                          error
 	auditBreak                        *selfhost.AuditBreak
+	flagsErr                          error
+	rateLimitCalls                    int
 }
 
 func newFakeStore(c *clock) *fakeStore {
@@ -95,6 +98,7 @@ func newFakeStore(c *clock) *fakeStore {
 		tokens:   map[string]string{},
 		flags:    map[string]bool{"desktop_linking_enabled": true},
 		limits:   map[string][]time.Time{},
+		windows:  map[string]time.Duration{},
 		updates:  selfhost.UpdateSettings{Choice: selfhost.UpdatesUnset, Channel: selfhost.DefaultUpdateChannel},
 	}
 }
@@ -278,7 +282,7 @@ func (f *fakeStore) Login(_ context.Context, input selfhost.LoginInput) (selfhos
 	}
 	counter, ok := authkit.VerifyTOTP(found.secret, input.Code, f.clock.Now())
 	if !ok {
-		return selfhost.OwnerLogin{}, selfhost.ErrInvalidCredentials
+		return selfhost.OwnerLogin{}, selfhost.ErrInvalidCode
 	}
 	if counter <= found.lastCounter {
 		return selfhost.OwnerLogin{}, selfhost.ErrReplayedCode
@@ -587,6 +591,9 @@ func (f *fakeStore) RevokeMemberDevices(context.Context, selfhost.Actor, string)
 func (f *fakeStore) Flags(context.Context) ([]selfhost.Flag, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.flagsErr != nil {
+		return nil, f.flagsErr
+	}
 	flags := []selfhost.Flag{}
 	for key, enabled := range f.flags {
 		flags = append(flags, selfhost.Flag{Key: key, Description: "fake", Enabled: enabled, UpdatedAt: f.clock.Now()})
@@ -667,6 +674,7 @@ func (f *fakeStore) auditReport() selfhost.AuditReport {
 func (f *fakeStore) RateLimit(_ context.Context, key string, limit int, window time.Duration) (selfhost.RateDecision, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.rateLimitCalls++
 	now := f.clock.Now()
 	kept := []time.Time{}
 	for _, at := range f.limits[key] {
@@ -679,7 +687,25 @@ func (f *fakeStore) RateLimit(_ context.Context, key string, limit int, window t
 		return selfhost.RateDecision{Allowed: false, RetryAfter: window - now.Sub(kept[0])}, nil
 	}
 	f.limits[key] = append(kept, now)
+	f.windows[key] = window
 	return selfhost.RateDecision{Allowed: true, Remaining: limit - len(kept) - 1}, nil
+}
+
+func (f *fakeStore) PeekRateLimit(_ context.Context, key string, limit int) (selfhost.RateDecision, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := f.clock.Now()
+	window := f.windows[key]
+	kept := []time.Time{}
+	for _, at := range f.limits[key] {
+		if now.Sub(at) < window {
+			kept = append(kept, at)
+		}
+	}
+	if len(kept) >= limit {
+		return selfhost.RateDecision{Allowed: false, RetryAfter: window - now.Sub(kept[0])}, nil
+	}
+	return selfhost.RateDecision{Allowed: true, Remaining: limit - len(kept)}, nil
 }
 
 func (f *fakeStore) ResetRateLimit(_ context.Context, key string) error {
@@ -687,6 +713,12 @@ func (f *fakeStore) ResetRateLimit(_ context.Context, key string) error {
 	defer f.mu.Unlock()
 	delete(f.limits, key)
 	return nil
+}
+
+func (f *fakeStore) rateLimitCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.rateLimitCalls
 }
 
 func (f *fakeStore) Maintain(context.Context) (selfhost.MaintenanceReport, error) {

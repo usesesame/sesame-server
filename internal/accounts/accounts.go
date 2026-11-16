@@ -15,6 +15,11 @@ import (
 	"usesesame.app/backend/internal/authkit"
 )
 
+const (
+	DesktopConnectionLifetime    = 90 * 24 * time.Hour
+	DesktopConnectionRenewBefore = 60 * 24 * time.Hour
+)
+
 var (
 	ErrEmailTaken                 = errors.New("email already registered")
 	ErrNotFound                   = errors.New("account not found")
@@ -372,18 +377,31 @@ func (s *PostgresStore) RedeemDesktopLink(ctx context.Context, codeHash []byte, 
 
 func (s *PostgresStore) DesktopConnectionForToken(ctx context.Context, tokenHash []byte) (DesktopConnection, error) {
 	connection, err := scanDesktopConnection(s.db.QueryRowContext(ctx, `
-		SELECT connection.device_id, connection.device_name, connection.created_at, connection.expires_at,
+		WITH renewed AS (
+			UPDATE sesame_desktop_connections AS renewal
+			SET expires_at = NOW() + make_interval(secs => $2)
+			FROM sesame_accounts AS owner
+			WHERE renewal.token_hash = $1 AND owner.id = renewal.account_id AND owner.suspended_at IS NULL
+				AND renewal.expires_at > NOW() AND renewal.expires_at < NOW() + make_interval(secs => $3)
+			RETURNING renewal.expires_at
+		)
+		SELECT connection.device_id, connection.device_name, connection.created_at,
+			COALESCE((SELECT expires_at FROM renewed), connection.expires_at),
 			connection.app_version, connection.platform, connection.architecture, connection.update_channel,
 			connection.last_seen_at, connection.protocol_version, connection.browser_helper_capable, connection.browser_helper_last_observed_at,
 			account.suspended_at IS NOT NULL, connection.account_id
 		FROM sesame_desktop_connections connection
 		JOIN sesame_accounts account ON account.id = connection.account_id
 		WHERE connection.token_hash = $1 AND connection.expires_at > NOW()
-	`, tokenHash).Scan, true, true)
+	`, tokenHash, desktopRenewalSeconds(DesktopConnectionLifetime), desktopRenewalSeconds(DesktopConnectionRenewBefore)).Scan, true, true)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DesktopConnection{}, ErrNotFound
 	}
 	return connection, err
+}
+
+func desktopRenewalSeconds(duration time.Duration) float64 {
+	return duration.Seconds()
 }
 
 func (s *PostgresStore) RevokeDesktopConnection(ctx context.Context, tokenHash []byte) error {
@@ -436,17 +454,24 @@ func (s *PostgresStore) RenameDesktopConnection(ctx context.Context, accountID, 
 
 func (s *PostgresStore) HeartbeatDesktopConnection(ctx context.Context, tokenHash []byte, heartbeat DesktopHeartbeat) (DesktopConnection, error) {
 	connection, err := scanDesktopConnection(s.db.QueryRowContext(ctx, `
-		UPDATE sesame_desktop_connections
+		UPDATE sesame_desktop_connections AS connection
 		SET app_version = $2, platform = $3, architecture = $4, update_channel = $5,
 			protocol_version = $6, browser_helper_capable = $7,
-			browser_helper_last_observed_at = CASE WHEN $8 THEN NOW() ELSE browser_helper_last_observed_at END,
-			last_seen_at = NOW()
-		WHERE token_hash = $1 AND expires_at > NOW()
-		RETURNING device_id, device_name, created_at, expires_at,
-			app_version, platform, architecture, update_channel,
-			last_seen_at, protocol_version, browser_helper_capable, browser_helper_last_observed_at
+			browser_helper_last_observed_at = CASE WHEN $8 THEN NOW() ELSE connection.browser_helper_last_observed_at END,
+			last_seen_at = NOW(),
+			expires_at = CASE
+				WHEN connection.expires_at < NOW() + make_interval(secs => $10) AND EXISTS (
+					SELECT 1 FROM sesame_accounts AS owner WHERE owner.id = connection.account_id AND owner.suspended_at IS NULL
+				) THEN NOW() + make_interval(secs => $9)
+				ELSE connection.expires_at
+			END
+		WHERE connection.token_hash = $1 AND connection.expires_at > NOW()
+		RETURNING connection.device_id, connection.device_name, connection.created_at, connection.expires_at,
+			connection.app_version, connection.platform, connection.architecture, connection.update_channel,
+			connection.last_seen_at, connection.protocol_version, connection.browser_helper_capable, connection.browser_helper_last_observed_at
 	`, tokenHash, heartbeat.AppVersion, heartbeat.Platform, heartbeat.Architecture, heartbeat.UpdateChannel,
-		heartbeat.ProtocolVersion, heartbeat.BrowserHelperCapable, heartbeat.BrowserHelperObserved).Scan, false, false)
+		heartbeat.ProtocolVersion, heartbeat.BrowserHelperCapable, heartbeat.BrowserHelperObserved,
+		desktopRenewalSeconds(DesktopConnectionLifetime), desktopRenewalSeconds(DesktopConnectionRenewBefore)).Scan, false, false)
 	if errors.Is(err, sql.ErrNoRows) {
 		return DesktopConnection{}, ErrNotFound
 	}

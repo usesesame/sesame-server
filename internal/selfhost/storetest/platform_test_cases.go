@@ -439,6 +439,39 @@ func testRateLimits(t *testing.T, h Harness) {
 			t.Fatalf("reset did not clear: %+v", decision)
 		}
 	})
+	each(t, h, "peeking reads a counter without adding to it", func(f *fixture) {
+		decision, err := f.store.PeekRateLimit(f.ctx, "code:a", 2)
+		f.must(err)
+		if !decision.Allowed || decision.Remaining != 2 {
+			t.Fatalf("empty counter: %+v", decision)
+		}
+		for attempt := 0; attempt < 2; attempt++ {
+			_, err = f.store.RateLimit(f.ctx, "code:a", 2, time.Hour)
+			f.must(err)
+		}
+		for range 3 {
+			decision, err = f.store.PeekRateLimit(f.ctx, "code:a", 2)
+			f.must(err)
+			if decision.Allowed || decision.Remaining != 0 || decision.RetryAfter != time.Hour {
+				t.Fatalf("full counter: %+v", decision)
+			}
+		}
+		next, err := f.store.RateLimit(f.ctx, "code:a", 3, time.Hour)
+		f.must(err)
+		if next.Remaining != 0 || !next.Allowed {
+			t.Fatalf("peeking added to the counter: %+v", next)
+		}
+		f.clock.Advance(time.Hour)
+		decision, err = f.store.PeekRateLimit(f.ctx, "code:a", 2)
+		f.must(err)
+		if !decision.Allowed || decision.Remaining != 2 {
+			t.Fatalf("expired window still counted: %+v", decision)
+		}
+		_, err = f.store.PeekRateLimit(f.ctx, "", 2)
+		f.expect(err, selfhost.ErrInvalidInput)
+		_, err = f.store.PeekRateLimit(f.ctx, "code:a", 0)
+		f.expect(err, selfhost.ErrInvalidInput)
+	})
 	each(t, h, "invalid rate limit input is refused", func(f *fixture) {
 		for _, call := range []func() error{
 			func() error { _, err := f.store.RateLimit(f.ctx, "", 1, time.Minute); return err },

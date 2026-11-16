@@ -95,10 +95,15 @@ func (a *api) adminUserDelete(response http.ResponseWriter, request *http.Reques
 	if !ok {
 		return
 	}
+	if err := a.deleteAccountSyncVault(request.Context(), accountID); err != nil {
+		writeError(response, http.StatusServiceUnavailable, "admin_action_unavailable", "The Sync vault could not be deleted, so the account was kept. No change was committed.")
+		return
+	}
 	if err := a.config.Admin.DeleteUser(request.Context(), actor, accountID, a.adminIPHash(request)); err != nil {
 		adminStoreError(response, err)
 		return
 	}
+	a.sweepDeletedAccountSyncVault(request.Context(), accountID)
 	response.WriteHeader(http.StatusNoContent)
 }
 

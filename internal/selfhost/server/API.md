@@ -34,7 +34,7 @@ Routes marked step-up need a sign-in or step-up within the last 10 minutes. Othe
 
 ### Rate limits
 
-Limits are counted per peppered client address, and login and step-up are also counted per name or owner. A client over its limit gets 429 `too_many_attempts` with a `Retry-After` header in seconds. The client address comes from the socket, or from `X-Forwarded-For` only when the socket address is inside `SESAME_TRUSTED_PROXIES`. Current limits per minute unless stated: login 5 per name and 20 per address, step-up 10 per five minutes per owner and 20 per address, setup details 10, setup 5, update check 3 per hour per owner, desktop link 8, desktop status 60, heartbeat 120, desktop config 60, disconnect 20.
+Limits are counted per peppered client address. Login is also counted per name from each client address, so wrong passwords from another address cannot lock an owner out, and step-up is also counted per owner. A client over its limit gets 429 `too_many_attempts` with a `Retry-After` header in seconds. The server remembers a refused client until its window ends and answers further requests from memory without counting them. The client address comes from the socket, or from `X-Forwarded-For` only when the socket address is inside `SESAME_TRUSTED_PROXIES`. Current limits per minute unless stated: login 5 per name from one address and 20 per address, step-up 10 per five minutes per owner and 20 per address, setup details 10, setup 5, update check 3 per hour per owner, desktop link 8, desktop status 60, heartbeat 120, desktop config 60, disconnect 20.
 
 ## Public routes
 
@@ -62,7 +62,7 @@ Console responses use `Content-Security-Policy: default-src 'none'; script-src '
 
 `POST /v1/owner/setup` with `{token, name, password, code}` and an optional `updateChecks` creates the owner, signs them in and returns 201 with the session object. The password must be 12 to 1024 bytes and the code is the current six digit code for the secret from the details call. `updateChecks` must be true or false when present. On the first owner's setup it turns update checks on or off, and when it is true the server starts a check in the background. When it is absent the choice stays unset. For an invited owner or a reset the field is accepted and ignored, so a setup link cannot change the instance's update choice. Errors: 400 `setup_token_invalid`, 400 `invalid_setup` for a bad field or wrong code, 409 `name_taken`. A token works once.
 
-`POST /v1/owner/login` with `{name, password, code}` returns 200 with the session object. Every failure returns the same 401 `invalid_credentials` with the same message, whether the name is unknown, the password is wrong, the code is wrong or the code was already used.
+`POST /v1/owner/login` with `{name, password, code}` returns 200 with the session object. Every failure returns the same 401 `invalid_credentials` with the same message, whether the name is unknown, the password is wrong, the code is wrong or the code was already used. Each owner also has a ceiling of 10 sign-in attempts per hour that had the right password with a wrong or already used code, counted from every address and kept across restarts. Once it is reached, every sign-in for that name returns 429 `too_many_attempts` with `Retry-After` until the hour ends, even with a correct code, and the audit log records `owner.login_code_limit_reached`. The offline `sesame-server owner reset <name>` command still issues a setup link that signs the owner in without going through this ceiling.
 
 `POST /v1/owner/logout` returns 204 and clears the cookie.
 
@@ -78,7 +78,7 @@ The session object is `{owner:{id,name}, csrfToken, recentAuthUntil, expiresAt}`
 
 `POST /v1/owner/owners` with `{name}` needs step-up and returns 201 `{owner, setupToken, link, expiresAt}`. The link is `<publicOrigin>/setup#token=<token>`. The token is shown once and expires after 24 hours. A used name returns 409 `conflict`.
 
-`DELETE /v1/owner/owners/{id}` needs step-up and returns 204. The last active owner returns 409 `last_owner`. Removing yourself clears the cookie.
+`DELETE /v1/owner/owners/{id}` needs step-up and returns 204. The last active owner returns 409 `last_owner`. Removing yourself clears the cookie. Removing an owner also deletes their synced vault.
 
 ## Members
 
@@ -88,7 +88,7 @@ The session object is `{owner:{id,name}, csrfToken, recentAuthUntil, expiresAt}`
 
 `PATCH /v1/owner/members/{id}` with `{name}` returns `{member}`.
 
-`DELETE /v1/owner/members/{id}` needs step-up and returns `{revokedDevices}`. It revokes every device the member holds.
+`DELETE /v1/owner/members/{id}` needs step-up and returns `{revokedDevices}`. It revokes every device the member holds and deletes their synced vault.
 
 ## Pairings and devices
 
@@ -171,7 +171,7 @@ These routes keep the wire shapes of the hosted service so the existing desktop 
 
 A device token goes in `Authorization: Sesame <token>`. `Authorization: Bearer <token>` is accepted as well. A missing, malformed, unknown, expired or revoked token returns 401 `not_authenticated`.
 
-`POST /v1/desktop/link` with `{code, deviceName}` returns 201 `{accessToken, device, expiresAt, syncAvailable}`. The code is 32 to 128 characters. The device name is printable ASCII up to 64 characters. A bad shape returns 400 `invalid_desktop_link`. An unknown, used, cancelled or expired code returns 401 `invalid_desktop_link`. Switching off the `desktop_linking_enabled` flag returns 503 `desktop_linking_disabled`. The token lasts 90 days.
+`POST /v1/desktop/link` with `{code, deviceName}` returns 201 `{accessToken, device, expiresAt, syncAvailable}`. The code is 32 to 128 characters. The device name is printable ASCII up to 64 characters. A bad shape returns 400 `invalid_desktop_link`. An unknown, used, cancelled or expired code returns 401 `invalid_desktop_link`. Switching off the `desktop_linking_enabled` flag returns 503 `desktop_linking_disabled`. The token expires 90 days after it is issued. When a request uses a valid token that has less than 60 days left, the server moves its expiry to 90 days after that request, so a desktop in regular use stays linked and keeps its device id. A token that goes unused expires 90 days after its last renewal, and a revoked token is never renewed.
 
 `GET /v1/desktop/status` returns `{connected:true, device, syncAvailable, browserHelperAvailable}`.
 
@@ -193,9 +193,9 @@ Desktop: `invalid_desktop_link`, `invalid_desktop_heartbeat`, `desktop_linking_d
 
 ## Sync
 
-These routes exist when the binary is built with the Sync service, and they answer 403 `sync_unavailable` while the `sync_enabled` flag is off. They use the same bearer token as the other desktop routes. Routes that change state also need the header `Sesame-Request-Signature: <timestamp>.<nonce>.<signature>`, signed by the device behind the token and bound to the method, the request target, the body and the token. The routes, bodies and error codes are listed in the Sync protocol specification.
+These routes exist when the binary is built with the Sync service, and they answer 403 `sync_unavailable` while the `sync_enabled` flag is off. When the server cannot read the flag, they answer 503 `sync_unavailable` with a `Retry-After` header instead. They use the same bearer token as the other desktop routes. Routes that change state also need the header `Sesame-Request-Signature: <timestamp>.<nonce>.<signature>`, signed by the device behind the token and bound to the method, the request target, the body and the token. The routes, bodies and error codes are listed in the Sync protocol specification.
 
-`GET /v1/owner/sync` returns `{available, enabled, holders:[{kind, id, name, hasVault, devices, currentRevision, storedBytes, updatedAt}]}` and nothing else about a vault.
+`GET /v1/owner/sync` returns `{available, enabled, holders:[{kind, id, name, hasVault, devices, currentRevision, storedBytes, updatedAt}]}` and nothing else about a vault. When the server cannot read the `sync_enabled` flag, it answers 503 `unavailable`.
 
 `DELETE /v1/owner/sync/{kind}/{id}` deletes one person's synced vault and history. It needs a recent sign-in, answers 204 and writes `sync.reset` to the audit log.
 
