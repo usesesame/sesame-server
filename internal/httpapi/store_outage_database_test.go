@@ -316,3 +316,29 @@ func TestAdminUserDeleteKeepsTheAccountWhenTheVaultCannotBeDeleted(t *testing.T)
 		t.Fatalf("user.delete audit rows after a refused delete = %d", count)
 	}
 }
+
+func TestAVaultCreatedForADeletedAccountIsDropped(t *testing.T) {
+	env := newSyncHostEnv(t)
+	alpha := env.newAccount("acct-late-vault-a", true)
+	bravo := env.newAccount("acct-late-vault-b", true)
+	if created := env.createVault(alpha, "vault-late-alpha-0001"); created.Code != http.StatusCreated {
+		t.Fatalf("create alpha vault: %d %s", created.Code, created.Body.String())
+	}
+	if created := env.createVault(bravo, "vault-late-bravo-0001"); created.Code != http.StatusCreated {
+		t.Fatalf("create bravo vault: %d %s", created.Code, created.Body.String())
+	}
+	if vaultCount(t, env.db, alpha.id) != 1 {
+		t.Fatal("creating a vault for a live account dropped it")
+	}
+	if err := env.api.config.Accounts.DeleteAccount(context.Background(), alpha.id); err != nil {
+		t.Fatalf("delete account: %v", err)
+	}
+	env.api.dropVaultOfDeletedAccount(context.Background(), alpha.id)
+	env.api.dropVaultOfDeletedAccount(context.Background(), bravo.id)
+	if vaultCount(t, env.db, alpha.id) != 0 {
+		t.Fatal("a vault outlived its deleted account")
+	}
+	if vaultCount(t, env.db, bravo.id) != 1 {
+		t.Fatal("a live account's vault was dropped")
+	}
+}

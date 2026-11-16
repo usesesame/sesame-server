@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"runtime"
 	"strings"
 
@@ -61,7 +62,7 @@ func parseArgon2id(encoded string) (salt, expected []byte, iterations, memory ui
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &iterations, &parsedParallelism); err != nil {
 		return nil, nil, 0, 0, 0, false
 	}
-	if memory == 0 || iterations == 0 || parsedParallelism == 0 {
+	if memory == 0 || iterations == 0 || parsedParallelism == 0 || parsedParallelism > math.MaxUint8 {
 		return nil, nil, 0, 0, 0, false
 	}
 	salt, saltErr := base64.RawStdEncoding.DecodeString(parts[4])

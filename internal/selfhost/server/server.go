@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -97,6 +98,7 @@ type server struct {
 	keyID       string
 	metrics     *metrics
 	refused     *refusals
+	ownerLogin  sync.Mutex
 	forwarded   atomic.Bool
 }
 

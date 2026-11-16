@@ -475,6 +475,8 @@
 
   async function loadDevicesAndLink() { await Promise.all([loadDevices(), refreshDesktopLink(false), loadSyncVault()]) }
 
+  async function refreshDevices() { await Promise.all([loadDevices(), loadSyncVault()]) }
+
   async function loadSyncVault() {
     try { syncVault = await getSyncVault() ?? null }
     catch { syncVault = null }
@@ -800,7 +802,7 @@
         {/if}
       </section>
       <section class="group" aria-labelledby="desktops-title">
-        <div class="group-head"><div><h2 class="section-title" id="desktops-title">Connected desktops</h2><p class="group-note">Removing a link does not remove or delete the local vault.</p></div><button class="button button-secondary button-sm" type="button" on:click={loadDevices} disabled={devicesLoading}>{devicesLoading ? 'Checking…' : 'Refresh'}</button></div>
+        <div class="group-head"><div><h2 class="section-title" id="desktops-title">Connected desktops</h2><p class="group-note">Removing a link does not remove or delete the local vault.</p></div><button class="button button-secondary button-sm" type="button" on:click={refreshDevices} disabled={devicesLoading}>{devicesLoading ? 'Checking…' : 'Refresh'}</button></div>
         {#if devices.length > 0}
           <ul class="rows">
             {#each devices as device (device.deviceId)}

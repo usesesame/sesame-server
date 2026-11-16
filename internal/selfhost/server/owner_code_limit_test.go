@@ -168,3 +168,28 @@ func TestCodeCeilingSurvivesARestartOnTheSameStore(t *testing.T) {
 	e.handler = server.New(e.cfg)
 	expectStatus(t, e.signIn("Dana", testPassword, e.totp(o.secret), address(51)), http.StatusOK)
 }
+
+func TestConcurrentRejectedCodesCannotPassTheCeiling(t *testing.T) {
+	e := newEnv(t)
+	o := e.createFirstOwner("Dana")
+	code := e.wrongCode(o.secret)
+	const attempts = 40
+	answers := make(chan int, attempts)
+	for attempt := 0; attempt < attempts; attempt++ {
+		go func() {
+			answers <- e.signIn("Dana", testPassword, code, address(attempt)).Code
+		}()
+	}
+	rejected, refused := 0, 0
+	for attempt := 0; attempt < attempts; attempt++ {
+		switch <-answers {
+		case http.StatusUnauthorized:
+			rejected++
+		case http.StatusTooManyRequests:
+			refused++
+		}
+	}
+	if rejected != 10 || refused != attempts-10 {
+		t.Fatalf("%d codes were checked and %d refused, want 10 and %d", rejected, refused, attempts-10)
+	}
+}

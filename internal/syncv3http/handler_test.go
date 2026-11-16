@@ -1059,6 +1059,9 @@ func TestTransferLimitRefusesAtOnceWithoutReadingTheBody(t *testing.T) {
 	if retry := refused.Header().Get("Retry-After"); retry != "5" {
 		t.Fatalf("Retry-After %q, want 5", retry)
 	}
+	if refused.Header().Get("Connection") != "close" {
+		t.Fatal("a refused upload keeps the connection open for its unread body")
+	}
 	if waiting.read != 0 {
 		t.Fatalf("a refused upload read %d bytes of its body", waiting.read)
 	}

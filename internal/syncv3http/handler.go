@@ -42,6 +42,7 @@ func New(service *syncsvc.Service, host Host, options ...Option) *Handler {
 func startTransfer(response http.ResponseWriter, release func(), admitted bool) (func(), bool) {
 	if !admitted {
 		response.Header().Set("Retry-After", transferRetryAfter)
+		response.Header().Set("Connection", "close")
 		writeError(response, codeUnavailable)
 		return nil, false
 	}

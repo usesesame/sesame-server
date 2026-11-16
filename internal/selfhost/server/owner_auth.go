@@ -173,6 +173,8 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	if nameOK && !s.allowClientSubject(w, r, "owner-login", selfhost.NameKey(name), 5, time.Minute) {
 		return
 	}
+	s.ownerLogin.Lock()
+	defer s.ownerLogin.Unlock()
 	if nameOK && !s.allowOwnerCodes(w, r, name) {
 		return
 	}

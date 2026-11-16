@@ -324,7 +324,7 @@ func (a *api) deleteAccount(response http.ResponseWriter, request *http.Request)
 		return
 	}
 	if err := a.config.Accounts.DeleteAccount(request.Context(), user.ID); err != nil {
-		writeError(response, http.StatusServiceUnavailable, "account_delete_unavailable", "Deleting your account is temporarily unavailable.")
+		writeError(response, http.StatusServiceUnavailable, "account_delete_unavailable", "Deleting your account did not finish, and your synced vault may already be deleted. Try again to finish.")
 		return
 	}
 	a.sweepDeletedAccountSyncVault(request.Context(), user.ID)

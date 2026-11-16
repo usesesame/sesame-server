@@ -102,3 +102,13 @@ func TestVerifyPasswordSpendsOneDerivationOnAMissingOrBrokenHash(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifyPasswordRefusesParallelismBeyondOneByte(t *testing.T) {
+	encoded := "$argon2id$v=19$m=19456,t=2,p=256$ZmljdGlvbmFsLXNhbHQtMQ$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	if _, _, _, _, _, ok := parseArgon2id(encoded); ok {
+		t.Fatal("a parallelism of 256 was accepted")
+	}
+	if VerifyPassword(encoded, "fictional password") {
+		t.Fatal("a hash with a parallelism of 256 verified")
+	}
+}
