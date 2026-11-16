@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -104,8 +105,8 @@ func TestWorkerKeepsClaimingBatchesUntilTheQueueIsEmpty(t *testing.T) {
 	if got := len(sender.sends); got != 120 {
 		t.Fatalf("sender received %d messages, want 120", got)
 	}
-	if polls := outbox.polls(); len(polls) != 4 || polls[0] != 50 || polls[1] != 50 || polls[2] != 50 || polls[3] != 50 {
-		t.Fatalf("polls = %v, want four claims of 50 ending with an empty one", polls)
+	if polls := outbox.polls(); len(polls) != 6 || slices.ContainsFunc(polls, func(limit int) bool { return limit != 25 }) {
+		t.Fatalf("polls = %v, want six claims of 25 ending with an empty one", polls)
 	}
 	if marks := outbox.markCalls(); len(marks) != 120 {
 		t.Fatalf("marked %d messages, want 120", len(marks))
@@ -121,7 +122,7 @@ func TestWorkerStopsDrainingWhenTheContextEnds(t *testing.T) {
 	if sender.count() != 60 {
 		t.Fatalf("sender received %d messages, want 60 before cancellation", sender.count())
 	}
-	if polls := outbox.polls(); len(polls) != 2 {
+	if polls := outbox.polls(); len(polls) != 3 {
 		t.Fatalf("polls = %v, want the drain to stop after cancellation", polls)
 	}
 }
@@ -135,7 +136,7 @@ func TestWorkerStopsDrainingWhenAPollFails(t *testing.T) {
 }
 
 func TestWorkerSendsEachBatchThroughOneSession(t *testing.T) {
-	items := pendingItems(70)
+	items := pendingItems(35)
 	items[3].To = "unreachable@example.invalid"
 	outbox := &pagingOutbox{stubOutbox: stubOutbox{pending: items}}
 	sender := &batchRecorder{failTo: "unreachable@example.invalid"}
@@ -144,8 +145,8 @@ func TestWorkerSendsEachBatchThroughOneSession(t *testing.T) {
 	if sender.opened != 2 || sender.closed != 2 {
 		t.Fatalf("opened %d and closed %d sessions, want 2 and 2", sender.opened, sender.closed)
 	}
-	if sender.sends[1] != 49 || sender.sends[2] != 20 {
-		t.Fatalf("sends per session = %v, want 49 then 20", sender.sends)
+	if sender.sends[1] != 24 || sender.sends[2] != 10 {
+		t.Fatalf("sends per session = %v, want 24 then 10", sender.sends)
 	}
 	failed := 0
 	for _, mark := range outbox.markCalls() {

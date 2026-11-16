@@ -5,8 +5,7 @@ import (
 	"context"
 	"net/url"
 	"os"
-	"slices"
-	"strings"
+	"regexp"
 	"testing"
 )
 
@@ -20,13 +19,16 @@ func withoutSessionTimeouts(databaseURL string) string {
 		parsed.RawQuery = query.Encode()
 		return parsed.String()
 	}
-	kept := []string{}
-	for _, field := range strings.Fields(databaseURL) {
-		if !slices.ContainsFunc(names, func(name string) bool { return strings.HasPrefix(field, name+"=") }) {
-			kept = append(kept, field)
-		}
+	return sessionTimeoutSetting.ReplaceAllString(databaseURL, "")
+}
+
+var sessionTimeoutSetting = regexp.MustCompile(`(^|\s)(statement_timeout|idle_in_transaction_session_timeout)\s*=\s*('(\\.|[^'\\])*'|\S*)`)
+
+func TestRemovingSessionTimeoutsLeavesQuotedValuesAlone(t *testing.T) {
+	got := withoutSessionTimeouts(`host=127.0.0.1 password='two  spaces' statement_timeout=5s idle_in_transaction_session_timeout='7s' dbname=sesame`)
+	if got != `host=127.0.0.1 password='two  spaces' dbname=sesame` {
+		t.Fatalf("connection string = %q", got)
 	}
-	return strings.Join(kept, " ")
 }
 
 func TestTheAdminPoolBoundsStatementsAndIdleTransactions(t *testing.T) {

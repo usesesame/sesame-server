@@ -24,7 +24,7 @@ func NewWorker(outbox Outbox, sender httpapi.EmailSender, sealer *ActionURLSeale
 		sender:       sender,
 		sealer:       sealer,
 		pollInterval: 30 * time.Second,
-		batchSize:    50,
+		batchSize:    25,
 	}
 }
 

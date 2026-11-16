@@ -124,7 +124,7 @@ func enqueueOutboxMessage(ctx context.Context, db outboxInserter, sealer *Action
 
 func (o *PostgresOutbox) Poll(ctx context.Context, limit int) ([]OutboxItem, error) {
 	if limit <= 0 {
-		limit = 50
+		limit = 25
 	}
 	if _, err := o.db.ExecContext(ctx, `
 		UPDATE sesame_email_outbox
