@@ -58,36 +58,65 @@ func NewSMTPWithTLSConfig(address, username, password, from string, tlsConfig *t
 }
 
 func (s *SMTP) SendAccountEmail(ctx context.Context, message httpapi.AccountEmail) error {
+	raw, err := s.composeAccountEmail(message)
+	if err != nil {
+		return err
+	}
+	session, err := s.dial(ctx)
+	if err != nil {
+		return err
+	}
+	defer session.close()
+	if err := session.send(s.envelopeFrom, message.To, raw); err != nil {
+		return err
+	}
+	return session.client.Quit()
+}
+
+func (s *SMTP) OpenBatch() EmailBatch {
+	return &smtpBatch{sender: s}
+}
+
+func (s *SMTP) composeAccountEmail(message httpapi.AccountEmail) ([]byte, error) {
 	if strings.ContainsAny(message.To, "\r\n") || strings.ContainsAny(message.ActionURL, "\r\n") || strings.ContainsAny(message.Subject, "\r\n") || strings.ContainsAny(message.Body, "\r\n") {
-		return errors.New("account email contains an invalid header value")
+		return nil, errors.New("account email contains an invalid header value")
 	}
 	subject, purpose := accountCopy(message.Kind)
 	if message.Subject != "" && message.Body != "" {
 		subject, purpose = message.Subject, message.Body
 	}
 	if subject == "" {
-		return errors.New("unsupported account email kind")
+		return nil, errors.New("unsupported account email kind")
 	}
 	body := fmt.Sprintf("%s\r\n\r\n%s\r\n\r\nThis link expires at %s. If you did not request it, ignore this email.\r\n\r\nSesame never asks for your vault password, recovery kit, TOTP seeds, or backup codes.\r\n",
 		purpose, message.ActionURL, message.ExpiresAt.UTC().Format(time.RFC1123))
-	raw := []byte("From: " + s.from + "\r\n" +
+	return []byte("From: " + s.from + "\r\n" +
 		"To: " + message.To + "\r\n" +
 		"Subject: " + subject + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
-		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" + body)
+		"Content-Type: text/plain; charset=UTF-8\r\n\r\n" + body), nil
+}
 
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+const smtpCommandTimeout = 10 * time.Second
+
+type smtpSession struct {
+	connection net.Conn
+	client     *smtp.Client
+}
+
+func (s *SMTP) dial(ctx context.Context) (*smtpSession, error) {
+	dialer := &net.Dialer{Timeout: smtpCommandTimeout}
 	connection, err := dialer.DialContext(ctx, "tcp", s.address)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer connection.Close()
-	_ = connection.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = connection.SetDeadline(time.Now().Add(smtpCommandTimeout))
 	client, err := smtp.NewClient(connection, s.host)
 	if err != nil {
-		return err
+		connection.Close()
+		return nil, err
 	}
-	defer client.Close()
+	session := &smtpSession{connection: connection, client: client}
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		tlsConfig := s.tlsConfig
 		if tlsConfig == nil {
@@ -101,23 +130,31 @@ func (s *SMTP) SendAccountEmail(ctx context.Context, message httpapi.AccountEmai
 			}
 		}
 		if err := client.StartTLS(tlsConfig); err != nil {
-			return err
+			session.close()
+			return nil, err
 		}
 	} else if !s.allowPlaintextLocal {
-		return errors.New("SMTP server does not offer STARTTLS")
+		session.close()
+		return nil, errors.New("SMTP server does not offer STARTTLS")
 	}
 	if s.username != "" {
 		if err := client.Auth(smtp.PlainAuth("", s.username, s.password, s.host)); err != nil {
-			return err
+			session.close()
+			return nil, err
 		}
 	}
-	if err := client.Mail(s.envelopeFrom); err != nil {
+	return session, nil
+}
+
+func (session *smtpSession) send(from, to string, raw []byte) error {
+	_ = session.connection.SetDeadline(time.Now().Add(smtpCommandTimeout))
+	if err := session.client.Mail(from); err != nil {
 		return err
 	}
-	if err := client.Rcpt(message.To); err != nil {
+	if err := session.client.Rcpt(to); err != nil {
 		return err
 	}
-	writer, err := client.Data()
+	writer, err := session.client.Data()
 	if err != nil {
 		return err
 	}
@@ -125,10 +162,53 @@ func (s *SMTP) SendAccountEmail(ctx context.Context, message httpapi.AccountEmai
 		writer.Close()
 		return err
 	}
-	if err := writer.Close(); err != nil {
+	return writer.Close()
+}
+
+func (session *smtpSession) close() {
+	session.client.Close()
+	session.connection.Close()
+}
+
+type smtpBatch struct {
+	sender  *SMTP
+	session *smtpSession
+}
+
+func (batch *smtpBatch) SendAccountEmail(ctx context.Context, message httpapi.AccountEmail) error {
+	raw, err := batch.sender.composeAccountEmail(message)
+	if err != nil {
 		return err
 	}
-	return client.Quit()
+	if batch.session == nil {
+		session, err := batch.sender.dial(ctx)
+		if err != nil {
+			return err
+		}
+		batch.session = session
+	}
+	if err := batch.session.send(batch.sender.envelopeFrom, message.To, raw); err != nil {
+		batch.drop()
+		return err
+	}
+	return nil
+}
+
+func (batch *smtpBatch) Close() error {
+	if batch.session == nil {
+		return nil
+	}
+	_ = batch.session.connection.SetDeadline(time.Now().Add(smtpCommandTimeout))
+	err := batch.session.client.Quit()
+	batch.drop()
+	return err
+}
+
+func (batch *smtpBatch) drop() {
+	if batch.session != nil {
+		batch.session.close()
+		batch.session = nil
+	}
 }
 
 func accountCopy(kind string) (string, string) {

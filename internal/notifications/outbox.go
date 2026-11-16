@@ -124,7 +124,7 @@ func enqueueOutboxMessage(ctx context.Context, db outboxInserter, sealer *Action
 
 func (o *PostgresOutbox) Poll(ctx context.Context, limit int) ([]OutboxItem, error) {
 	if limit <= 0 {
-		limit = 10
+		limit = 50
 	}
 	if _, err := o.db.ExecContext(ctx, `
 		UPDATE sesame_email_outbox
@@ -147,7 +147,8 @@ func (o *PostgresOutbox) Poll(ctx context.Context, limit int) ([]OutboxItem, err
 				(status = 'pending' AND next_attempt_at <= now())
 				OR (status = 'processing' AND lease_until <= now())
 			  )
-			ORDER BY next_attempt_at ASC, created_at ASC
+			ORDER BY CASE WHEN kind IN ('verify-email', 'recover-password', 'change-email') THEN 0 ELSE 1 END,
+			         next_attempt_at ASC, created_at ASC
 			LIMIT $1
 			FOR UPDATE SKIP LOCKED
 		)
