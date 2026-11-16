@@ -182,6 +182,8 @@ type api struct {
 	routes   *routeRegistry
 	syncOnce sync.Once
 	sync     *syncv3http.Handler
+	refused  *refusals
+	syncFlag syncFlagCache
 }
 
 func New(config Config) http.Handler {
@@ -222,9 +224,10 @@ func New(config Config) http.Handler {
 		config.OperationalSnapshot = newOperationalSnapshotProvider(config)
 	}
 	service := &api{
-		config: config,
-		limits: &authLimiter{attempts: make(map[string]*limitEntry), recency: list.New()},
-		routes: newRouteRegistry(),
+		config:  config,
+		limits:  &authLimiter{attempts: make(map[string]*limitEntry), recency: list.New()},
+		routes:  newRouteRegistry(),
+		refused: newRefusals(),
 	}
 
 	mux := http.NewServeMux()

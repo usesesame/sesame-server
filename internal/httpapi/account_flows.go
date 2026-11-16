@@ -164,6 +164,10 @@ func (a *api) confirmEmailVerification(response http.ResponseWriter, request *ht
 		writeError(response, http.StatusBadRequest, "verification_expired", "That verification link is invalid or expired.")
 		return
 	}
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		writePasswordWorkBusy(response)
+		return
+	}
 	if errors.Is(err, accounts.ErrPasswordIncorrect) {
 		writeError(response, http.StatusUnauthorized, "incorrect_password", "That is not the password chosen when this account was created. Check it, or choose a new password instead.")
 		return
@@ -243,7 +247,10 @@ func (a *api) confirmPasswordRecovery(response http.ResponseWriter, request *htt
 		writeError(response, http.StatusBadRequest, "invalid_recovery", "That recovery link is invalid, expired, or the new password is too short.")
 		return
 	}
-	passwordHash, err := accounts.HashPassword(input.NewPassword)
+	passwordHash, err := hashPassword(response, request, input.NewPassword)
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		return
+	}
 	token, sessionHash, tokenErr := accounts.NewSessionToken()
 	now := time.Now().UTC()
 	if err != nil || tokenErr != nil {
@@ -290,7 +297,15 @@ func (a *api) reauthenticate(response http.ResponseWriter, request *http.Request
 		return
 	}
 	_, passwordHash, err := a.config.Accounts.FindByID(request.Context(), user.ID)
-	if err != nil || !accounts.VerifyPassword(passwordHash, input.Password) {
+	if err != nil {
+		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Your account password is incorrect.")
+		return
+	}
+	matched, decided := checkPassword(response, request, passwordHash, input.Password)
+	if !decided {
+		return
+	}
+	if !matched {
 		writeError(response, http.StatusUnauthorized, "invalid_credentials", "Your account password is incorrect.")
 		return
 	}

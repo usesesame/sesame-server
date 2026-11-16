@@ -416,12 +416,14 @@ func TestHostedSyncNeverShowsAnotherAccountsVault(t *testing.T) {
 }
 
 func TestHostedSyncRoutesCloseWhenTheFlagIsTurnedOff(t *testing.T) {
+	shortenSyncFlagCache(t, 50*time.Millisecond)
 	env := newSyncHostEnv(t)
 	alpha := env.newAccount("sync-host-flag", true)
 	if state := env.read(alpha, "/v1/sync/state"); state.Code == http.StatusForbidden {
 		t.Fatalf("Sync was closed while the flag was on: %s", state.Body.String())
 	}
 	env.setSyncFlag("false")
+	time.Sleep(100 * time.Millisecond)
 	for _, route := range syncRouteList {
 		request := httptest.NewRequest(route.method, route.path, nil)
 		request.RemoteAddr = env.nextIP()

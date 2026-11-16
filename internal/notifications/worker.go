@@ -24,8 +24,17 @@ func NewWorker(outbox Outbox, sender httpapi.EmailSender, sealer *ActionURLSeale
 		sender:       sender,
 		sealer:       sealer,
 		pollInterval: 30 * time.Second,
-		batchSize:    10,
+		batchSize:    25,
 	}
+}
+
+type EmailBatch interface {
+	httpapi.EmailSender
+	Close() error
+}
+
+type batchOpener interface {
+	OpenBatch() EmailBatch
 }
 
 func (w *Worker) Run(ctx context.Context) {
@@ -44,20 +53,41 @@ func (w *Worker) Run(ctx context.Context) {
 }
 
 func (w *Worker) pollOnce(ctx context.Context) {
+	for ctx.Err() == nil {
+		if !w.deliverBatch(ctx) {
+			return
+		}
+	}
+}
+
+func (w *Worker) deliverBatch(ctx context.Context) bool {
 	items, err := w.outbox.Poll(ctx, w.batchSize)
 	if err != nil {
 		if ctx.Err() == nil {
 			slog.Warn("email outbox poll failed", "error", err)
 		}
-		return
+		return false
+	}
+	if len(items) == 0 {
+		return false
+	}
+	sender := w.sender
+	if opener, ok := sender.(batchOpener); ok {
+		batch := opener.OpenBatch()
+		defer func() {
+			if closeErr := batch.Close(); closeErr != nil && ctx.Err() == nil {
+				slog.Warn("email outbox connection close failed", "error", closeErr)
+			}
+		}()
+		sender = batch
 	}
 	for _, item := range items {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
-		if err := w.deliver(ctx, item); err != nil {
+		if err := w.deliver(ctx, sender, item); err != nil {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			slog.Warn("email outbox delivery failed", "id", item.ID, "kind", item.Kind, "error", err)
 			if markErr := w.outbox.MarkFailed(ctx, item.ID, err); markErr != nil {
@@ -66,16 +96,17 @@ func (w *Worker) pollOnce(ctx context.Context) {
 			continue
 		}
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		if markErr := w.outbox.MarkDelivered(ctx, item.ID); markErr != nil {
 			slog.Warn("email outbox mark-delivered failed", "id", item.ID, "error", markErr)
 		}
 	}
+	return true
 }
 
-func (w *Worker) deliver(ctx context.Context, item OutboxItem) error {
-	if w.sender == nil {
+func (w *Worker) deliver(ctx context.Context, sender httpapi.EmailSender, item OutboxItem) error {
+	if sender == nil {
 		return errors.New("no email sender configured")
 	}
 	if w.sealer == nil {
@@ -93,7 +124,7 @@ func (w *Worker) deliver(ctx context.Context, item OutboxItem) error {
 		Subject:   item.Subject,
 		Body:      item.Body,
 	}
-	return w.sender.SendAccountEmail(ctx, message)
+	return sender.SendAccountEmail(ctx, message)
 }
 
 // Synchronous helper for tests and graceful shutdown.

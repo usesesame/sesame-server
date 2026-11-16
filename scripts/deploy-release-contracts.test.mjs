@@ -1126,7 +1126,7 @@ test('production keeps the container hardening baseline for every application se
   const services = composeServices(readFileSync(join(root, 'deploy', 'compose', 'compose.prod.yaml'), 'utf8'))
   const baseline = {
     migrate: { pids: '128', memory: '128m' },
-    api: { pids: '256', memory: '256m', port: '127.0.0.1:8787:8787' },
+    api: { pids: '256', memory: '1g', port: '127.0.0.1:8787:8787' },
     account: { pids: '128', memory: '64m', port: '127.0.0.1:4175:8080' },
     admin: { pids: '128', memory: '64m', port: '127.0.0.1:4174:8080' },
     gateway: { pids: '128', memory: '128m', port: '127.0.0.1:8791:8791' },
@@ -1165,6 +1165,50 @@ test('production keeps the container hardening baseline for every application se
   assert.equal(db.volumes.includes('database:/var/lib/postgresql'), true, 'PostgreSQL must keep its data volume')
   assert.match(db.image, /^postgres:[^@]+@sha256:[0-9a-f]{64}$/, 'PostgreSQL must stay digest pinned')
 })
+
+test('production rotates container logs, bounds the API heap and sizes PostgreSQL for its memory limit', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const source = readFileSync(join(root, 'deploy', 'compose', 'compose.prod.yaml'), 'utf8')
+  const services = composeServices(source)
+  const blocks = serviceBlocks(source)
+  for (const name of ['migrate', 'api', 'account', 'admin', 'db', 'gateway']) {
+    assert.ok(services[name], `compose.prod.yaml must define ${name}`)
+    assert.match(
+      blocks[name],
+      /\n {4}logging:\n {6}driver: json-file\n {6}options:\n {8}max-size: "50m"\n {8}max-file: "5"\n/,
+      `${name} must rotate its json-file logs at 50m with 5 files`,
+    )
+  }
+  assert.match(blocks.api, /\n {6}GOMEMLIMIT: 800MiB\n/, 'the API must set GOMEMLIMIT to about 80 percent of its memory limit')
+  assert.equal(services.api.mem_limit, '1g', 'the API memory limit must match the GOMEMLIMIT it was sized for')
+  assert.deepEqual(
+    services.db.command,
+    ['postgres', '-c', 'shared_buffers=256MB', '-c', 'effective_cache_size=768MB'],
+    'PostgreSQL must receive only its shared_buffers and effective_cache_size settings',
+  )
+})
+
+function serviceBlocks(source) {
+  const blocks = {}
+  let name = null
+  let inServices = false
+  for (const rawLine of source.split('\n')) {
+    const indent = rawLine.length - rawLine.trimStart().length
+    if (rawLine.trim() !== '' && indent === 0) {
+      inServices = rawLine.trim() === 'services:'
+      name = null
+      continue
+    }
+    if (!inServices) continue
+    if (indent === 2 && rawLine.trim().endsWith(':') && !rawLine.trim().startsWith('#')) {
+      name = rawLine.trim().slice(0, -1)
+      blocks[name] = '\n'
+      continue
+    }
+    if (name !== null) blocks[name] += rawLine + '\n'
+  }
+  return blocks
+}
 
 function stackFile(...parts) {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..')

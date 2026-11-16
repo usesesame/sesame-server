@@ -96,7 +96,7 @@ func main() {
 	for _, warning := range trustedProxyWarnings {
 		slog.Warn("Sesame API configuration warning", "warning", warning)
 	}
-	store, err := accounts.OpenWithoutMigrate(ctx, databaseURL)
+	store, err := accounts.OpenService(ctx, databaseURL)
 	if err != nil {
 		slog.Error("Sesame API could not open the account database", "error", err)
 		os.Exit(1)

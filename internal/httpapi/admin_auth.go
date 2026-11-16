@@ -147,7 +147,9 @@ func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
 	}
 	email, valid := normalizedEmail(input.Email)
 	if !valid {
-		accounts.DummyVerifyPassword()
+		if !spendDummyPassword(response, request) {
+			return
+		}
 		writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "Email, password, or MFA code is incorrect.")
 		return
 	}
@@ -159,7 +161,9 @@ func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	if len(input.Password) < 12 || len(input.Code) != 6 {
-		accounts.DummyVerifyPassword()
+		if !spendDummyPassword(response, request) {
+			return
+		}
 		writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "Email, password, or MFA code is incorrect.")
 		return
 	}
@@ -171,12 +175,22 @@ func (a *api) adminLogin(response http.ResponseWriter, request *http.Request) {
 				"reason", "the stored MFA secret did not decrypt, or the admin database is unreachable",
 				"error", err)
 		}
-		accounts.DummyVerifyPassword()
+		if !spendDummyPassword(response, request) {
+			return
+		}
 		writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "Email, password, or MFA code is incorrect.")
 		return
 	}
 	counter, totpOK := adminstore.VerifyTOTP(secret, input.Code, time.Now().UTC())
-	if admin.Suspended || !admin.MFAVerified || !accounts.VerifyPassword(passwordHash, input.Password) || !totpOK || counter <= lastUsedCounter {
+	passwordMatched := false
+	if !admin.Suspended && admin.MFAVerified {
+		matched, decided := checkPassword(response, request, passwordHash, input.Password)
+		if !decided {
+			return
+		}
+		passwordMatched = matched
+	}
+	if admin.Suspended || !admin.MFAVerified || !passwordMatched || !totpOK || counter <= lastUsedCounter {
 		writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "Email, password, or MFA code is incorrect.")
 		return
 	}
@@ -242,7 +256,10 @@ func (a *api) adminSetupComplete(response http.ResponseWriter, request *http.Req
 		writeError(response, http.StatusBadRequest, "invalid_admin_setup", "The setup link or MFA code is invalid or expired.")
 		return
 	}
-	passwordHash, err := accounts.HashPassword(input.Password)
+	passwordHash, err := hashPassword(response, request, input.Password)
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		return
+	}
 	if err != nil {
 		writeError(response, http.StatusServiceUnavailable, "admin_setup_unavailable", "Admin setup is temporarily unavailable.")
 		return
@@ -346,7 +363,11 @@ func (a *api) adminStepUp(response http.ResponseWriter, request *http.Request) {
 			writeError(response, http.StatusServiceUnavailable, "admin_step_up_unavailable", "Admin re-authentication is temporarily unavailable.")
 			return
 		}
-		if !accounts.VerifyPassword(passwordHash, input.Password) {
+		matched, decided := checkPassword(response, request, passwordHash, input.Password)
+		if !decided {
+			return
+		}
+		if !matched {
 			writeError(response, http.StatusUnauthorized, "invalid_admin_credentials", "The admin password or MFA code is incorrect.")
 			return
 		}
@@ -458,6 +479,10 @@ func adminStoreError(response http.ResponseWriter, err error) {
 	}
 	if errors.Is(err, adminstore.ErrNotAllowed) {
 		writeError(response, http.StatusConflict, "admin_action_not_allowed", "That admin action is not allowed.")
+		return
+	}
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		writePasswordWorkBusy(response)
 		return
 	}
 	writeError(response, http.StatusServiceUnavailable, "admin_action_unavailable", "The admin action could not be completed and no change was committed.")

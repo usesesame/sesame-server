@@ -37,6 +37,12 @@ limiter key. Exceeding a budget returns `429 too_many_attempts` with
 status code cannot reveal whether an address holds an account or recent
 activity.
 
+Password checks share a small number of hashing slots. When every slot stays
+busy for 2 seconds, a route that checks or sets a password answers
+`503 password_check_busy` with `Retry-After: 2` instead of judging the
+password, and a client should retry after that delay. That answer never means
+the password was wrong.
+
 ## Deployment profiles
 
 `SESAME_DEPLOYMENT_PROFILE` selects what the API serves. Unset or `operator` is
@@ -498,8 +504,10 @@ attach, or a newer link.
 
 `/v1/sync/*` exists and refuses. Every route returns `403 sync_unavailable`
 while the `cloud_sync_available` runtime flag is false, which is its default.
-Turning the flag on needs no code change. Sync has not had an independent
-security review.
+Turning the flag on needs no code change. An API process keeps the flag value
+it read for up to 5 seconds, so a change made through the admin API applies at
+once on the process that received it and within 5 seconds everywhere else.
+Sync has not had an independent security review.
 
 A client should retry later when a Sync route answers `503` with a
 `Retry-After` header. That happens when the flag or the desktop link cannot be

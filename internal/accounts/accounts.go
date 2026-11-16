@@ -172,7 +172,35 @@ func Open(ctx context.Context, databaseURL string) (*PostgresStore, error) {
 	return store, nil
 }
 
+const (
+	servicePoolConnections   = 25
+	serviceStatementTimeout  = "60s"
+	serviceIdleInTransaction = "60s"
+)
+
+func ApplyServiceTimeouts(config *pgx.ConnConfig) {
+	if config.RuntimeParams == nil {
+		config.RuntimeParams = map[string]string{}
+	}
+	for name, value := range map[string]string{
+		"statement_timeout":                   serviceStatementTimeout,
+		"idle_in_transaction_session_timeout": serviceIdleInTransaction,
+	} {
+		if _, set := config.RuntimeParams[name]; !set {
+			config.RuntimeParams[name] = value
+		}
+	}
+}
+
 func OpenWithoutMigrate(ctx context.Context, databaseURL string) (*PostgresStore, error) {
+	return openPostgres(ctx, databaseURL, false)
+}
+
+func OpenService(ctx context.Context, databaseURL string) (*PostgresStore, error) {
+	return openPostgres(ctx, databaseURL, true)
+}
+
+func openPostgres(ctx context.Context, databaseURL string, service bool) (*PostgresStore, error) {
 	if strings.TrimSpace(databaseURL) == "" {
 		return nil, errors.New("database URL is required")
 	}
@@ -180,9 +208,12 @@ func OpenWithoutMigrate(ctx context.Context, databaseURL string) (*PostgresStore
 	if err != nil {
 		return nil, errors.New("database URL is invalid")
 	}
+	if service {
+		ApplyServiceTimeouts(config)
+	}
 	db := stdlib.OpenDB(*config)
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
+	db.SetMaxOpenConns(servicePoolConnections)
+	db.SetMaxIdleConns(servicePoolConnections)
 	db.SetConnMaxLifetime(30 * time.Minute)
 	store := &PostgresStore{db: db}
 	if err := store.Ping(ctx); err != nil {
@@ -546,6 +577,20 @@ func VerifyPassword(encoded, password string) bool {
 
 func DummyVerifyPassword() {
 	authkit.DummyVerifyPassword()
+}
+
+var ErrPasswordWorkBusy = authkit.ErrPasswordWorkBusy
+
+func HashPasswordContext(ctx context.Context, password string) (string, error) {
+	return authkit.HashPasswordContext(ctx, password)
+}
+
+func VerifyPasswordContext(ctx context.Context, encoded, password string) (bool, error) {
+	return authkit.VerifyPasswordContext(ctx, encoded, password)
+}
+
+func DummyVerifyPasswordContext(ctx context.Context) error {
+	return authkit.DummyVerifyPasswordContext(ctx)
 }
 
 func NeedsRehash(encoded string) bool {

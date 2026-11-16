@@ -130,7 +130,16 @@ func (a *api) allowKeyed(response http.ResponseWriter, request *http.Request, ke
 // whether an address has an account.
 func (a *api) consumeKeyed(request *http.Request, key string, limit int, window time.Duration) (bool, time.Duration, error) {
 	if shared, ok := a.config.Accounts.(accounts.RateLimitStore); ok {
-		return shared.ConsumeRateLimit(request.Context(), key, limit, window)
+		remembered := refusalKey(key, limit, window)
+		now := time.Now()
+		if remaining, refused := a.refused.active(remembered, now); refused {
+			return false, remaining, nil
+		}
+		allowed, retryAfter, err := shared.ConsumeRateLimit(request.Context(), key, limit, window)
+		if err == nil && !allowed {
+			a.refused.remember(remembered, now.Add(retryAfter), now)
+		}
+		return allowed, retryAfter, err
 	}
 	return a.limits.allow(key, limit, window), window, nil
 }
@@ -350,6 +359,44 @@ func requestIP(request *http.Request) string {
 }
 
 const temporarilyUnavailableRetrySeconds = 15
+
+const passwordWorkRetrySeconds = 2
+
+var (
+	verifyPasswordWork = accounts.VerifyPasswordContext
+	dummyPasswordWork  = accounts.DummyVerifyPasswordContext
+	hashPasswordWork   = accounts.HashPasswordContext
+)
+
+func writePasswordWorkBusy(response http.ResponseWriter) {
+	response.Header().Set("Retry-After", strconv.Itoa(passwordWorkRetrySeconds))
+	writeError(response, http.StatusServiceUnavailable, "password_check_busy", "The server is busy checking passwords. Try again in a moment.")
+}
+
+func checkPassword(response http.ResponseWriter, request *http.Request, encoded, password string) (matched, decided bool) {
+	matched, err := verifyPasswordWork(request.Context(), encoded, password)
+	if err != nil {
+		writePasswordWorkBusy(response)
+		return false, false
+	}
+	return matched, true
+}
+
+func spendDummyPassword(response http.ResponseWriter, request *http.Request) bool {
+	if err := dummyPasswordWork(request.Context()); err != nil {
+		writePasswordWorkBusy(response)
+		return false
+	}
+	return true
+}
+
+func hashPassword(response http.ResponseWriter, request *http.Request, password string) (string, error) {
+	encoded, err := hashPasswordWork(request.Context(), password)
+	if errors.Is(err, accounts.ErrPasswordWorkBusy) {
+		writePasswordWorkBusy(response)
+	}
+	return encoded, err
+}
 
 func writeTemporarilyUnavailable(response http.ResponseWriter, code, message string) {
 	response.Header().Set("Retry-After", strconv.Itoa(temporarilyUnavailableRetrySeconds))
