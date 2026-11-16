@@ -122,6 +122,39 @@ func TestDesktopLinkIsRateLimited(t *testing.T) {
 	}
 }
 
+func TestRequestsOverTheLimitDoNotReachTheStore(t *testing.T) {
+	e := newEnv(t)
+	before := e.store.rateLimitCallCount()
+	for attempt := 1; attempt <= 300; attempt++ {
+		recorder := e.do(req{path: "/v1/desktop/status", remote: "203.0.113.77:9"})
+		if attempt <= 60 {
+			expectError(t, recorder, http.StatusUnauthorized, "not_authenticated")
+			continue
+		}
+		expectError(t, recorder, http.StatusTooManyRequests, "too_many_attempts")
+		if retry := recorder.Header().Get("Retry-After"); retry != "60" {
+			t.Fatalf("attempt %d Retry-After = %q, want 60", attempt, retry)
+		}
+	}
+	if calls := e.store.rateLimitCallCount() - before; calls != 61 {
+		t.Fatalf("300 requests made %d store rate limit calls, want 61", calls)
+	}
+
+	e.clock.Advance(42 * time.Second)
+	limited := e.do(req{path: "/v1/desktop/status", remote: "203.0.113.77:9"})
+	expectError(t, limited, http.StatusTooManyRequests, "too_many_attempts")
+	if retry := limited.Header().Get("Retry-After"); retry != "18" {
+		t.Fatalf("Retry-After after 42 seconds = %q, want 18", retry)
+	}
+	expectError(t, e.do(req{path: "/v1/desktop/status", remote: "203.0.113.78:9"}), http.StatusUnauthorized, "not_authenticated")
+
+	e.clock.Advance(18 * time.Second)
+	expectError(t, e.do(req{path: "/v1/desktop/status", remote: "203.0.113.77:9"}), http.StatusUnauthorized, "not_authenticated")
+	if calls := e.store.rateLimitCallCount() - before; calls != 63 {
+		t.Fatalf("store rate limit calls after the window = %d, want 63", calls)
+	}
+}
+
 func TestDesktopRoutesRejectBrowserOrigins(t *testing.T) {
 	e := newEnv(t)
 	recorder := e.do(req{method: http.MethodPost, path: "/v1/desktop/link", body: map[string]string{"code": strings.Repeat("a", 43), "deviceName": "Laptop"}, header: map[string]string{"Origin": "https://evil.example.net"}})

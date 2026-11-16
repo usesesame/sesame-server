@@ -155,12 +155,19 @@ func (s *server) allowClientSubject(w http.ResponseWriter, r *http.Request, oper
 }
 
 func (s *server) forgetClientSubject(r *http.Request, operation, subject string) {
-	if err := s.cfg.Store.ResetRateLimit(r.Context(), s.clientSubjectKey(operation, subject, r)); err != nil {
+	key := s.clientSubjectKey(operation, subject, r)
+	s.refused.forget(key)
+	if err := s.cfg.Store.ResetRateLimit(r.Context(), key); err != nil {
 		requestLog(r.Context()).Error("Sesame server rate limit reset failed", "error", err)
 	}
 }
 
 func (s *server) allowKey(w http.ResponseWriter, r *http.Request, key string, limit int, window time.Duration) bool {
+	now := s.now()
+	if remaining, refused := s.refused.active(key, now); refused {
+		writeTooManyAttempts(w, remaining)
+		return false
+	}
 	decision, err := s.cfg.Store.RateLimit(r.Context(), key, limit, window)
 	if err != nil {
 		requestLog(r.Context()).Error("Sesame server rate limit check failed", "error", err)
@@ -170,10 +177,15 @@ func (s *server) allowKey(w http.ResponseWriter, r *http.Request, key string, li
 	if decision.Allowed {
 		return true
 	}
-	seconds := int(decision.RetryAfter.Round(time.Second) / time.Second)
+	s.refused.remember(key, now.Add(decision.RetryAfter), now)
+	writeTooManyAttempts(w, decision.RetryAfter)
+	return false
+}
+
+func writeTooManyAttempts(w http.ResponseWriter, retryAfter time.Duration) {
+	seconds := int(retryAfter.Round(time.Second) / time.Second)
 	w.Header().Set("Retry-After", strconv.Itoa(max(1, seconds)))
 	writeError(w, http.StatusTooManyRequests, "too_many_attempts", "Try again later.")
-	return false
 }
 
 func (s *server) clientIP(r *http.Request) string {

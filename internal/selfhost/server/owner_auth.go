@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"usesesame.app/backend/internal/authkit"
@@ -14,6 +15,9 @@ const (
 	maxUserAgent     = 256
 	maxTokenLength   = 256
 	invalidLoginText = "The name, password or code is incorrect."
+
+	ownerCodeAttempts = 10
+	ownerCodeWindow   = time.Hour
 )
 
 type tokenRequest struct {
@@ -169,6 +173,9 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	if nameOK && !s.allowClientSubject(w, r, "owner-login", selfhost.NameKey(name), 5, time.Minute) {
 		return
 	}
+	if nameOK && !s.allowOwnerCodes(w, r, name) {
+		return
+	}
 	if !nameOK || !selfhost.ValidPassword(input.Password) || !validCodeShape(input.Code) {
 		authkit.DummyVerifyPassword()
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", invalidLoginText)
@@ -176,6 +183,9 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	login, err := s.cfg.Store.Login(r.Context(), selfhost.LoginInput{Name: name, Password: input.Password, Code: input.Code, UserAgent: userAgent(r)})
 	if err != nil {
+		if errors.Is(err, selfhost.ErrInvalidCode) || errors.Is(err, selfhost.ErrReplayedCode) {
+			s.countOwnerCode(r, name)
+		}
 		if errors.Is(err, selfhost.ErrInvalidCredentials) || errors.Is(err, selfhost.ErrReplayedCode) || errors.Is(err, selfhost.ErrNotFound) || errors.Is(err, selfhost.ErrInvalidInput) {
 			writeError(w, http.StatusUnauthorized, "invalid_credentials", invalidLoginText)
 			return
@@ -186,6 +196,70 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	s.forgetClientSubject(r, "owner-login", selfhost.NameKey(name))
 	s.setSessionCookie(w, login.Token, login.Session.ExpiresAt)
 	writeJSON(w, http.StatusOK, viewOfSession(login.Session))
+}
+
+func (s *server) ownerCodeKey(name string) string {
+	return "owner-login-code:subject:" + s.digest("subject", selfhost.NameKey(name))
+}
+
+func (s *server) allowOwnerCodes(w http.ResponseWriter, r *http.Request, name string) bool {
+	key := s.ownerCodeKey(name)
+	now := s.now()
+	if remaining, refused := s.refused.active(key, now); refused {
+		writeTooManyAttempts(w, remaining)
+		return false
+	}
+	decision, err := s.cfg.Store.PeekRateLimit(r.Context(), key, ownerCodeAttempts)
+	if err != nil {
+		requestLog(r.Context()).Error("Sesame server rate limit check failed", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "rate_limit_unavailable", "The security check is temporarily unavailable.")
+		return false
+	}
+	if decision.Allowed {
+		return true
+	}
+	s.refused.remember(key, now.Add(decision.RetryAfter), now)
+	writeTooManyAttempts(w, decision.RetryAfter)
+	return false
+}
+
+func (s *server) countOwnerCode(r *http.Request, name string) {
+	ctx := r.Context()
+	key := s.ownerCodeKey(name)
+	decision, err := s.cfg.Store.RateLimit(ctx, key, ownerCodeAttempts, ownerCodeWindow)
+	if err != nil {
+		requestLog(ctx).Error("Sesame server could not count a rejected sign-in code", "error", err)
+		return
+	}
+	if decision.Remaining > 0 {
+		return
+	}
+	now := s.now()
+	s.refused.remember(key, now.Add(decision.RetryAfter), now)
+	if !decision.Allowed {
+		return
+	}
+	if _, err := s.cfg.Store.AppendAudit(ctx, selfhost.AuditInput{
+		Actor:  selfhost.SystemActor,
+		Action: "owner.login_code_limit_reached",
+		Target: s.ownerIDByName(r, name),
+		Detail: map[string]string{"attempts": strconv.Itoa(ownerCodeAttempts), "window": ownerCodeWindow.String()},
+	}); err != nil {
+		requestLog(ctx).Error("Sesame server could not record the sign-in code limit", "error", err)
+	}
+}
+
+func (s *server) ownerIDByName(r *http.Request, name string) string {
+	owners, err := s.cfg.Store.ListOwners(r.Context())
+	if err != nil {
+		return name
+	}
+	for _, owner := range owners {
+		if selfhost.NameKey(owner.Name) == selfhost.NameKey(name) {
+			return owner.ID
+		}
+	}
+	return name
 }
 
 func (s *server) logout(w http.ResponseWriter, r *http.Request, _ selfhost.OwnerSession) {

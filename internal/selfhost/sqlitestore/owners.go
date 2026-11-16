@@ -395,8 +395,11 @@ func (s *Store) verifyCredentials(found credentials, password, code string) (int
 		return 0, fmt.Errorf("sqlitestore: owner secret cannot be decrypted: %w", err)
 	}
 	counter, codeOK := authkit.VerifyTOTP(string(plain), code, s.clock())
-	if !passwordOK || !codeOK {
+	if !passwordOK {
 		return 0, selfhost.ErrInvalidCredentials
+	}
+	if !codeOK {
+		return 0, selfhost.ErrInvalidCode
 	}
 	if counter <= found.lastCounter {
 		return 0, selfhost.ErrReplayedCode
@@ -639,6 +642,9 @@ func (s *Store) RemoveOwner(ctx context.Context, by selfhost.Actor, id string) e
 			return err
 		}
 		if err := cancelPairingsWhere(ctx, tx, now, "owner_id", id); err != nil {
+			return err
+		}
+		if err := deleteSyncVault(ctx, tx, selfhost.HolderOwner, id); err != nil {
 			return err
 		}
 		return s.audit(ctx, tx, by, "owner.removed", id, map[string]string{"revokedDevices": fmt.Sprint(revoked)})

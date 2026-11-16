@@ -339,6 +339,9 @@ func (s *Store) CompleteRecovery(ctx context.Context, by selfhost.Actor, generat
 		if err != nil {
 			return err
 		}
+		if err := deleteOrphanSyncVaults(ctx, tx); err != nil {
+			return err
+		}
 		if _, err := execCount(ctx, tx, `DELETE FROM sessions`); err != nil {
 			return err
 		}

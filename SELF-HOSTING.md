@@ -93,7 +93,7 @@ When Caddy runs on the host and the server runs from the compose file, also set 
 
 ### nginx on a domain
 
-Copy [nginx.conf](deploy/selfhost/nginx.conf), replace `sesame.example.net` with your name and point the two certificate paths at your certificate. The file passes `Host` with `$http_host` so a port in the address survives, adds the visitor to `X-Forwarded-For` and limits request bodies to 64 KiB. Set `SESAME_TRUSTED_PROXIES` the same way as for Caddy.
+Copy [nginx.conf](deploy/selfhost/nginx.conf), replace `sesame.example.net` with your name and point the two certificate paths at your certificate. The file passes `Host` with `$http_host` so a port in the address survives, adds the visitor to `X-Forwarded-For` and limits request bodies to 64 KiB. Sync requests under `/v1/sync/` may be up to 16 MiB and get 3 minutes, because an encrypted vault upload or download can be that large and slow. Set `SESAME_TRUSTED_PROXIES` the same way as for Caddy.
 
 ### Traefik on a domain
 

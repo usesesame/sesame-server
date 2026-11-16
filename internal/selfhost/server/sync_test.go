@@ -6,8 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -304,5 +307,73 @@ func TestTheOwnerCanResetASyncedVaultButNotReadIt(t *testing.T) {
 	audit := o.do(req{path: "/v1/owner/audit"}).Body.String()
 	if !bytes.Contains([]byte(audit), []byte("sync.reset")) {
 		t.Fatalf("the reset is not in the audit log: %s", audit)
+	}
+}
+
+func withSyncBesideTheFakeStore(t *testing.T) option {
+	return func(cfg *server.Config) {
+		storage, err := sqlitestore.Open(t.Context(), sqlitestore.Options{
+			Path:     filepath.Join(t.TempDir(), "sync.db"),
+			AdminKey: bytes.Repeat([]byte{9}, 32),
+			Now:      cfg.Now,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = storage.Close() })
+		service, err := syncsvc.New(storage.SyncStorage(), syncsvc.Config{ReceiptKey: cfg.SigningKey, Now: cfg.Now})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg.Sync = service
+	}
+}
+
+func (e *env) setSyncFlag(enabled bool, failure error) {
+	e.store.mu.Lock()
+	defer e.store.mu.Unlock()
+	e.store.flags[server.FlagSync] = enabled
+	e.store.flagsErr = failure
+}
+
+func TestSyncAsksClientsToRetryWhenTheSettingCannotBeRead(t *testing.T) {
+	e := newEnv(t, withSyncBesideTheFakeStore(t))
+	o := e.createFirstOwner("Dana")
+	token, _ := e.pairedDevice(o)
+
+	e.setSyncFlag(true, errors.New("fictional disk failure"))
+	recorder := e.do(req{path: "/v1/sync/state", header: bearer(token)})
+	expectError(t, recorder, http.StatusServiceUnavailable, "sync_unavailable")
+	if retry := recorder.Header().Get("Retry-After"); retry != "5" {
+		t.Fatalf("Retry-After = %q", retry)
+	}
+	overview := o.do(req{path: "/v1/owner/sync"})
+	expectStatus(t, overview, http.StatusServiceUnavailable)
+	if strings.Contains(overview.Body.String(), `"enabled":false`) {
+		t.Fatalf("the overview reported Sync as off when its setting could not be read: %s", overview.Body.String())
+	}
+
+	e.setSyncFlag(false, nil)
+	recorder = e.do(req{path: "/v1/sync/state", header: bearer(token)})
+	expectError(t, recorder, http.StatusForbidden, "sync_unavailable")
+	if retry := recorder.Header().Get("Retry-After"); retry != "" {
+		t.Fatalf("a switched off Sync asked for a retry after %q", retry)
+	}
+	if body := decodeBody(t, o.do(req{path: "/v1/owner/sync"})); body["available"] != true || body["enabled"] != false {
+		t.Fatalf("overview with Sync off = %v", body)
+	}
+
+	e.setSyncFlag(true, nil)
+	if body := decodeBody(t, o.do(req{path: "/v1/owner/sync"})); body["enabled"] != true {
+		t.Fatalf("overview with Sync on = %v", body)
+	}
+}
+
+func TestSyncOverviewWithoutAServiceIgnoresTheSetting(t *testing.T) {
+	e := newEnv(t)
+	o := e.createFirstOwner("Dana")
+	e.setSyncFlag(true, errors.New("fictional disk failure"))
+	if body := decodeBody(t, o.do(req{path: "/v1/owner/sync"})); body["available"] != false {
+		t.Fatalf("overview without a Sync service = %v", body)
 	}
 }

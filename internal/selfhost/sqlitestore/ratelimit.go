@@ -3,6 +3,7 @@ package sqlitestore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strconv"
 	"time"
 
@@ -47,6 +48,28 @@ func (s *Store) RateLimit(ctx context.Context, key string, limit int, window tim
 		return nil
 	})
 	return decision, err
+}
+
+func (s *Store) PeekRateLimit(ctx context.Context, key string, limit int) (selfhost.RateDecision, error) {
+	if key == "" || len(key) > maxRateKeyLength || limit <= 0 {
+		return selfhost.RateDecision{}, selfhost.ErrInvalidInput
+	}
+	db, err := s.read()
+	if err != nil {
+		return selfhost.RateDecision{}, err
+	}
+	now := s.clock().Unix()
+	var attempts, started, seconds int64
+	err = db.QueryRowContext(ctx, `SELECT attempts, window_started_at, window_seconds FROM rate_limits WHERE key = ?`, key).Scan(&attempts, &started, &seconds)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && started+seconds <= now) {
+		return selfhost.RateDecision{Allowed: true, Remaining: limit}, nil
+	}
+	if err != nil {
+		return selfhost.RateDecision{}, err
+	}
+	remaining := max(int64(limit)-attempts, 0)
+	retry := max(time.Duration(started+seconds-now)*time.Second, time.Second)
+	return selfhost.RateDecision{Allowed: remaining > 0, Remaining: int(remaining), RetryAfter: retry}, nil
 }
 
 func (s *Store) ResetRateLimit(ctx context.Context, key string) error {

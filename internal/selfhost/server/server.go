@@ -96,6 +96,7 @@ type server struct {
 	fingerprint string
 	keyID       string
 	metrics     *metrics
+	refused     *refusals
 	forwarded   atomic.Bool
 }
 
@@ -150,6 +151,7 @@ func newServer(cfg Config) *server {
 		fingerprint: fingerprint,
 		keyID:       cfg.CapabilityKeyID,
 		metrics:     newMetrics(),
+		refused:     newRefusals(),
 	}
 	return s
 }

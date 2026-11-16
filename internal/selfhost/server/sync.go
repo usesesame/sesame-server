@@ -17,7 +17,7 @@ type syncLimit struct {
 }
 
 var syncLimits = map[string]syncLimit{
-	"state":           {200, 30},
+	"state":           {200, 60},
 	"vault":           {30, 5},
 	"device-list":     {200, 30},
 	"devices":         {200, 30},
@@ -35,25 +35,32 @@ var syncLimits = map[string]syncLimit{
 	"upload":          {180, 30},
 	"headers":         {300, 60},
 	"download":        {300, 60},
-	"checkpoint-put":  {60, 10},
+	"checkpoint-put":  {60, 30},
 	"checkpoints":     {200, 30},
 	"reset":           {10, 3},
 }
 
+const syncUnavailableRetrySeconds = "5"
+
 func (s *server) syncEnabled(ctx context.Context) bool {
+	enabled, err := s.syncSwitchedOn(ctx)
+	return err == nil && enabled
+}
+
+func (s *server) syncSwitchedOn(ctx context.Context) (bool, error) {
 	if s.cfg.Sync == nil {
-		return false
+		return false, nil
 	}
 	flags, err := s.cfg.Store.Flags(ctx)
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, flag := range flags {
 		if flag.Key == FlagSync {
-			return flag.Enabled
+			return flag.Enabled, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func syncOwnerKey(holder selfhost.Holder) string {
@@ -78,7 +85,14 @@ func (host syncHost) Authenticate(w http.ResponseWriter, r *http.Request, operat
 		writeError(w, http.StatusForbidden, "origin_not_allowed", "Sync is not available from a browser.")
 		return syncsvc.Caller{}, false
 	}
-	if !s.syncEnabled(r.Context()) {
+	enabled, err := s.syncSwitchedOn(r.Context())
+	if err != nil {
+		requestLog(r.Context()).Error("Sesame server could not read the Sync setting", "error", err)
+		w.Header().Set("Retry-After", syncUnavailableRetrySeconds)
+		writeError(w, http.StatusServiceUnavailable, "sync_unavailable", "Sync is temporarily unavailable.")
+		return syncsvc.Caller{}, false
+	}
+	if !enabled {
 		writeError(w, http.StatusForbidden, "sync_unavailable", "Sync is not turned on for this server.")
 		return syncsvc.Caller{}, false
 	}
@@ -107,9 +121,13 @@ type syncOverviewRecord struct {
 }
 
 func (s *server) syncOverview(w http.ResponseWriter, r *http.Request, _ selfhost.OwnerSession) {
-	enabled := s.syncEnabled(r.Context())
 	if s.cfg.Sync == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"available": false, "enabled": false, "holders": []syncOverviewRecord{}})
+		return
+	}
+	enabled, err := s.syncSwitchedOn(r.Context())
+	if err != nil {
+		s.storeError(w, r, err)
 		return
 	}
 	holders, err := s.syncHolders(r.Context())

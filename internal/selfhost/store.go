@@ -62,6 +62,7 @@ type AuditStore interface {
 
 type RateLimitStore interface {
 	RateLimit(ctx context.Context, key string, limit int, window time.Duration) (RateDecision, error)
+	PeekRateLimit(ctx context.Context, key string, limit int) (RateDecision, error)
 	ResetRateLimit(ctx context.Context, key string) error
 }
 
