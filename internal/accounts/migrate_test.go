@@ -433,9 +433,15 @@ func TestMigrationLockWaitStopsWithTheContext(t *testing.T) {
 }
 
 func TestConcurrentIndexMigrationRefusesASchemaQualifiedTable(t *testing.T) {
-	body := concurrentIndexDirective + "\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fixture_items_label ON archive.fixture_items (label);\n"
-	if _, err := parseMigration("0002_fixture", body); err == nil {
-		t.Fatal("an index on a table in a named schema must be refused, because the runner looks the index up without a schema")
+	for _, table := range []string{"archive.fixture_items", "archive .fixture_items", "archive. fixture_items", "archive . fixture_items"} {
+		body := concurrentIndexDirective + "\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fixture_items_label ON " + table + " (label);\n"
+		if _, err := parseMigration("0002_fixture", body); err == nil {
+			t.Fatalf("an index on %q must be refused, because the runner looks the index up without a schema", table)
+		}
+	}
+	using := concurrentIndexDirective + "\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fixture_items_label ON fixture_items USING btree (label);\n"
+	if _, err := parseMigration("0002_fixture", using); err != nil {
+		t.Fatalf("a table followed by USING = %v", err)
 	}
 	plain := concurrentIndexDirective + "\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fixture_items_label ON fixture_items(label);\n"
 	if _, err := parseMigration("0002_fixture", plain); err != nil {
