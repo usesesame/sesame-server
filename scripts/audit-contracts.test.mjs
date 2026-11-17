@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
@@ -16,28 +16,53 @@ function jobBlock(body, job) {
   return next ? rest.slice(0, afterFirst + next.index) : rest
 }
 
-const auditCommands = {
-  server: 'node scripts/audit-dependencies.mjs',
-  account: 'node ../../scripts/audit-dependencies.mjs',
-  admin: 'node ../../scripts/audit-dependencies.mjs',
-  selfhost: 'node ../../scripts/audit-dependencies.mjs',
+function workflowSteps(job, block) {
+  const jobDirectory = block.match(/^ {4}defaults:\n {6}run:\n {8}working-directory: (.+)$/m)?.[1].trim() ?? '.'
+  return block.split(/\n(?= {6}- )/).slice(1).map((step) => ({
+    job,
+    run: step.match(/^ {6}(?:- | {2})run: (.+)$/m)?.[1].trim(),
+    directory: step.match(/^ {8}working-directory: (.+)$/m)?.[1].trim() ?? jobDirectory,
+  }))
 }
 
-for (const [job, auditCommand] of Object.entries(auditCommands)) {
-  test(`the ${job} job audits npm dependencies at high through the reviewed exceptions`, () => {
-    const commands = [...jobBlock(workflow, job).matchAll(/^\s*(?:- )?run: (.+)$/gm)].map(
-      ([, command]) => command.trim(),
-    )
+const ciJobs = [...workflow.matchAll(/^ {2}([a-z0-9_-]+):$/gm)].map(([, job]) => job)
+const ciSteps = ciJobs.flatMap((job) => workflowSteps(job, jobBlock(workflow, job)))
+
+const lockfileProjects = ['.', ...readdirSync(join(root, 'web')).map((name) => `web/${name}`)].filter((project) =>
+  existsSync(join(root, project, 'package-lock.json')),
+)
+
+function hasDependencies(project) {
+  const lockfile = JSON.parse(readFileSync(join(root, project, 'package-lock.json'), 'utf8'))
+  const manifest = lockfile.packages?.[''] ?? {}
+  return ['dependencies', 'devDependencies', 'optionalDependencies'].some(
+    (field) => Object.keys(manifest[field] ?? {}).length > 0,
+  )
+}
+
+const auditedProjects = lockfileProjects.filter(hasDependencies)
+
+test('the audit contract finds the portal and console lockfiles', () => {
+  for (const project of ['web/account', 'web/admin', 'web/console']) {
+    assert.ok(auditedProjects.includes(project), `${project} no longer has a lockfile with dependencies, so this check is stale`)
+  }
+})
+
+for (const project of auditedProjects) {
+  const auditCommand = `node ${relative(join(root, project), join(root, 'scripts', 'audit-dependencies.mjs')).split(sep).join('/')}`
+  test(`CI audits the npm dependencies of ${project === '.' ? 'the root package' : project} at high through the reviewed exceptions`, () => {
     assert.ok(
-      commands.includes(auditCommand),
-      `the ${job} job must run \`${auditCommand}\` as a step, so a high advisory fails CI`,
-    )
-    assert.ok(
-      !commands.some((command) => command.startsWith('npm audit')),
-      `the ${job} job runs a bare npm audit, which ignores the reviewed exceptions`,
+      ciSteps.some((step) => step.directory === project && step.run === auditCommand),
+      `a CI job must run \`${auditCommand}\` in ${project}, so a high advisory in its lockfile fails CI`,
     )
   })
 }
+
+test('no CI job runs a bare npm audit, which ignores the reviewed exceptions', () => {
+  for (const step of ciSteps) {
+    assert.ok(!step.run?.startsWith('npm audit'), `the ${step.job} job runs a bare npm audit`)
+  }
+})
 
 const npmProjects = [
   { path: '.', directory: '/' },

@@ -56,7 +56,6 @@ jobs:
 
       - run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
-      - run: npm ci
       - run: npm run ci
       - run: npm run test:race
       - run: npm run vuln:check
