@@ -431,3 +431,14 @@ func TestMigrationLockWaitStopsWithTheContext(t *testing.T) {
 		t.Fatalf("waiting past the deadline = %v, want the context deadline", err)
 	}
 }
+
+func TestConcurrentIndexMigrationRefusesASchemaQualifiedTable(t *testing.T) {
+	body := concurrentIndexDirective + "\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fixture_items_label ON archive.fixture_items (label);\n"
+	if _, err := parseMigration("0002_fixture", body); err == nil {
+		t.Fatal("an index on a table in a named schema must be refused, because the runner looks the index up without a schema")
+	}
+	plain := concurrentIndexDirective + "\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fixture_items_label ON fixture_items(label);\n"
+	if _, err := parseMigration("0002_fixture", plain); err != nil {
+		t.Fatalf("a plain table name = %v", err)
+	}
+}

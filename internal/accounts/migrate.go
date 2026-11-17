@@ -28,7 +28,7 @@ const concurrentIndexDirective = "-- sesame-migration: create-index-concurrently
 
 var (
 	migrationDirectivePattern = regexp.MustCompile(`(?im)^[ \t]*--[ \t]*sesame-migration`)
-	concurrentIndexPattern    = regexp.MustCompile(`^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]{0,62})\s+ON\s+[a-z_]`)
+	concurrentIndexPattern    = regexp.MustCompile(`^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]{0,62})\s+ON\s+[a-z_][a-z0-9_]{0,62}(?:\s|\()`)
 )
 
 type migration struct {
