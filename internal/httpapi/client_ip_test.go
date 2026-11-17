@@ -71,3 +71,13 @@ func TestClientIPFallsBackToThePeerWhenEveryForwardedHopIsTrusted(t *testing.T) 
 		t.Fatalf("clientIP = %q, want the peer address", got)
 	}
 }
+
+func TestClientLimitKeyUsesTheConfiguredTrustedProxies(t *testing.T) {
+	request := clientIPRequest("172.30.0.2:12345", "2001:db8:1:2::99")
+	if got := clientIPTestAPI("172.30.0.0/24").clientLimitKey(request); got != "2001:db8:1:2::/64" {
+		t.Fatalf("clientLimitKey = %q, want the forwarded client network", got)
+	}
+	if got := clientIPTestAPI().clientLimitKey(request); got != "172.30.0.2" {
+		t.Fatalf("clientLimitKey = %q, want the peer address", got)
+	}
+}

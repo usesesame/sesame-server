@@ -1,13 +1,14 @@
-package clientaddrtest
+package clientaddr
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"testing"
 )
 
-type Case struct {
+type addressCase struct {
 	Name       string
 	Trusted    []string
 	RemoteAddr string
@@ -17,7 +18,7 @@ type Case struct {
 	LimitKey   string
 }
 
-func (c Case) Prefixes() []netip.Prefix {
+func (c addressCase) prefixes() []netip.Prefix {
 	prefixes := make([]netip.Prefix, 0, len(c.Trusted))
 	for _, raw := range c.Trusted {
 		prefixes = append(prefixes, netip.MustParsePrefix(raw))
@@ -25,7 +26,7 @@ func (c Case) Prefixes() []netip.Prefix {
 	return prefixes
 }
 
-func (c Case) Request() *http.Request {
+func (c addressCase) request() *http.Request {
 	request := httptest.NewRequest(http.MethodPost, "/v1/test", nil)
 	request.RemoteAddr = c.RemoteAddr
 	for _, line := range c.Forwarded {
@@ -44,7 +45,7 @@ const (
 	client       = "203.0.113.10"
 )
 
-func Cases() []Case {
+func addressCases() []addressCase {
 	trusted := []string{proxyNetwork}
 	longForged := strings.Repeat("192.0.2.66, ", 4000) + client
 	longTrusted := strings.TrimSuffix(strings.Repeat("198.51.100.3, ", 4000), ", ")
@@ -53,7 +54,7 @@ func Cases() []Case {
 		manyLines = append(manyLines, "192.0.2.66")
 	}
 	manyLines = append(manyLines, client)
-	return []Case{
+	return []addressCase{
 		{Name: "no header from an untrusted peer", Trusted: trusted, RemoteAddr: "203.0.113.10:41000", Client: client, LimitKey: client},
 		{Name: "no header from a trusted proxy", Trusted: trusted, RemoteAddr: proxyPeer, Client: proxyAddress, LimitKey: proxyAddress},
 		{Name: "empty header from a trusted proxy", Trusted: trusted, RemoteAddr: proxyPeer, Forwarded: []string{""}, Client: proxyAddress, LimitKey: proxyAddress},
@@ -106,5 +107,42 @@ func Cases() []Case {
 		{Name: "peer without a port is used as given", Trusted: trusted, RemoteAddr: client, Client: client, LimitKey: client},
 		{Name: "unparseable peer is used as given", Trusted: trusted, RemoteAddr: "pipe", Forwarded: []string{"192.0.2.1"}, Client: "pipe", LimitKey: "pipe"},
 		{Name: "empty peer is used as given", Trusted: trusted, RemoteAddr: "", Forwarded: []string{"192.0.2.1"}, Client: "", LimitKey: ""},
+	}
+}
+
+func TestResolve(t *testing.T) {
+	for _, tc := range addressCases() {
+		t.Run(tc.Name, func(t *testing.T) {
+			address := Resolve(tc.request(), tc.prefixes())
+			if address.Client != tc.Client {
+				t.Fatalf("Client = %q, want %q", address.Client, tc.Client)
+			}
+			if got := address.LimitKey(); got != tc.LimitKey {
+				t.Fatalf("LimitKey = %q, want %q", got, tc.LimitKey)
+			}
+		})
+	}
+}
+
+func TestResolveReportsForwardingFromAnUntrustedPeer(t *testing.T) {
+	trusted := []string{proxyNetwork}
+	for _, tc := range []struct {
+		addressCase
+		ignored bool
+	}{
+		{addressCase{RemoteAddr: "10.0.0.8:41000", Forwarded: []string{client}}, true},
+		{addressCase{Trusted: trusted, RemoteAddr: "203.0.113.20:41000", Forwarded: []string{client}}, true},
+		{addressCase{Trusted: trusted, RemoteAddr: "203.0.113.20:41000"}, false},
+		{addressCase{Trusted: trusted, RemoteAddr: "203.0.113.20:41000", Forwarded: []string{""}}, false},
+		{addressCase{Trusted: trusted, RemoteAddr: "203.0.113.20:41000", Headers: map[string]string{"Forwarded": "for=192.0.2.1"}}, false},
+		{addressCase{Trusted: trusted, RemoteAddr: proxyPeer, Forwarded: []string{client}}, false},
+	} {
+		address := Resolve(tc.request(), tc.prefixes())
+		if address.ForwardingIgnored != tc.ignored {
+			t.Fatalf("%s with %v: ForwardingIgnored = %v, want %v", tc.RemoteAddr, tc.Forwarded, address.ForwardingIgnored, tc.ignored)
+		}
+		if address.Peer != Peer(tc.request()) {
+			t.Fatalf("Peer = %q, want %q", address.Peer, Peer(tc.request()))
+		}
 	}
 }

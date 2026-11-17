@@ -6,13 +6,13 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
-	"net"
 	"net/http"
 	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
+	"usesesame.app/backend/internal/clientaddr"
 	"usesesame.app/backend/internal/selfhost"
 )
 
@@ -188,73 +188,15 @@ func writeTooManyAttempts(w http.ResponseWriter, retryAfter time.Duration) {
 	writeError(w, http.StatusTooManyRequests, "too_many_attempts", "Try again later.")
 }
 
-func (s *server) clientIP(r *http.Request) string {
-	peer := peerIP(r)
-	if !s.trustedProxy(peer) {
-		if r.Header.Get("X-Forwarded-For") != "" && privatePeer(peer) && s.forwarded.CompareAndSwap(false, true) {
-			requestLog(r.Context()).Warn("A request from a private address carried X-Forwarded-For but that address is not a trusted proxy, so every visitor shares one rate limit. Set SESAME_TRUSTED_PROXIES to the range your reverse proxy uses.")
-		}
-		return peer
-	}
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded == "" {
-		return peer
-	}
-	hops := strings.Split(forwarded, ",")
-	for index := len(hops) - 1; index >= 0; index-- {
-		ip, err := netip.ParseAddr(strings.TrimSpace(hops[index]))
-		if err != nil {
-			return peer
-		}
-		ip = ip.Unmap()
-		if s.trustedProxy(ip.String()) {
-			continue
-		}
-		return ip.String()
-	}
-	return peer
-}
-
 func (s *server) clientLimitKey(r *http.Request) string {
-	client := s.clientIP(r)
-	address, err := netip.ParseAddr(client)
-	if err != nil {
-		return client
+	address := clientaddr.Resolve(r, s.cfg.TrustedProxies)
+	if address.ForwardingIgnored && privatePeer(address.Peer) && s.forwarded.CompareAndSwap(false, true) {
+		requestLog(r.Context()).Warn("A request from a private address carried X-Forwarded-For but that address is not a trusted proxy, so every visitor shares one rate limit. Set SESAME_TRUSTED_PROXIES to the range your reverse proxy uses.")
 	}
-	address = address.Unmap()
-	if !address.Is6() {
-		return address.String()
-	}
-	prefix, err := address.Prefix(64)
-	if err != nil {
-		return client
-	}
-	return prefix.String()
-}
-
-func (s *server) trustedProxy(value string) bool {
-	ip, err := netip.ParseAddr(value)
-	if err != nil {
-		return false
-	}
-	ip = ip.Unmap()
-	for _, prefix := range s.cfg.TrustedProxies {
-		if prefix.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return address.LimitKey()
 }
 
 func (s *server) forwardedFromUntrusted() bool { return s.forwarded.Load() }
-
-func peerIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
 
 func privatePeer(value string) bool {
 	ip, err := netip.ParseAddr(value)
