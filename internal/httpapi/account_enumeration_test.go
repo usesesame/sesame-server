@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/authkit"
 )
 
 const enumerationPassword = "fictional-correct-horse-battery"
@@ -149,7 +150,7 @@ func TestRegistrationResponseDoesNotDependOnAccountExistence(t *testing.T) {
 		if len(store.registrations) != 1 {
 			t.Fatalf("%s registrations = %d, want 1", testCase.name, len(store.registrations))
 		}
-		if !accounts.VerifyPassword(store.registrations[0].PasswordHash, enumerationPassword) {
+		if !authkit.VerifyPassword(store.registrations[0].PasswordHash, enumerationPassword) {
 			t.Fatalf("%s reached the store without hashing the password first", testCase.name)
 		}
 		if store.registrations[0].AllowPublic != (testCase.mode == "public") {

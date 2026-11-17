@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/authkit"
 )
 
 const (
@@ -173,7 +174,7 @@ func TestEmailChangeInvalidatesPendingRecoveryToken(t *testing.T) {
 	}
 	if _, passwordHash, err := env.accountStore.FindByID(context.Background(), accountID); err != nil {
 		t.Fatalf("read account password: %v", err)
-	} else if !accounts.VerifyPassword(passwordHash, accountTokenTestPassword) {
+	} else if !authkit.VerifyPassword(passwordHash, accountTokenTestPassword) {
 		t.Fatal("a stale recovery token changed the password")
 	}
 
