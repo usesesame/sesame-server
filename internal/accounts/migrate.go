@@ -4,11 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 //go:embed migrations/*.sql
@@ -18,9 +22,50 @@ const runtimeRoleName = "sesame_app"
 
 const migrationLockID int64 = 0x534553414D45
 
+const migrationLockRetry = 200 * time.Millisecond
+
+const concurrentIndexDirective = "-- sesame-migration: create-index-concurrently"
+
+var (
+	migrationDirectivePattern = regexp.MustCompile(`(?im)^[ \t]*--[ \t]*sesame-migration`)
+	concurrentIndexPattern    = regexp.MustCompile(`^CREATE\s+(UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]{0,62})\s+ON\s+([a-z_][a-z0-9_]{0,62})\s*(?:\(|USING\s)`)
+)
+
 type migration struct {
-	version string
-	sql     string
+	version               string
+	sql                   string
+	concurrentIndex       string
+	concurrentIndexTable  string
+	concurrentIndexUnique bool
+}
+
+func parseMigration(version, body string) (migration, error) {
+	m := migration{version: version, sql: body}
+	directives := migrationDirectivePattern.FindAllStringIndex(body, -1)
+	if len(directives) == 0 {
+		return m, nil
+	}
+	firstLine, rest, _ := strings.Cut(body, "\n")
+	if len(directives) != 1 || directives[0][0] != 0 || firstLine != concurrentIndexDirective {
+		return migration{}, fmt.Errorf("migration %s: the only supported directive is %q on the first line", version, concurrentIndexDirective)
+	}
+	statement := strings.TrimSpace(rest)
+	statement = strings.TrimSpace(strings.TrimSuffix(statement, ";"))
+	if strings.Contains(statement, ";") {
+		return migration{}, fmt.Errorf("migration %s: a concurrent index migration must hold exactly one statement", version)
+	}
+	if strings.Contains(statement, "--") || strings.Contains(statement, "/*") {
+		return migration{}, fmt.Errorf("migration %s: a concurrent index migration must not hold comments", version)
+	}
+	match := concurrentIndexPattern.FindStringSubmatch(statement)
+	if match == nil {
+		return migration{}, fmt.Errorf("migration %s: a concurrent index migration must be one CREATE INDEX CONCURRENTLY IF NOT EXISTS statement", version)
+	}
+	m.sql = statement
+	m.concurrentIndexUnique = match[1] != ""
+	m.concurrentIndex = match[2]
+	m.concurrentIndexTable = match[3]
+	return m, nil
 }
 
 func loadMigrations() ([]migration, error) {
@@ -41,15 +86,24 @@ func loadMigrations() ([]migration, error) {
 		if err != nil {
 			return nil, err
 		}
-		migrations = append(migrations, migration{
-			version: strings.TrimSuffix(name, ".sql"),
-			sql:     string(body),
-		})
+		m, err := parseMigration(strings.TrimSuffix(name, ".sql"), string(body))
+		if err != nil {
+			return nil, err
+		}
+		migrations = append(migrations, m)
 	}
 	return migrations, nil
 }
 
 func (s *PostgresStore) Migrate(ctx context.Context) error {
+	migrations, err := loadMigrations()
+	if err != nil {
+		return err
+	}
+	return s.runMigrations(ctx, migrations)
+}
+
+func (s *PostgresStore) runMigrations(ctx context.Context, migrations []migration) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return err
@@ -68,10 +122,6 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 	`); err != nil {
 		return err
 	}
-	migrations, err := loadMigrations()
-	if err != nil {
-		return err
-	}
 	for _, m := range migrations {
 		applied, err := migrationApplied(ctx, conn, m.version)
 		if err != nil {
@@ -88,10 +138,22 @@ func (s *PostgresStore) Migrate(ctx context.Context) error {
 }
 
 func lockMigration(ctx context.Context, conn *sql.Conn) error {
-	if _, err := conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, migrationLockID); err != nil {
-		return fmt.Errorf("acquire migration lock: %w", err)
+	for {
+		var locked bool
+		if err := conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock($1)`, migrationLockID).Scan(&locked); err != nil {
+			return fmt.Errorf("acquire migration lock: %w", err)
+		}
+		if locked {
+			return nil
+		}
+		timer := time.NewTimer(migrationLockRetry)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("acquire migration lock: %w", ctx.Err())
+		case <-timer.C:
+		}
 	}
-	return nil
 }
 
 func unlockMigration(conn *sql.Conn) {
@@ -154,6 +216,9 @@ func migrationApplied(ctx context.Context, conn *sql.Conn, version string) (bool
 }
 
 func applyMigration(ctx context.Context, conn *sql.Conn, m migration) error {
+	if m.concurrentIndex != "" {
+		return applyConcurrentIndex(ctx, conn, m)
+	}
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -166,4 +231,60 @@ func applyMigration(ctx context.Context, conn *sql.Conn, m migration) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+func applyConcurrentIndex(ctx context.Context, conn *sql.Conn, m migration) error {
+	exists, valid, err := indexState(ctx, conn, m.concurrentIndex)
+	if err != nil {
+		return err
+	}
+	if exists && !valid {
+		if _, err := conn.ExecContext(ctx, `DROP INDEX CONCURRENTLY IF EXISTS `+pgx.Identifier{m.concurrentIndex}.Sanitize()); err != nil {
+			return fmt.Errorf("drop the invalid index %s: %w", m.concurrentIndex, err)
+		}
+	}
+	if _, err := conn.ExecContext(ctx, m.sql); err != nil {
+		return err
+	}
+	exists, valid, err = indexState(ctx, conn, m.concurrentIndex)
+	if err != nil {
+		return err
+	}
+	if !exists || !valid {
+		return fmt.Errorf("index %s is missing or invalid after the build", m.concurrentIndex)
+	}
+	table, unique, err := indexTarget(ctx, conn, m.concurrentIndex)
+	if err != nil {
+		return err
+	}
+	if table != m.concurrentIndexTable || unique != m.concurrentIndexUnique {
+		return fmt.Errorf("index %s already exists with a different table or uniqueness", m.concurrentIndex)
+	}
+	_, err = conn.ExecContext(ctx, `INSERT INTO sesame_schema_migrations (version) VALUES ($1)`, m.version)
+	return err
+}
+
+func indexTarget(ctx context.Context, conn *sql.Conn, name string) (table string, unique bool, err error) {
+	err = conn.QueryRowContext(ctx, `
+		SELECT relation.relname, index.indisunique
+		FROM pg_index AS index
+		JOIN pg_class AS relation ON relation.oid = index.indrelid
+		WHERE index.indexrelid = to_regclass($1::text)`, pgx.Identifier{name}.Sanitize()).Scan(&table, &unique)
+	if err != nil {
+		return "", false, fmt.Errorf("inspect index %s: %w", name, err)
+	}
+	return table, unique, nil
+}
+
+func indexState(ctx context.Context, conn *sql.Conn, name string) (exists, valid bool, err error) {
+	err = conn.QueryRowContext(ctx, `
+		SELECT indisvalid AND indisready FROM pg_index
+		WHERE indexrelid = to_regclass($1::text)`, pgx.Identifier{name}.Sanitize()).Scan(&valid)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, fmt.Errorf("inspect index %s: %w", name, err)
+	}
+	return true, valid, nil
 }
