@@ -28,13 +28,15 @@ const concurrentIndexDirective = "-- sesame-migration: create-index-concurrently
 
 var (
 	migrationDirectivePattern = regexp.MustCompile(`(?im)^[ \t]*--[ \t]*sesame-migration`)
-	concurrentIndexPattern    = regexp.MustCompile(`^CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]{0,62})\s+ON\s+[a-z_][a-z0-9_]{0,62}\s*(?:\(|USING\s)`)
+	concurrentIndexPattern    = regexp.MustCompile(`^CREATE\s+(UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+IF\s+NOT\s+EXISTS\s+([a-z_][a-z0-9_]{0,62})\s+ON\s+([a-z_][a-z0-9_]{0,62})\s*(?:\(|USING\s)`)
 )
 
 type migration struct {
-	version         string
-	sql             string
-	concurrentIndex string
+	version               string
+	sql                   string
+	concurrentIndex       string
+	concurrentIndexTable  string
+	concurrentIndexUnique bool
 }
 
 func parseMigration(version, body string) (migration, error) {
@@ -60,7 +62,9 @@ func parseMigration(version, body string) (migration, error) {
 		return migration{}, fmt.Errorf("migration %s: a concurrent index migration must be one CREATE INDEX CONCURRENTLY IF NOT EXISTS statement", version)
 	}
 	m.sql = statement
-	m.concurrentIndex = match[1]
+	m.concurrentIndexUnique = match[1] != ""
+	m.concurrentIndex = match[2]
+	m.concurrentIndexTable = match[3]
 	return m, nil
 }
 
@@ -249,8 +253,27 @@ func applyConcurrentIndex(ctx context.Context, conn *sql.Conn, m migration) erro
 	if !exists || !valid {
 		return fmt.Errorf("index %s is missing or invalid after the build", m.concurrentIndex)
 	}
+	table, unique, err := indexTarget(ctx, conn, m.concurrentIndex)
+	if err != nil {
+		return err
+	}
+	if table != m.concurrentIndexTable || unique != m.concurrentIndexUnique {
+		return fmt.Errorf("index %s already exists with a different table or uniqueness", m.concurrentIndex)
+	}
 	_, err = conn.ExecContext(ctx, `INSERT INTO sesame_schema_migrations (version) VALUES ($1)`, m.version)
 	return err
+}
+
+func indexTarget(ctx context.Context, conn *sql.Conn, name string) (table string, unique bool, err error) {
+	err = conn.QueryRowContext(ctx, `
+		SELECT relation.relname, index.indisunique
+		FROM pg_index AS index
+		JOIN pg_class AS relation ON relation.oid = index.indrelid
+		WHERE index.indexrelid = to_regclass($1::text)`, pgx.Identifier{name}.Sanitize()).Scan(&table, &unique)
+	if err != nil {
+		return "", false, fmt.Errorf("inspect index %s: %w", name, err)
+	}
+	return table, unique, nil
 }
 
 func indexState(ctx context.Context, conn *sql.Conn, name string) (exists, valid bool, err error) {

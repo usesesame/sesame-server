@@ -327,6 +327,29 @@ func TestConcurrentIndexMigrationRefusesARelationThatIsNotAnIndex(t *testing.T) 
 	}
 }
 
+func TestConcurrentIndexMigrationRefusesAnIndexWithAnotherTableOrUniqueness(t *testing.T) {
+	cases := map[string]string{
+		"another table": "CREATE TABLE fixture_others (label TEXT);\nCREATE INDEX idx_fixture_items_label ON fixture_others (label);\n",
+		"not unique":    "CREATE INDEX idx_fixture_items_label ON fixture_items (label);\n",
+	}
+	for name, existing := range cases {
+		t.Run(name, func(t *testing.T) {
+			store := freshMigrationStore(t)
+			migrations := []migration{
+				mustParseMigration(t, "0001_fixture_items", fixtureTableMigration+existing),
+				mustParseMigration(t, "0002_fixture_items_label", concurrentIndexDirective+"\nCREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_fixture_items_label ON fixture_items (label);\n"),
+			}
+			err := store.runMigrations(context.Background(), migrations)
+			if err == nil || !strings.Contains(err.Error(), "different table or uniqueness") {
+				t.Fatalf("an index with %s = %v, want a refusal", name, err)
+			}
+			if got := appliedCount(t, store, "0002_fixture_items_label"); got != 0 {
+				t.Fatalf("the refused migration was recorded %d times", got)
+			}
+		})
+	}
+}
+
 func TestOrdinaryMigrationsStillRunInATransaction(t *testing.T) {
 	store := freshMigrationStore(t)
 	ctx := context.Background()
