@@ -28,9 +28,18 @@ function workflowSteps(job, block) {
 const ciJobs = [...workflow.matchAll(/^ {2}([a-z0-9_-]+):$/gm)].map(([, job]) => job)
 const ciSteps = ciJobs.flatMap((job) => workflowSteps(job, jobBlock(workflow, job)))
 
-const lockfileProjects = ['.', ...readdirSync(join(root, 'web')).map((name) => `web/${name}`)].filter((project) =>
-  existsSync(join(root, project, 'package-lock.json')),
-)
+const skippedDirectories = new Set(['node_modules', '.git', 'dist', 'build', 'vendor'])
+
+function lockfileDirectories(directory = '.') {
+  const found = existsSync(join(root, directory, 'package-lock.json')) ? [directory] : []
+  for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
+    if (!entry.isDirectory() || skippedDirectories.has(entry.name)) continue
+    found.push(...lockfileDirectories(directory === '.' ? entry.name : `${directory}/${entry.name}`))
+  }
+  return found
+}
+
+const lockfileProjects = lockfileDirectories()
 
 function hasDependencies(project) {
   const lockfile = JSON.parse(readFileSync(join(root, project, 'package-lock.json'), 'utf8'))
