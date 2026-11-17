@@ -5,24 +5,16 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/testdb"
 )
 
 func TestARefusedClientCausesNoFurtherRateLimitWrites(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	ctx := context.Background()
-	store, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testdb.Open(t, accounts.Open)
 	lockDatabaseTests(t, store.DB())
 	key := fmt.Sprintf("refusal-cache-test:%d", time.Now().UnixNano())
 	t.Cleanup(func() {

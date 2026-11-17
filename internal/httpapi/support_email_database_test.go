@@ -15,14 +15,12 @@ import (
 
 	"usesesame.app/backend/internal/accounts"
 	adminstore "usesesame.app/backend/internal/admin"
+	"usesesame.app/backend/internal/testdb"
 )
 
 func supportEmailDatabase(t *testing.T) *sql.DB {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	databaseURL := testdb.URL(t)
 	db, err := sql.Open("pgx", databaseURL)
 	if err != nil {
 		t.Fatalf("open test database: %v", err)
@@ -175,16 +173,9 @@ func TestSupportEmailMigrationUpgradesExplicitOptOut(t *testing.T) {
 }
 
 func TestSupportReplyEmailEnqueueFailureRollsBack(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	databaseURL := testdb.URL(t)
 	ctx := context.Background()
-	accountStore, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, accounts.Open)
 	lockDatabaseTests(t, accountStore.DB())
 	truncateAuditTables(t, accountStore.DB(), `
 		TRUNCATE sesame_email_outbox, sesame_support_requests, sesame_support_messages, sesame_support_notes,

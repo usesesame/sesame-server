@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -23,6 +22,7 @@ import (
 	"usesesame.app/backend/internal/syncproto"
 	"usesesame.app/backend/internal/syncsvc"
 	"usesesame.app/backend/internal/syncsvc/pgstore"
+	"usesesame.app/backend/internal/testdb"
 )
 
 const syncHostTestOrigin = "https://account.example.invalid"
@@ -47,16 +47,9 @@ type syncHostAccount struct {
 
 func newSyncHostEnv(t *testing.T) *syncHostEnv {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	databaseURL := testdb.URL(t)
 	ctx := context.Background()
-	accountStore, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, accounts.Open)
 	db := accountStore.DB()
 	lockDatabaseTests(t, db)
 	adminStore, err := adminstore.Open(ctx, databaseURL, bytes.Repeat([]byte{9}, 32))

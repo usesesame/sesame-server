@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"math"
-	"os"
 	"testing"
 	"time"
 
@@ -14,22 +13,15 @@ import (
 	"usesesame.app/backend/internal/syncproto"
 	"usesesame.app/backend/internal/syncsvc"
 	"usesesame.app/backend/internal/syncsvc/servicetest"
+	"usesesame.app/backend/internal/testdb"
 )
 
 const testVaultID = "vaultAAAAAAAAAAAA01"
 
 func openTestDatabase(t *testing.T) *sql.DB {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	ctx := context.Background()
-	accountStore, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, accounts.Open)
 	db := accountStore.DB()
 	const lockID int64 = 762374923
 	conn, err := db.Conn(ctx)

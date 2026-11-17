@@ -3,13 +3,13 @@ package notifications
 import (
 	"context"
 	"log/slog"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
 	"usesesame.app/backend/internal/httpapi"
+	"usesesame.app/backend/internal/testdb"
 )
 
 type blockingDeliverySender struct {
@@ -23,20 +23,12 @@ func (s *blockingDeliverySender) SendAccountEmail(ctx context.Context, _ httpapi
 }
 
 func TestWorkerRunStopsBeforeThePoolCloses(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	var logs strings.Builder
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
 
-	store, err := accounts.Open(context.Background(), databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testdb.Open(t, accounts.Open)
 	db := store.DB()
 	lockDatabaseTest(t, db)
 	if _, err := db.ExecContext(context.Background(), `TRUNCATE sesame_email_outbox`); err != nil {

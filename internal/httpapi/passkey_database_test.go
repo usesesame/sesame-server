@@ -7,24 +7,16 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"os"
 	"testing"
 
 	"github.com/go-webauthn/webauthn/webauthn"
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/testdb"
 )
 
 func TestPasskeyVerificationWithDatabaseSessions(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	ctx := context.Background()
-	store, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testdb.Open(t, accounts.Open)
 	lockDatabaseTests(t, store.DB())
 	wa, err := webauthn.New(&webauthn.Config{RPID: passkeyTestRP, RPDisplayName: "Fictional account", RPOrigins: []string{passkeyTestOrigin}})
 	if err != nil {
@@ -148,16 +140,8 @@ func TestPasskeyVerificationWithDatabaseSessions(t *testing.T) {
 }
 
 func TestPasskeyLoginCloneWarningWithDatabaseSessions(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	ctx := context.Background()
-	store, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testdb.Open(t, accounts.Open)
 	lockDatabaseTests(t, store.DB())
 	wa, err := webauthn.New(&webauthn.Config{RPID: passkeyTestRP, RPDisplayName: "Fictional account", RPOrigins: []string{passkeyTestOrigin}})
 	if err != nil {
