@@ -591,18 +591,6 @@ func (a *api) adminSystemHealth(response http.ResponseWriter, request *http.Requ
 	writeJSON(response, http.StatusOK, a.config.OperationalSnapshot.Snapshot(ctx))
 }
 
-func (a *api) adminRateLimits(response http.ResponseWriter, request *http.Request) {
-	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
-		return
-	}
-	metrics, err := a.config.Admin.RateLimitMetrics(request.Context())
-	if err != nil {
-		adminStoreError(response, err)
-		return
-	}
-	writeJSON(response, http.StatusOK, map[string]any{"metrics": metrics})
-}
-
 func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Request) {
 	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
 		return

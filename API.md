@@ -611,8 +611,6 @@ route decoding.
   pending and failed totals, and the last maintenance result. Dependency waits
 	stop after two seconds and return a safe status rather than config values
   or credentials. Each outbox total is capped at 100.
-- `GET /v1/admin/system/rate-limits` returns the current limiter counters for
-  `system:read`.
 - `GET /v1/admin/system/config` returns the feature-flag document for
   `system:read`.
 - `GET /v1/admin/saved-replies` lists the saved replies for `support:read`.
