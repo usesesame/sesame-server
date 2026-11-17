@@ -23,6 +23,12 @@ const auditCommands = {
   selfhost: 'node ../../scripts/audit-dependencies.mjs',
 }
 
+const portalBuilds = {
+  account: { directory: 'web/account', command: 'npm run build' },
+  admin: { directory: 'web/admin', command: 'npm run build' },
+  selfhost: { directory: 'web/console', command: 'npm run release:check' },
+}
+
 for (const [job, auditCommand] of Object.entries(auditCommands)) {
   test(`the ${job} job audits npm dependencies at high through the reviewed exceptions`, () => {
     const commands = [...jobBlock(workflow, job).matchAll(/^\s*(?:- )?run: (.+)$/gm)].map(
@@ -36,6 +42,21 @@ for (const [job, auditCommand] of Object.entries(auditCommands)) {
       !commands.some((command) => command.startsWith('npm audit')),
       `the ${job} job runs a bare npm audit, which ignores the reviewed exceptions`,
     )
+    const build = portalBuilds[job]
+    if (build) {
+      assert.ok(
+        commands.indexOf(build.command) >= 0 && commands.indexOf(build.command) < commands.indexOf(auditCommand),
+        `the ${job} job must run \`${build.command}\` before the audit, so the audit knows which packages the portal bundles`,
+      )
+      const manifest = JSON.parse(readFileSync(join(root, build.directory, 'package.json'), 'utf8'))
+      assert.deepEqual(manifest.shippedBuilds, ['portal'], `${build.directory} no longer names its shipped build`)
+      assert.match(manifest.scripts.build, /vite build --config vite\.config\.ts/, `${build.directory} no longer builds with the config that records its bundle`)
+      assert.match(
+        readFileSync(join(root, build.directory, 'vite.config.ts'), 'utf8'),
+        /shippedPackages\('portal'\)/,
+        `${build.directory} no longer records which packages its build bundles`,
+      )
+    }
   })
 }
 
