@@ -15,7 +15,7 @@ type Address struct {
 
 func Resolve(r *http.Request, trusted []netip.Prefix) Address {
 	peer := Peer(r)
-	forwarded := r.Header.Get("X-Forwarded-For")
+	forwarded := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
 	if !trustedProxy(trusted, peer) {
 		return Address{Client: peer, Peer: peer, ForwardingIgnored: forwarded != ""}
 	}
