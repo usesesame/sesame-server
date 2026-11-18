@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"usesesame.app/backend/internal/testdb"
 )
 
 func TestEmbeddedMigrationsParse(t *testing.T) {
@@ -111,16 +113,9 @@ func TestADirectiveBelowAnOrdinaryStatementIsRefused(t *testing.T) {
 
 func freshMigrationStore(t *testing.T) *PostgresStore {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	databaseURL := testdb.URL(t)
 	ctx := context.Background()
-	admin, err := OpenWithoutMigrate(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open the test database: %v", err)
-	}
-	t.Cleanup(func() { _ = admin.Close() })
+	admin := testdb.Open(t, OpenWithoutMigrate)
 	databaseName := fmt.Sprintf("sesame_migrate_%d_%d", os.Getpid(), time.Now().UnixNano())
 	if _, err := admin.db.ExecContext(ctx, `CREATE DATABASE `+databaseName); err != nil {
 		t.Fatalf("create a fresh migration test database: %v", err)

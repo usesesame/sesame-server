@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +11,7 @@ import (
 
 	"usesesame.app/backend/internal/accounts"
 	"usesesame.app/backend/internal/httpapi"
+	"usesesame.app/backend/internal/testdb"
 )
 
 const outboxTestRecipient = "outbox-test@example.invalid"
@@ -26,16 +26,8 @@ type outboxRowState struct {
 
 func testOutbox(t *testing.T) (*PostgresOutbox, *ActionURLSealer, *sql.DB) {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	ctx := context.Background()
-	accountStore, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, accounts.Open)
 	db := accountStore.DB()
 	lockDatabaseTest(t, db)
 	if _, err := db.ExecContext(ctx, `TRUNCATE sesame_email_outbox`); err != nil {

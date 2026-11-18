@@ -4,24 +4,17 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/testdb"
 )
 
 func ticketTestStore(t *testing.T) (*Store, *sql.DB) {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
-	accountStore, err := accounts.Open(context.Background(), databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	databaseURL := testdb.URL(t)
+	accountStore := testdb.Open(t, accounts.Open)
 	lockReleaseTests(t, accountStore.DB())
 	truncateAuditTables(t, accountStore.DB(), `
 		TRUNCATE sesame_support_requests, sesame_support_messages, sesame_support_notes,

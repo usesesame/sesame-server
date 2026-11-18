@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"usesesame.app/backend/internal/testdb"
 )
 
 func TestServiceTimeoutsFillOnlyWhatTheOperatorLeftUnset(t *testing.T) {
@@ -31,15 +32,6 @@ func TestServiceTimeoutsFillOnlyWhatTheOperatorLeftUnset(t *testing.T) {
 	if plain.RuntimeParams["statement_timeout"] != serviceStatementTimeout || plain.RuntimeParams["idle_in_transaction_session_timeout"] != serviceIdleInTransaction {
 		t.Fatalf("runtime parameters = %v", plain.RuntimeParams)
 	}
-}
-
-func serviceTestDatabaseURL(t *testing.T) string {
-	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
-	return databaseURL
 }
 
 func withoutSessionTimeouts(databaseURL string) string {
@@ -88,7 +80,7 @@ func showSetting(t *testing.T, store *PostgresStore, name string) string {
 }
 
 func TestTheServicePoolBoundsStatementsAndIdleTransactions(t *testing.T) {
-	databaseURL := withoutSessionTimeouts(serviceTestDatabaseURL(t))
+	databaseURL := withoutSessionTimeouts(testdb.URL(t))
 	ctx := context.Background()
 	service, err := OpenService(ctx, databaseURL)
 	if err != nil {
@@ -118,7 +110,7 @@ func TestTheServicePoolBoundsStatementsAndIdleTransactions(t *testing.T) {
 }
 
 func TestTheServicePoolCancelsAStatementPastItsTimeout(t *testing.T) {
-	databaseURL := withoutSessionTimeouts(serviceTestDatabaseURL(t))
+	databaseURL := withoutSessionTimeouts(testdb.URL(t))
 	separator := "?"
 	if strings.Contains(databaseURL, "?") {
 		separator = "&"
@@ -136,12 +128,7 @@ func TestTheServicePoolCancelsAStatementPastItsTimeout(t *testing.T) {
 }
 
 func TestAccountEventPurgeHasAnExpiryIndex(t *testing.T) {
-	databaseURL := serviceTestDatabaseURL(t)
-	store, err := Open(context.Background(), databaseURL)
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testdb.Open(t, Open)
 	var definition string
 	if err := store.DB().QueryRowContext(context.Background(), `
 		SELECT indexdef FROM pg_indexes

@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
 	"usesesame.app/backend/internal/accounts"
 	adminstore "usesesame.app/backend/internal/admin"
+	"usesesame.app/backend/internal/testdb"
 )
 
 func TestHealthRoutesReportBuildIdentity(t *testing.T) {
@@ -31,16 +31,9 @@ func TestHealthRoutesReportBuildIdentity(t *testing.T) {
 }
 
 func TestLatestReleaseMessageMatchesTheArtifactEvidence(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	databaseURL := testdb.URL(t)
 	ctx := context.Background()
-	accountStore, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, accounts.Open)
 	lockDatabaseTests(t, accountStore.DB())
 	if _, err := accountStore.DB().ExecContext(ctx, `TRUNCATE sesame_releases, sesame_release_artifacts, sesame_feature_flags RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("clear release tables: %v", err)

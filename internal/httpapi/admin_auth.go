@@ -80,7 +80,6 @@ func (a *api) registerAdminRoutes(mux *http.ServeMux) {
 	a.route(mux, admin, "GET /v1/admin/audit/me", a.adminAuditMe)
 	a.route(mux, admin, "GET /v1/admin/audit/export", a.adminAuditExport)
 	a.route(mux, admin, "GET /v1/admin/system/health", a.adminSystemHealth)
-	a.route(mux, admin, "GET /v1/admin/system/rate-limits", a.adminRateLimits)
 	a.route(mux, admin, "GET /v1/admin/system/config", a.adminSystemConfig)
 	a.route(mux, admin, "GET /v1/admin/support", a.adminSupportTickets)
 	a.route(mux, admin, "GET /v1/admin/support/assignees", a.adminSupportAssignees)

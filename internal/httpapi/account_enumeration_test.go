@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/authkit"
+	"usesesame.app/backend/internal/testdb"
 )
 
 const enumerationPassword = "fictional-correct-horse-battery"
@@ -149,7 +150,7 @@ func TestRegistrationResponseDoesNotDependOnAccountExistence(t *testing.T) {
 		if len(store.registrations) != 1 {
 			t.Fatalf("%s registrations = %d, want 1", testCase.name, len(store.registrations))
 		}
-		if !accounts.VerifyPassword(store.registrations[0].PasswordHash, enumerationPassword) {
+		if !authkit.VerifyPassword(store.registrations[0].PasswordHash, enumerationPassword) {
 			t.Fatalf("%s reached the store without hashing the password first", testCase.name)
 		}
 		if store.registrations[0].AllowPublic != (testCase.mode == "public") {
@@ -216,16 +217,8 @@ func clearEnumerationFixtures(t *testing.T, store *accounts.PostgresStore, addre
 }
 
 func TestAccountFlowsDoNotDiscloseAccountExistenceAgainstTheDatabase(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	ctx := context.Background()
-	store, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testdb.Open(t, accounts.Open)
 	lockDatabaseTests(t, store.DB())
 	seed := time.Now().UnixNano()
 	fixture := func(name string) string {

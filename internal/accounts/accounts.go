@@ -571,14 +571,6 @@ func HashPassword(password string) (string, error) {
 	return authkit.HashPassword(password)
 }
 
-func VerifyPassword(encoded, password string) bool {
-	return authkit.VerifyPassword(encoded, password)
-}
-
-func DummyVerifyPassword() {
-	authkit.DummyVerifyPassword()
-}
-
 var ErrPasswordWorkBusy = authkit.ErrPasswordWorkBusy
 
 func HashPasswordContext(ctx context.Context, password string) (string, error) {

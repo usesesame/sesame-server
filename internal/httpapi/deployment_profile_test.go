@@ -10,13 +10,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
 	adminstore "usesesame.app/backend/internal/admin"
+	"usesesame.app/backend/internal/testdb"
 )
 
 var projectOnlyRoutes = []struct {
@@ -192,16 +192,9 @@ func TestOperatorProfileHidesArtifactFlags(t *testing.T) {
 }
 
 func TestOperatorProfileRefusesPublishingRoutesForASuperAdministrator(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	databaseURL := testdb.URL(t)
 	ctx := context.Background()
-	accountStore, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, accounts.Open)
 	lockDatabaseTests(t, accountStore.DB())
 	if _, err := accountStore.DB().ExecContext(ctx, `TRUNCATE sesame_admin_sessions, sesame_admin_accounts RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("clear admin tables: %v", err)

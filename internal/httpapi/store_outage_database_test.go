@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"usesesame.app/backend/internal/syncsvc"
 	"usesesame.app/backend/internal/syncsvc/memstore"
 	"usesesame.app/backend/internal/syncsvc/pgstore"
+	"usesesame.app/backend/internal/testdb"
 )
 
 const deletionTestPassword = "fictional-deletion-password"
@@ -39,7 +39,7 @@ func newMemorySyncService(t *testing.T) *syncsvc.Service {
 
 func newClosedDatabaseSyncService(t *testing.T) *syncsvc.Service {
 	t.Helper()
-	store, err := accounts.Open(context.Background(), os.Getenv("SESAME_TEST_DATABASE_URL"))
+	store, err := accounts.Open(context.Background(), testdb.URL(t))
 	if err != nil {
 		t.Fatalf("open account store: %v", err)
 	}
@@ -58,7 +58,7 @@ func newClosedDatabaseSyncService(t *testing.T) *syncsvc.Service {
 
 func newClosedAdminStore(t *testing.T) *adminstore.Store {
 	t.Helper()
-	store, err := adminstore.Open(context.Background(), os.Getenv("SESAME_TEST_DATABASE_URL"), bytes.Repeat([]byte{9}, 32))
+	store, err := adminstore.Open(context.Background(), testdb.URL(t), bytes.Repeat([]byte{9}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)
 	}
@@ -107,7 +107,7 @@ func seedVaultRow(t *testing.T, db *sql.DB, vaultID, accountID string) {
 
 func TestSyncStateKeepsTheLinkWhenTheTokenLookupFails(t *testing.T) {
 	env := newSyncHostEnv(t)
-	adminStore, err := adminstore.Open(context.Background(), os.Getenv("SESAME_TEST_DATABASE_URL"), bytes.Repeat([]byte{9}, 32))
+	adminStore, err := adminstore.Open(context.Background(), testdb.URL(t), bytes.Repeat([]byte{9}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)
 	}
@@ -263,14 +263,7 @@ func newAdminDeleteEnv(t *testing.T, sync *syncsvc.Service) (*supportTestEnv, ad
 }
 
 func TestAdminUserDeleteDeletesTheSyncVault(t *testing.T) {
-	if os.Getenv("SESAME_TEST_DATABASE_URL") == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
-	syncStore, err := accounts.Open(context.Background(), os.Getenv("SESAME_TEST_DATABASE_URL"))
-	if err != nil {
-		t.Fatalf("open sync database: %v", err)
-	}
-	t.Cleanup(func() { _ = syncStore.Close() })
+	syncStore := testdb.Open(t, accounts.Open)
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -298,9 +291,7 @@ func TestAdminUserDeleteDeletesTheSyncVault(t *testing.T) {
 }
 
 func TestAdminUserDeleteKeepsTheAccountWhenTheVaultCannotBeDeleted(t *testing.T) {
-	if os.Getenv("SESAME_TEST_DATABASE_URL") == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	testdb.URL(t)
 	env, actor, token := newAdminDeleteEnv(t, newClosedDatabaseSyncService(t))
 	env.seedAccount(t, "acct-admin-delete-down", "admin-delete-down-user@example.invalid")
 	seedVaultRow(t, env.db, "vault-admin-delete-0003", "acct-admin-delete-down")

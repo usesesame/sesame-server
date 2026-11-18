@@ -3,12 +3,12 @@ package support_test
 import (
 	"context"
 	"database/sql"
-	"os"
 	"testing"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
 	"usesesame.app/backend/internal/support"
+	"usesesame.app/backend/internal/testdb"
 )
 
 const (
@@ -21,16 +21,8 @@ const (
 
 func lifecycleTestDatabase(t *testing.T) *sql.DB {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	ctx := context.Background()
-	accountStore, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, accounts.Open)
 	db := accountStore.DB()
 	const lockID int64 = 762374923
 	conn, err := db.Conn(ctx)

@@ -4,10 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"usesesame.app/backend/internal/testdb"
 )
 
 func ensureApplicationRole(ctx context.Context, db *sql.DB) error {
@@ -59,16 +60,8 @@ func seedAuditChainTables(ctx context.Context, db *sql.DB) error {
 }
 
 func TestApplicationRoleCannotRewriteTheAuditLog(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
 	ctx := context.Background()
-	store, err := OpenWithoutMigrate(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open test database: %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
+	store := testdb.Open(t, OpenWithoutMigrate)
 	lockConnection, err := store.db.Conn(ctx)
 	if err != nil {
 		t.Fatalf("reserve the fixture lock connection: %v", err)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -10,12 +10,6 @@ const outputPaths = {
   operator: join(backendRoot, 'openapi', 'openapi.operator.json'),
 }
 const registrationFiles = ['server.go', 'admin_auth.go', 'sync_routes.go']
-const goSources = readdirSync(httpRoot)
-  .filter((name) => name.endsWith('.go') && !name.endsWith('_test.go'))
-  .map((name) => [name, readFileSync(join(httpRoot, name), 'utf8')])
-
-const dynamicRoutes = {
-}
 
 // Query and header parameters the handlers read from the request rather than
 // from the registration string, keyed by "METHOD /path".
@@ -84,28 +78,14 @@ function registeredHandlers() {
   for (const name of registrationFiles) {
     const source = readFileSync(join(httpRoot, name), 'utf8')
     for (const match of source.matchAll(pattern)) {
-      const parts = match[2].split(/\s+/, 2)
-      const method = /^[A-Z]+$/.test(parts[0]) ? parts[0] : undefined
-      routes.push({ registration: method ? parts[1] : parts[0], handler: match[3], methods: method ? [method] : undefined, projectOnly: match[1] === 'projectRoute' })
+      const [method, registration] = match[2].split(/\s+/, 2)
+      if (!/^[A-Z]+$/.test(method) || !registration) {
+        throw new Error(`${name} registers "${match[2]}" without an HTTP method.`)
+      }
+      routes.push({ registration, handler: match[3], method, projectOnly: match[1] === 'projectRoute' })
     }
   }
   return routes
-}
-
-function handlerMethods(handler) {
-  const marker = `func (a *api) ${handler}(`
-  for (const [, source] of goSources) {
-    const start = source.indexOf(marker)
-    if (start < 0) continue
-    const tail = source.slice(start)
-    const next = tail.slice(5).search(/\nfunc /)
-    const body = next < 0 ? tail : tail.slice(0, next + 5)
-    return [...new Set(
-      [...body.matchAll(/http[.]Method([A-Z][A-Za-z]+)/g)]
-        .map((match) => match[1].toUpperCase()),
-    )]
-  }
-  throw new Error(`OpenAPI generator could not find handler ${handler}.`)
 }
 
 function tagFor(path) {
@@ -184,62 +164,49 @@ function parameterName(segment) {
 
 function build(profile) {
   const registrations = registeredHandlers().filter((route) => route.registration !== '/' && (profile === 'project' || !route.projectOnly))
-  const dynamicCovered = new Set()
   const paths = {}
   const operationIds = new Set()
 
   for (const route of registrations) {
-    const dynamic = dynamicRoutes[route.registration]
-    if (dynamic) dynamicCovered.add(route.registration)
-    const expanded = dynamic ?? [[route.registration, route.methods ?? handlerMethods(route.handler)]]
-    assert.ok(expanded.length > 0, `${route.registration} has no OpenAPI expansion`)
-    for (const [path, methods] of expanded) {
-      paths[path] ??= {}
-      for (const method of methods) {
-        const id = operationId(method, path)
-        assert.ok(!operationIds.has(id), `duplicate OpenAPI operationId ${id}`)
-        assert.ok(!paths[path][method.toLowerCase()], `duplicate OpenAPI operation ${method} ${path}`)
-        operationIds.add(id)
-        const [authClass, security] = authFor(path, method)
-        const key = `${method} ${path}`
-        const parameters = [
-          ...[...path.matchAll(/{([A-Za-z0-9]+)}/g)].map((match) => ({
-            name: match[1],
-            in: 'path',
-            required: true,
-            description: parameterName(match[1]),
-            schema: { type: 'string', minLength: 1 },
-          })),
-          ...(queryParameters[key] ?? []).map((parameter) => ({ in: 'query', required: false, ...parameter })),
-          ...(headerParameters[key] ?? []).map((parameter) => ({ in: 'header', required: false, ...parameter })),
-        ]
-        paths[path][method.toLowerCase()] = {
-          operationId: id,
-          summary: `${method} ${words(route.handler)}`,
-          tags: [tagFor(path)],
-          security,
-          parameters,
-          responses: {
-            '2XX': { description: 'Successful response. Exact status and body are defined in API.md and handler tests.' },
-            default: {
-              description: 'Error response.',
-              content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } },
-            },
-          },
-          'x-sesame-auth': authClass,
-          'x-sesame-availability': availability(path),
-          'x-sesame-handler': route.handler,
-          'x-sesame-registration-pattern': route.registration,
-        }
-      }
+    const { registration: path, method } = route
+    paths[path] ??= {}
+    const id = operationId(method, path)
+    assert.ok(!operationIds.has(id), `duplicate OpenAPI operationId ${id}`)
+    assert.ok(!paths[path][method.toLowerCase()], `duplicate OpenAPI operation ${method} ${path}`)
+    operationIds.add(id)
+    const [authClass, security] = authFor(path, method)
+    const key = `${method} ${path}`
+    const parameters = [
+      ...[...path.matchAll(/{([A-Za-z0-9]+)}/g)].map((match) => ({
+        name: match[1],
+        in: 'path',
+        required: true,
+        description: parameterName(match[1]),
+        schema: { type: 'string', minLength: 1 },
+      })),
+      ...(queryParameters[key] ?? []).map((parameter) => ({ in: 'query', required: false, ...parameter })),
+      ...(headerParameters[key] ?? []).map((parameter) => ({ in: 'header', required: false, ...parameter })),
+    ]
+    paths[path][method.toLowerCase()] = {
+      operationId: id,
+      summary: `${method} ${words(route.handler)}`,
+      tags: [tagFor(path)],
+      security,
+      parameters,
+      responses: {
+        '2XX': { description: 'Successful response. Exact status and body are defined in API.md and handler tests.' },
+        default: {
+          description: 'Error response.',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorEnvelope' } } },
+        },
+      },
+      'x-sesame-auth': authClass,
+      'x-sesame-availability': availability(path),
+      'x-sesame-handler': route.handler,
+      'x-sesame-registration-pattern': route.registration,
     }
   }
 
-  assert.deepEqual(
-    Object.keys(dynamicRoutes).filter((pattern) => !dynamicCovered.has(pattern)),
-    [],
-    'dynamic OpenAPI expansion names an unregistered route',
-  )
   return {
     openapi: '3.1.1',
     jsonSchemaDialect: 'https://json-schema.org/draft/2020-12/schema',

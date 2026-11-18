@@ -22,7 +22,6 @@ type SMTP struct {
 	password            string
 	from                string
 	envelopeFrom        string
-	tlsConfig           *tls.Config
 	allowPlaintextLocal bool
 }
 
@@ -46,15 +45,6 @@ func NewSMTPForLocalDevelopment(address, from string) (*SMTP, error) {
 	}
 	sender.allowPlaintextLocal = true
 	return sender, nil
-}
-
-func NewSMTPWithTLSConfig(address, username, password, from string, tlsConfig *tls.Config) (*SMTP, error) {
-	s, err := NewSMTP(address, username, password, from)
-	if err != nil {
-		return nil, err
-	}
-	s.tlsConfig = tlsConfig.Clone()
-	return s, nil
 }
 
 func (s *SMTP) SendAccountEmail(ctx context.Context, message httpapi.AccountEmail) error {
@@ -118,18 +108,7 @@ func (s *SMTP) dial(ctx context.Context) (*smtpSession, error) {
 	}
 	session := &smtpSession{connection: connection, client: client}
 	if ok, _ := client.Extension("STARTTLS"); ok {
-		tlsConfig := s.tlsConfig
-		if tlsConfig == nil {
-			tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.host}
-		} else {
-			if tlsConfig.MinVersion == 0 {
-				tlsConfig.MinVersion = tls.VersionTLS12
-			}
-			if tlsConfig.ServerName == "" {
-				tlsConfig.ServerName = s.host
-			}
-		}
-		if err := client.StartTLS(tlsConfig); err != nil {
+		if err := client.StartTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: s.host}); err != nil {
 			session.close()
 			return nil, err
 		}
