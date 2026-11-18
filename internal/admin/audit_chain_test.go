@@ -20,19 +20,13 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/testdb"
 )
 
 func newAuditChainTest(t *testing.T) (*Store, *sql.DB, string) {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
-	accountStore, err := accounts.Open(context.Background(), databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	databaseURL := testdb.URL(t)
+	accountStore := testdb.Open(t, accounts.Open)
 	lockReleaseTests(t, accountStore.DB())
 	truncateAuditTables(t, accountStore.DB(), `TRUNCATE sesame_admin_audit_log, sesame_admin_audit_checkpoints RESTART IDENTITY`)
 	store, err := Open(context.Background(), databaseURL, bytes.Repeat([]byte{4}, 32))
@@ -447,15 +441,8 @@ func databaseURLWithName(t *testing.T, databaseURL, databaseName string) string 
 
 func TestAuditChainDeniesTheApplicationRoleHeadWrites(t *testing.T) {
 	ctx := context.Background()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
-	accountStore, err := accounts.OpenWithoutMigrate(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open the test database: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	databaseURL := testdb.URL(t)
+	accountStore := testdb.Open(t, accounts.OpenWithoutMigrate)
 	ensureApplicationRole(t, accountStore.DB())
 
 	databaseName := fmt.Sprintf("sesame_audit_chain_%d_%d", os.Getpid(), time.Now().UnixNano())

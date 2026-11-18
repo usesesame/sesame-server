@@ -22,23 +22,6 @@ func (s *Store) Overview(ctx context.Context) (Overview, error) {
 	return overview, err
 }
 
-func (s *Store) RateLimitMetrics(ctx context.Context) ([]RateLimitMetric, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT split_part(key, ':', 1), COUNT(*), SUM(attempts), MAX(updated_at) FROM sesame_rate_limits GROUP BY split_part(key, ':', 1) ORDER BY MAX(updated_at) DESC LIMIT 100`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	metrics := []RateLimitMetric{}
-	for rows.Next() {
-		var metric RateLimitMetric
-		if err := rows.Scan(&metric.Operation, &metric.Buckets, &metric.Attempts, &metric.UpdatedAt); err != nil {
-			return nil, err
-		}
-		metrics = append(metrics, metric)
-	}
-	return metrics, rows.Err()
-}
-
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
 func (s *Store) SchemaVersion(ctx context.Context) (string, error) {

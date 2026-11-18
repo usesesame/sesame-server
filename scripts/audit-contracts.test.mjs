@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 
@@ -16,49 +16,62 @@ function jobBlock(body, job) {
   return next ? rest.slice(0, afterFirst + next.index) : rest
 }
 
-const auditCommands = {
-  server: 'node scripts/audit-dependencies.mjs',
-  account: 'node ../../scripts/audit-dependencies.mjs',
-  admin: 'node ../../scripts/audit-dependencies.mjs',
-  selfhost: 'node ../../scripts/audit-dependencies.mjs',
+function workflowSteps(job, block) {
+  const jobDirectory = block.match(/^ {4}defaults:\n {6}run:\n {8}working-directory: (.+)$/m)?.[1].trim() ?? '.'
+  return block.split(/\n(?= {6}- )/).slice(1).map((step) => ({
+    job,
+    run: step.match(/^ {6}(?:- | {2})run: (.+)$/m)?.[1].trim(),
+    directory: step.match(/^ {8}working-directory: (.+)$/m)?.[1].trim() ?? jobDirectory,
+  }))
 }
 
-const portalBuilds = {
-  account: { directory: 'web/account', command: 'npm run build' },
-  admin: { directory: 'web/admin', command: 'npm run build' },
-  selfhost: { directory: 'web/console', command: 'npm run release:check' },
+const ciJobs = [...workflow.matchAll(/^ {2}([a-z0-9_-]+):$/gm)].map(([, job]) => job)
+const ciSteps = ciJobs.flatMap((job) => workflowSteps(job, jobBlock(workflow, job)))
+
+const skippedDirectories = new Set(['node_modules', '.git', 'dist', 'build', 'vendor'])
+
+function lockfileDirectories(directory = '.') {
+  const found = existsSync(join(root, directory, 'package-lock.json')) ? [directory] : []
+  for (const entry of readdirSync(join(root, directory), { withFileTypes: true })) {
+    if (!entry.isDirectory() || skippedDirectories.has(entry.name)) continue
+    found.push(...lockfileDirectories(directory === '.' ? entry.name : `${directory}/${entry.name}`))
+  }
+  return found
 }
 
-for (const [job, auditCommand] of Object.entries(auditCommands)) {
-  test(`the ${job} job audits npm dependencies at high through the reviewed exceptions`, () => {
-    const commands = [...jobBlock(workflow, job).matchAll(/^\s*(?:- )?run: (.+)$/gm)].map(
-      ([, command]) => command.trim(),
-    )
+const lockfileProjects = lockfileDirectories()
+
+function hasDependencies(project) {
+  const lockfile = JSON.parse(readFileSync(join(root, project, 'package-lock.json'), 'utf8'))
+  const manifest = lockfile.packages?.[''] ?? {}
+  return ['dependencies', 'devDependencies', 'optionalDependencies'].some(
+    (field) => Object.keys(manifest[field] ?? {}).length > 0,
+  )
+}
+
+const auditedProjects = lockfileProjects.filter(hasDependencies)
+
+test('the audit contract finds the portal and console lockfiles', () => {
+  for (const project of ['web/account', 'web/admin', 'web/console']) {
+    assert.ok(auditedProjects.includes(project), `${project} no longer has a lockfile with dependencies, so this check is stale`)
+  }
+})
+
+for (const project of auditedProjects) {
+  const auditCommand = `node ${relative(join(root, project), join(root, 'scripts', 'audit-dependencies.mjs')).split(sep).join('/')}`
+  test(`CI audits the npm dependencies of ${project === '.' ? 'the root package' : project} at high through the reviewed exceptions`, () => {
     assert.ok(
-      commands.includes(auditCommand),
-      `the ${job} job must run \`${auditCommand}\` as a step, so a high advisory fails CI`,
+      ciSteps.some((step) => step.directory === project && step.run === auditCommand),
+      `a CI job must run \`${auditCommand}\` in ${project}, so a high advisory in its lockfile fails CI`,
     )
-    assert.ok(
-      !commands.some((command) => command.startsWith('npm audit')),
-      `the ${job} job runs a bare npm audit, which ignores the reviewed exceptions`,
-    )
-    const build = portalBuilds[job]
-    if (build) {
-      assert.ok(
-        commands.indexOf(build.command) >= 0 && commands.indexOf(build.command) < commands.indexOf(auditCommand),
-        `the ${job} job must run \`${build.command}\` before the audit, so the audit knows which packages the portal bundles`,
-      )
-      const manifest = JSON.parse(readFileSync(join(root, build.directory, 'package.json'), 'utf8'))
-      assert.deepEqual(manifest.shippedBuilds, ['portal'], `${build.directory} no longer names its shipped build`)
-      assert.match(manifest.scripts.build, /vite build --config vite\.config\.ts/, `${build.directory} no longer builds with the config that records its bundle`)
-      assert.match(
-        readFileSync(join(root, build.directory, 'vite.config.ts'), 'utf8'),
-        /shippedPackages\('portal'\)/,
-        `${build.directory} no longer records which packages its build bundles`,
-      )
-    }
   })
 }
+
+test('no CI job runs a bare npm audit, which ignores the reviewed exceptions', () => {
+  for (const step of ciSteps) {
+    assert.ok(!step.run?.startsWith('npm audit'), `the ${step.job} job runs a bare npm audit`)
+  }
+})
 
 const npmProjects = [
   { path: '.', directory: '/' },
@@ -161,3 +174,28 @@ test('Dependabot waits seven days for Go modules and base images, and fourteen f
     assert.equal(entry.cooldown['default-days'], 7, `the ${entry.directory} docker entry must wait seven days`)
   }
 })
+
+const portalBuilds = {
+  account: { directory: 'web/account', command: 'npm run build' },
+  admin: { directory: 'web/admin', command: 'npm run build' },
+  selfhost: { directory: 'web/console', command: 'npm run release:check' },
+}
+
+for (const [job, build] of Object.entries(portalBuilds)) {
+  test(`the ${job} job builds its portal before it audits`, () => {
+    const auditCommand = 'node ../../scripts/audit-dependencies.mjs'
+    const runs = ciSteps.filter((step) => step.job === job && step.directory === build.directory).map((step) => step.run)
+    assert.ok(
+      runs.indexOf(build.command) >= 0 && runs.indexOf(build.command) < runs.indexOf(auditCommand),
+      `the ${job} job must run \`${build.command}\` before the audit, so the audit knows which packages the portal bundles`,
+    )
+    const manifest = JSON.parse(readFileSync(join(root, build.directory, 'package.json'), 'utf8'))
+    assert.deepEqual(manifest.shippedBuilds, ['portal'], `${build.directory} no longer names its shipped build`)
+    assert.match(manifest.scripts.build, /vite build --config vite\.config\.ts/, `${build.directory} no longer builds with the config that records its bundle`)
+    assert.match(
+      readFileSync(join(root, build.directory, 'vite.config.ts'), 'utf8'),
+      /shippedPackages\('portal'\)/,
+      `${build.directory} no longer records which packages its build bundles`,
+    )
+  })
+}

@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"net/url"
-	"os"
 	"regexp"
 	"testing"
+
+	"usesesame.app/backend/internal/testdb"
 )
 
 func withoutSessionTimeouts(databaseURL string) string {
@@ -32,10 +33,7 @@ func TestRemovingSessionTimeoutsLeavesQuotedValuesAlone(t *testing.T) {
 }
 
 func TestTheAdminPoolBoundsStatementsAndIdleTransactions(t *testing.T) {
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	databaseURL := testdb.URL(t)
 	store, err := Open(context.Background(), withoutSessionTimeouts(databaseURL), bytes.Repeat([]byte{7}, 32))
 	if err != nil {
 		t.Fatalf("open admin store: %v", err)

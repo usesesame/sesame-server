@@ -4,24 +4,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
+	"usesesame.app/backend/internal/testdb"
 )
 
 func inviteTestStores(t *testing.T) (*Store, *accounts.PostgresStore) {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
-	accountStore, err := accounts.Open(context.Background(), databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	databaseURL := testdb.URL(t)
+	accountStore := testdb.Open(t, accounts.Open)
 	lockReleaseTests(t, accountStore.DB())
 	store, err := Open(context.Background(), databaseURL, bytes.Repeat([]byte{1}, 32))
 	if err != nil {

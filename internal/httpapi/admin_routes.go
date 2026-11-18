@@ -340,63 +340,31 @@ func (a *api) adminReleases(response http.ResponseWriter, request *http.Request)
 }
 
 func (a *api) adminReleasePublish(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
-	if !ok {
-		return
-	}
-	var input adminstore.PublishReleaseInput
-	if !decodeAdminJSON(response, request, &input) {
-		return
-	}
-	if err := a.config.Admin.PublishRelease(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
-		adminReleaseCommandError(response, err)
-		return
-	}
-	response.WriteHeader(http.StatusNoContent)
+	runAdminReleaseCommand(a, response, request, a.config.Admin.PublishRelease)
 }
 
 func (a *api) adminReleaseRollout(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
-	if !ok {
-		return
-	}
-	var input adminstore.RolloutReleaseInput
-	if !decodeAdminJSON(response, request, &input) {
-		return
-	}
-	if err := a.config.Admin.SetReleaseRollout(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
-		adminReleaseCommandError(response, err)
-		return
-	}
-	response.WriteHeader(http.StatusNoContent)
+	runAdminReleaseCommand(a, response, request, a.config.Admin.SetReleaseRollout)
 }
 
 func (a *api) adminReleaseEmergencyStop(response http.ResponseWriter, request *http.Request) {
-	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
-	if !ok {
-		return
-	}
-	var input adminstore.EmergencyStopReleaseInput
-	if !decodeAdminJSON(response, request, &input) {
-		return
-	}
-	if err := a.config.Admin.EmergencyStopRelease(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
-		adminReleaseCommandError(response, err)
-		return
-	}
-	response.WriteHeader(http.StatusNoContent)
+	runAdminReleaseCommand(a, response, request, a.config.Admin.EmergencyStopRelease)
 }
 
 func (a *api) adminReleaseWithdraw(response http.ResponseWriter, request *http.Request) {
+	runAdminReleaseCommand(a, response, request, a.config.Admin.WithdrawRelease)
+}
+
+func runAdminReleaseCommand[Input any](a *api, response http.ResponseWriter, request *http.Request, command func(context.Context, adminstore.Account, string, Input, string) error) {
 	actor, ok := a.requireAdminStepUp(response, request, adminstore.PermissionReleaseWrite)
 	if !ok {
 		return
 	}
-	var input adminstore.WithdrawReleaseInput
+	var input Input
 	if !decodeAdminJSON(response, request, &input) {
 		return
 	}
-	if err := a.config.Admin.WithdrawRelease(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
+	if err := command(request.Context(), actor, request.PathValue("releaseID"), input, a.adminIPHash(request)); err != nil {
 		adminReleaseCommandError(response, err)
 		return
 	}
@@ -589,18 +557,6 @@ func (a *api) adminSystemHealth(response http.ResponseWriter, request *http.Requ
 	ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
 	defer cancel()
 	writeJSON(response, http.StatusOK, a.config.OperationalSnapshot.Snapshot(ctx))
-}
-
-func (a *api) adminRateLimits(response http.ResponseWriter, request *http.Request) {
-	if _, ok := a.requireAdminPermission(response, request, adminstore.PermissionSystemRead); !ok {
-		return
-	}
-	metrics, err := a.config.Admin.RateLimitMetrics(request.Context())
-	if err != nil {
-		adminStoreError(response, err)
-		return
-	}
-	writeJSON(response, http.StatusOK, map[string]any{"metrics": metrics})
 }
 
 func (a *api) adminSystemConfig(response http.ResponseWriter, request *http.Request) {

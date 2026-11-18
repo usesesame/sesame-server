@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"usesesame.app/backend/internal/accounts"
 	adminstore "usesesame.app/backend/internal/admin"
+	"usesesame.app/backend/internal/testdb"
 )
 
 const (
@@ -35,16 +35,9 @@ type supportTestEnv struct {
 
 func newSupportTestEnv(t *testing.T, options ...func(*Config)) *supportTestEnv {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
+	databaseURL := testdb.URL(t)
 	ctx := context.Background()
-	accountStore, err := accounts.Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, accounts.Open)
 	db := accountStore.DB()
 	lockDatabaseTests(t, db)
 	truncateAuditTables(t, db, `

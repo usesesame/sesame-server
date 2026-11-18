@@ -4,22 +4,15 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"os"
 	"testing"
 	"time"
+
+	"usesesame.app/backend/internal/testdb"
 )
 
 func lifecycleTestStore(t *testing.T) (*PostgresStore, *sql.DB) {
 	t.Helper()
-	databaseURL := os.Getenv("SESAME_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("SESAME_TEST_DATABASE_URL is required")
-	}
-	accountStore, err := Open(context.Background(), databaseURL)
-	if err != nil {
-		t.Fatalf("open account store: %v", err)
-	}
-	t.Cleanup(func() { _ = accountStore.Close() })
+	accountStore := testdb.Open(t, Open)
 	const lockID int64 = 762374923
 	conn, err := accountStore.DB().Conn(context.Background())
 	if err != nil {

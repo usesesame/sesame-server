@@ -7,9 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"mime"
-	"net"
 	"net/http"
-	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +15,7 @@ import (
 
 	"usesesame.app/backend/internal/accounts"
 	adminstore "usesesame.app/backend/internal/admin"
+	"usesesame.app/backend/internal/clientaddr"
 )
 
 const (
@@ -295,67 +294,11 @@ func (a *api) notFound(response http.ResponseWriter, request *http.Request) {
 }
 
 func (a *api) clientIP(request *http.Request) string {
-	peer := requestIP(request)
-	if !a.isTrustedProxy(peer) {
-		return peer
-	}
-	forwarded := request.Header.Get("X-Forwarded-For")
-	if forwarded == "" {
-		return peer
-	}
-	hops := strings.Split(forwarded, ",")
-	for index := len(hops) - 1; index >= 0; index-- {
-		hop := strings.TrimSpace(hops[index])
-		ip, err := netip.ParseAddr(hop)
-		if err != nil {
-			return peer
-		}
-		ip = ip.Unmap()
-		if a.isTrustedProxy(ip.String()) {
-			continue
-		}
-		return ip.String()
-	}
-	return peer
+	return clientaddr.Resolve(request, a.config.TrustedProxies).Client
 }
 
 func (a *api) clientLimitKey(request *http.Request) string {
-	client := a.clientIP(request)
-	address, err := netip.ParseAddr(client)
-	if err != nil {
-		return client
-	}
-	address = address.Unmap()
-	if !address.Is6() {
-		return address.String()
-	}
-	prefix, err := address.Prefix(64)
-	if err != nil {
-		return client
-	}
-	return prefix.String()
-}
-
-func (a *api) isTrustedProxy(value string) bool {
-	ip, err := netip.ParseAddr(value)
-	if err != nil {
-		return false
-	}
-	ip = ip.Unmap()
-	for _, prefix := range a.config.TrustedProxies {
-		if prefix.Contains(ip) {
-			return true
-		}
-	}
-	return false
-}
-
-func requestIP(request *http.Request) string {
-	host, _, err := net.SplitHostPort(request.RemoteAddr)
-	if err != nil {
-		return request.RemoteAddr
-	}
-	return host
+	return clientaddr.Resolve(request, a.config.TrustedProxies).LimitKey()
 }
 
 const temporarilyUnavailableRetrySeconds = 15

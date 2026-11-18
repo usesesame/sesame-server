@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"usesesame.app/backend/internal/clientaddr"
 )
 
 type metricKey struct {
@@ -79,7 +81,7 @@ func (m *metrics) render(version string) string {
 }
 
 func (s *server) metricsEndpoint(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("X-Real-IP") != "" || !privatePeer(peerIP(r)) {
+	if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("X-Real-IP") != "" || !privatePeer(clientaddr.Peer(r)) {
 		writeError(w, http.StatusForbidden, "metrics_forbidden", "Metrics are available only to direct requests from this machine or its private network.")
 		return
 	}

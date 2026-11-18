@@ -293,13 +293,6 @@ type Overview struct {
 	UrgentTickets       int `json:"urgentTickets"`
 }
 
-type RateLimitMetric struct {
-	Operation string    `json:"operation"`
-	Buckets   int       `json:"buckets"`
-	Attempts  int       `json:"attempts"`
-	UpdatedAt time.Time `json:"updatedAt"`
-}
-
 type TicketStatus string
 
 const (
