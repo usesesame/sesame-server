@@ -3,6 +3,9 @@
     "private": true,
     "version": "0.1.0",
     "type": "module",
+    "shippedBuilds": [
+        "portal"
+    ],
     "scripts": {
         "dev": "vite --config vite.config.ts",
         "build": "vite build --config vite.config.ts && node scripts/build-security-headers.mjs && node scripts/headers-to-nginx.mjs",
@@ -35,5 +38,8 @@
         "typescript-eslint": "^8.72.1",
         "vite": "^8.3.7",
         "vitest": "^5.1.0"
+    },
+    "overrides": {
+        "minimatch": "11.0.5"
     }
 }
