@@ -47,7 +47,7 @@ npm ci
 npm run ci
 ```
 
-That runs the root checks, and [.github/workflows/ci.yml](.github/workflows/ci.yml) has the full set a pull request must pass, including the portal tests and the self-hosting jobs. The PostgreSQL tests run only when `SESAME_TEST_DATABASE_URL` points at a test database, which CI provides. After changing a route, run `npm run openapi:generate` to rebuild [openapi/openapi.json](openapi/openapi.json), and see [API.md](API.md) for the rules each route follows.
+That runs the root checks, and [.github/workflows/ci.yml](.github/workflows/ci.yml) has the full set a pull request must pass, including the portal tests and the self-hosting jobs. `npm run verify` runs every one of those checks that needs no Docker, in the order CI runs them, and it needs `SESAME_TEST_DATABASE_URL`, network access and the age v1.3.2 tools on your path. The PostgreSQL tests run only when `SESAME_TEST_DATABASE_URL` points at a test database, which CI provides, and they fail instead of skipping when the `CI` variable is set without it. After changing a route, run `npm run openapi:generate` to rebuild [openapi/openapi.json](openapi/openapi.json), and see [API.md](API.md) for the rules each route follows.
 
 ## More
 

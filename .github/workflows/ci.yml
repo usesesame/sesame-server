@@ -45,7 +45,9 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
 
-      - run: npm run ci
+      - run: npm run ci:checks
+
+      - run: npm run test:fuzz
 
       - run: npm run test:race
 

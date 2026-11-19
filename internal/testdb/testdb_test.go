@@ -51,14 +51,56 @@ func (s *fakeStore) Close() error {
 	return nil
 }
 
-func TestURLSkipsWithoutADatabase(t *testing.T) {
+func TestRunsUnderCIReadsTheCIVariable(t *testing.T) {
+	for value, want := range map[string]bool{
+		"":      false,
+		" ":     false,
+		"0":     false,
+		"false": false,
+		"FALSE": false,
+		"true":  true,
+		"True":  true,
+		"1":     true,
+		"yes":   true,
+	} {
+		if got := runsUnderCI(value); got != want {
+			t.Errorf("runsUnderCI(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestURLFailsUnderCIWithoutADatabase(t *testing.T) {
 	t.Setenv(urlVariable, "")
+	t.Setenv(ciVariable, "true")
 	returned := false
 	recorder := run(func(r *recordingT) {
 		URL(r)
 		returned = true
 	})
-	if !recorder.skipped || returned {
+	if recorder.skipped || returned || recorder.failure == "" {
+		t.Fatalf("a CI run without a database skipped=%v returned=%v failure=%q", recorder.skipped, returned, recorder.failure)
+	}
+}
+
+func TestURLReturnsTheDatabaseUnderCI(t *testing.T) {
+	t.Setenv(urlVariable, fictionalURL)
+	t.Setenv(ciVariable, "true")
+	var got string
+	recorder := run(func(r *recordingT) { got = URL(r) })
+	if recorder.skipped || recorder.failure != "" || got != fictionalURL {
+		t.Fatalf("URL under CI skipped=%v failure=%q url=%q", recorder.skipped, recorder.failure, got)
+	}
+}
+
+func TestURLSkipsWithoutADatabase(t *testing.T) {
+	t.Setenv(urlVariable, "")
+	t.Setenv(ciVariable, "")
+	returned := false
+	recorder := run(func(r *recordingT) {
+		URL(r)
+		returned = true
+	})
+	if !recorder.skipped || returned || recorder.failure != "" {
 		t.Fatal("a test without a database did not skip")
 	}
 }
@@ -97,6 +139,7 @@ func TestOpenFailsWhenTheStoreCannotOpen(t *testing.T) {
 
 func TestOpenSkipsWithoutADatabase(t *testing.T) {
 	t.Setenv(urlVariable, "")
+	t.Setenv(ciVariable, "")
 	called := false
 	recorder := run(func(r *recordingT) {
 		Open(r, func(context.Context, string) (*fakeStore, error) {
@@ -106,5 +149,20 @@ func TestOpenSkipsWithoutADatabase(t *testing.T) {
 	})
 	if !recorder.skipped || called {
 		t.Fatal("Open tried to reach a database that is not configured")
+	}
+}
+
+func TestOpenFailsUnderCIWithoutADatabase(t *testing.T) {
+	t.Setenv(urlVariable, "")
+	t.Setenv(ciVariable, "true")
+	called := false
+	recorder := run(func(r *recordingT) {
+		Open(r, func(context.Context, string) (*fakeStore, error) {
+			called = true
+			return &fakeStore{}, nil
+		})
+	})
+	if recorder.skipped || recorder.failure == "" || called {
+		t.Fatalf("Open under CI without a database skipped=%v failure=%q opened=%v", recorder.skipped, recorder.failure, called)
 	}
 }
