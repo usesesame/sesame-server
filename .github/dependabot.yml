@@ -8,6 +8,11 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: npm
     directory: /
@@ -17,6 +22,11 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   # Both portals ship from this repository and carry their own lockfile and
   # Dockerfile. A directory entry is per manifest, so the root entries above do
@@ -29,6 +39,11 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: npm
     directory: /web/admin
@@ -38,6 +53,11 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: npm
     directory: /web/console
@@ -47,6 +67,11 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   # The API and both portal images. A base image is as much a dependency as a
   # module, and nothing else here moves those tags.
@@ -57,6 +82,11 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: docker
     directory: /web/account
@@ -65,6 +95,11 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: docker
     directory: /web/admin
@@ -73,6 +108,11 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: docker
     directory: /scripts/selfhost-proxy-images
@@ -81,6 +121,11 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
 
   # Every third-party action here is pinned to a full commit SHA. Dependabot is
   # the only thing that moves those pins, so this entry is a security control.
@@ -91,3 +136,8 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch

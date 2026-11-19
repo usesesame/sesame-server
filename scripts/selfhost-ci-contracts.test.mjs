@@ -474,9 +474,10 @@ test('the encrypted backup scripts and package scripts run the operator contract
   const packageJson = JSON.parse(read('package.json'))
   assert.equal(packageJson.scripts['backup:contract'], 'node --test scripts/export-backup.test.mjs')
   assert.match(packageJson.scripts['backup:contract:age'], /selfhost-export-check\.mjs --mode native --skip-console-build/)
-  for (const gate of ['release:contract', 'deploy:contract', 'sync:contract', 'sync:wire', 'audit:contract', 'governance:contract', 'setup:contract', 'selfhost:contract', 'backup:contract', 'openapi:check', 'lint', 'build', 'test', 'test:fuzz']) {
-    assert.ok(packageJson.scripts.ci.includes(`npm run ${gate}`), `the ordinary CI command lost ${gate}`)
+  for (const gate of ['release:contract', 'deploy:contract', 'sync:contract', 'sync:wire', 'audit:contract', 'governance:contract', 'setup:contract', 'selfhost:contract', 'backup:contract', 'openapi:check', 'lint', 'build']) {
+    assert.ok(packageJson.scripts['ci:checks'].includes(`npm run ${gate}`), `the ordinary CI checks lost ${gate}`)
   }
+  assert.equal(packageJson.scripts.ci, 'npm run ci:checks && npm run test && npm run test:fuzz')
   assert.equal(packageJson.dependencies, undefined)
   assert.equal(packageJson.devDependencies, undefined)
 
@@ -616,7 +617,7 @@ test('the doctor guide names the candidate build, the offline evidence and the t
 test('the doctor command and native journey are wired into package scripts and ordinary CI', () => {
   const packageJson = JSON.parse(read('package.json'))
   assert.equal(packageJson.scripts['selfhost:doctor'], 'node ./scripts/selfhost-doctor-check.mjs')
-  assert.ok(packageJson.scripts.ci.includes('npm run selfhost:doctor'), 'the ordinary CI command does not run the doctor journey')
+  assert.ok(packageJson.scripts['ci:checks'].includes('npm run selfhost:doctor'), 'the ordinary CI command does not run the doctor journey')
   assert.equal(packageJson.dependencies, undefined)
   assert.equal(packageJson.devDependencies, undefined)
 
@@ -659,7 +660,7 @@ test('the doctor command and native journey are wired into package scripts and o
 test('the ordinary CI command runs the native guided installation journey', () => {
   const packageJson = JSON.parse(read('package.json'))
   assert.equal(packageJson.scripts['selfhost:install'], 'node ./scripts/selfhost-install-check.mjs')
-  assert.ok(packageJson.scripts.ci.includes('npm run selfhost:install'), 'the ordinary CI command does not run the guided installation journey')
+  assert.ok(packageJson.scripts['ci:checks'].includes('npm run selfhost:install'), 'the ordinary CI command does not run the guided installation journey')
   assert.equal(packageJson.dependencies, undefined)
   assert.equal(packageJson.devDependencies, undefined)
 

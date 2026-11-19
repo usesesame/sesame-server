@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
+import { jobEnvironment, steps as verifySteps } from './verify.mjs'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const read = (...parts) => readFileSync(join(root, ...parts), 'utf8')
@@ -197,4 +199,75 @@ test('the security policy tells a reporter where to send a vulnerability', () =>
   assert.match(body, /Report a vulnerability/, 'the policy does not name the private reporting route')
   assert.match(body, /## Scope/, 'the policy has no scope, so a reporter cannot tell what counts')
   assert.match(body, /vault-blind/i, 'the policy is not scoped to this product')
+})
+
+const verifiedJobs = ['server', 'account', 'admin', 'selfhost']
+
+function workflowRunSteps(job) {
+  const block = jobBlock(read('.github', 'workflows', 'ci.yml'), job)
+  const jobDirectory = block.match(/^ {4}defaults:\n {6}run:\n {8}working-directory: (.+)$/m)?.[1].trim() ?? '.'
+  return block
+    .split(/\n(?= {6}- )/)
+    .slice(1)
+    .map((step) => ({
+      job,
+      directory: step.match(/^ {8}working-directory: (.+)$/m)?.[1].trim() ?? jobDirectory,
+      command: step.match(/^ {6}(?:- | {2})run: ([^|\n].*)$/m)?.[1].trim(),
+    }))
+    .filter((step) => step.command)
+}
+
+test('the verify command runs the non Docker CI jobs in workflow order', () => {
+  const ciSteps = verifiedJobs.flatMap(workflowRunSteps)
+  assert.deepEqual(
+    verifySteps.map(({ job, directory, command }) => ({ job, directory, command: command.join(' ') })),
+    ciSteps,
+    'scripts/verify.mjs and the server, account, admin and selfhost jobs in ci.yml must list the same commands in the same order',
+  )
+  assert.equal(JSON.parse(read('package.json')).scripts.verify, 'node ./scripts/verify.mjs')
+})
+
+test('the verify command sets the environment the portal jobs set', () => {
+  const workflow = read('.github', 'workflows', 'ci.yml')
+  for (const job of ['account', 'admin']) {
+    const lines = jobBlock(workflow, job).match(/^ {4}env:\n((?: {6}.+\n)+)/m)?.[1] ?? ''
+    const environment = Object.fromEntries([...lines.matchAll(/^ {6}(\w+): (.+)$/gm)].map(([, name, value]) => [name, value.trim()]))
+    assert.deepEqual(jobEnvironment[job], environment, `verify must set the ${job} job environment`)
+  }
+  const required = verifySteps.find((step) => step.command.join(' ') === 'npm run backup:contract')
+  assert.deepEqual(required.environment, { SESAME_REQUIRE_AGE: '1' })
+})
+
+test('the verify command refuses to run without a test database', () => {
+  const environment = { ...process.env }
+  delete environment.SESAME_TEST_DATABASE_URL
+  const result = spawnSync(process.execPath, [join(root, 'scripts', 'verify.mjs')], { env: environment, encoding: 'utf8' })
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /SESAME_TEST_DATABASE_URL/)
+})
+
+test('the server job leaves the plain Go test run to the race run', () => {
+  const scripts = JSON.parse(read('package.json')).scripts
+  assert.equal(scripts['test:race'], scripts.test.replace('test ./...', 'test -race ./...'), 'the race run must cover the same packages and flags as the plain run')
+  assert.equal(scripts.test, 'node ./scripts/run-go.mjs test ./...')
+  assert.equal(scripts.ci, 'npm run ci:checks && npm run test && npm run test:fuzz', 'the local command keeps the plain run')
+  const commands = workflowRunSteps('server').map((step) => step.command)
+  assert.deepEqual(commands, ['npm run ci:checks', 'npm run test:fuzz', 'npm run test:race', 'npm run vuln:check'])
+  assert.doesNotMatch(scripts['ci:checks'], /npm run test(?![:\w])/, 'ci:checks must not run the plain Go tests')
+})
+
+test('every dependency update entry groups minor and patch updates and leaves major updates alone', () => {
+  const entries = read('.github', 'dependabot.yml').split(/^ {2}- (?=package-ecosystem:)/m).slice(1)
+  assert.equal(entries.length, 10, 'this check is stale: the number of update entries changed')
+  for (const entry of entries) {
+    const name = entry.split('\n', 1)[0]
+    assert.match(
+      entry,
+      /^ {4}groups:\n {6}minor-and-patch:\n {8}update-types:\n {10}- minor\n {10}- patch\n(?! {10}- )/m,
+      `${name} must group its minor and patch updates and nothing else`,
+    )
+    assert.doesNotMatch(entry, /- major\b/, `${name} must keep major updates in their own pull requests`)
+    assert.match(entry, /^ {4}schedule:\n {6}interval: weekly$/m, `${name} lost its weekly schedule`)
+    assert.match(entry, /^ {4}cooldown:\n {6}default-days: 7$/m, `${name} lost its cooldown`)
+  }
 })
