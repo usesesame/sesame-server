@@ -75,9 +75,6 @@ jobs:
 
       - run: npm ci
 
-      - name: Audit npm dependencies
-        run: node ../../scripts/audit-dependencies.mjs
-
       - run: npm run ci
 
       - run: npm test
@@ -85,6 +82,9 @@ jobs:
       # `ci` stops at the type check, so without this a bundling failure would
       # first appear on the deployed server.
       - run: npm run build
+
+      - name: Audit npm dependencies
+        run: node ../../scripts/audit-dependencies.mjs
 
   admin:
     runs-on: ubuntu-latest
@@ -104,9 +104,6 @@ jobs:
 
       - run: npm ci
 
-      - name: Audit npm dependencies
-        run: node ../../scripts/audit-dependencies.mjs
-
       - run: npm run ci
 
       # `ci` stops at the type check, so the portal tests would otherwise never
@@ -114,6 +111,9 @@ jobs:
       - run: npm test
 
       - run: npm run build
+
+      - name: Audit npm dependencies
+        run: node ../../scripts/audit-dependencies.mjs
 
   selfhost:
     runs-on: ubuntu-latest
@@ -140,11 +140,11 @@ jobs:
       - run: npm ci
         working-directory: web/console
 
-      - name: Audit npm dependencies
-        run: node ../../scripts/audit-dependencies.mjs
+      - run: npm run release:check
         working-directory: web/console
 
-      - run: npm run release:check
+      - name: Audit npm dependencies
+        run: node ../../scripts/audit-dependencies.mjs
         working-directory: web/console
 
       - name: Run the operator contract with real age
