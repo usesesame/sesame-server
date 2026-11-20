@@ -42,6 +42,11 @@ func run(args []string, serverURL string) error {
 	if err != nil {
 		return fmt.Errorf("%s is not a URL", urlVariable)
 	}
+	for _, key := range []string{"dbname", "database"} {
+		if parsed.Query().Has(key) {
+			return fmt.Errorf("%s must not select a database with %q", urlVariable, key)
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	server, err := sql.Open("pgx", serverURL)

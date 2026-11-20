@@ -26,6 +26,8 @@ func TestRunRefusesBadArguments(t *testing.T) {
 		{"upper case name", []string{"create", "Scratch"}, server, "plain lowercase"},
 		{"injected name", []string{"drop", "scratch; DROP DATABASE postgres"}, server, "plain lowercase"},
 		{"empty name", []string{"create", ""}, server, "plain lowercase"},
+		{"dbname selector", []string{"create", "scratch"}, server + "?dbname=postgres", "must not select a database"},
+		{"database selector", []string{"drop", "scratch"}, server + "?sslmode=disable&database=postgres", "must not select a database"},
 	}
 	for _, c := range cases {
 		err := run(c.args, c.server)

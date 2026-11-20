@@ -232,12 +232,18 @@ export async function startStack({ label }) {
       let output = ''
       child.stdout.on('data', (chunk) => { output += chunk })
       child.stderr.on('data', (chunk) => { output += chunk })
-      const exited = new Promise((resolveExit) => child.once('exit', (code, signal) => resolveExit({ code, signal })))
+      const exited = new Promise((resolveExit) => child.once('close', (code, signal) => resolveExit({ code, signal })))
       const server = {
         log: () => output,
         exited,
         async stop() {
           if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+          let timer
+          const late = new Promise((resolveLate) => { timer = setTimeout(resolveLate, 15000, 'late') })
+          const outcome = await Promise.race([exited, late])
+          clearTimeout(timer)
+          if (outcome !== 'late') return outcome
+          child.kill('SIGKILL')
           return exited
         },
       }
