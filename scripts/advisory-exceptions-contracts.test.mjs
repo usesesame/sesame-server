@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { pathToFileURL } from 'node:url'
 
 import {
   applyBuildToolRule,
@@ -97,6 +98,7 @@ const globAdvisory = (overrides = {}) => ({
   url: 'https://github.com/advisories/GHSA-2222-3333-4444',
   severity: 'high',
   cwe: ['CWE-1333'],
+  cvss: { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' },
   ...overrides,
 })
 
@@ -208,43 +210,144 @@ test('an exception for an advisory the rule lets through is reported as no longe
   assert.deepEqual(result.unused.map(({ package: name }) => name), ['example-glob'])
 })
 
+const digestOf = (bytes) => createHash('sha256').update(bytes).digest('hex')
+
 const projectWith = (manifest, records = {}) => {
   const directory = mkdtempSync(path.join(tmpdir(), 'shipped-builds-'))
-  const lockfileBytes = Buffer.from(JSON.stringify(devLockfile))
-  writeFileSync(path.join(directory, 'package-lock.json'), lockfileBytes)
+  writeFileSync(path.join(directory, 'package-lock.json'), JSON.stringify(devLockfile))
   if (manifest !== undefined) writeFileSync(path.join(directory, 'package.json'), JSON.stringify(manifest))
+  mkdirSync(path.join(directory, 'src'))
+  writeFileSync(path.join(directory, 'src', 'main.ts'), 'export const greeting = "hello"\n')
+  const inputs = ['package-lock.json', 'package.json', 'src/main.ts']
+    .filter((file) => existsSync(path.join(directory, file)))
+    .map((file) => ({ path: file, sha256: digestOf(readFileSync(path.join(directory, file))) }))
   const recordDirectory = path.join(directory, 'node_modules', '.cache', 'shipped-packages')
   mkdirSync(recordDirectory, { recursive: true })
-  for (const [build, record] of Object.entries(records)) writeFileSync(path.join(recordDirectory, `${build}.json`), typeof record === 'string' ? record : JSON.stringify(record))
-  return { directory, lockfileBytes, lockfile: createHash('sha256').update(lockfileBytes).digest('hex') }
+  const written = typeof records === 'function' ? records(inputs) : records
+  for (const [build, record] of Object.entries(written)) writeFileSync(path.join(recordDirectory, `${build}.json`), typeof record === 'string' ? record : JSON.stringify(record))
+  return { directory, inputs }
 }
 
-test('the bundled packages come from a record of every shipped build made from the current lockfile', (t) => {
+test('the bundled packages come from a record of every shipped build made from the current files', (t) => {
   const made = []
   t.after(() => made.forEach((directory) => rmSync(directory, { recursive: true, force: true })))
-  const check = (manifest, records) => {
-    const project = projectWith(manifest, typeof records === 'function' ? {} : records)
+  const check = (manifest, records, change) => {
+    const project = projectWith(manifest, records)
     made.push(project.directory)
-    if (typeof records === 'function') {
-      for (const [build, record] of Object.entries(records(project.lockfile))) {
-        writeFileSync(path.join(project.directory, 'node_modules', '.cache', 'shipped-packages', `${build}.json`), JSON.stringify(record))
-      }
-    }
-    return bundledPackages(project.directory, project.lockfileBytes)
+    change?.(project.directory)
+    return bundledPackages(project.directory)
   }
-  const good = check({ shippedBuilds: ['app', 'content'] }, (lockfile) => ({
-    app: { lockfile, packages: ['node_modules/svelte'] },
-    content: { lockfile, packages: ['vite'] },
+  const good = check({ shippedBuilds: ['app', 'content'] }, (inputs) => ({
+    app: { inputs, packages: ['node_modules/svelte'] },
+    content: { inputs, packages: ['vite'] },
   }))
   assert.deepEqual([...good.packages].sort(), ['node_modules/svelte', 'vite'])
   assert.match(check(undefined, {}).unknown, /package\.json could not be read/)
   assert.match(check({}, {}).unknown, /names no shipped builds/)
   assert.match(check({ shippedBuilds: [] }, {}).unknown, /names no shipped builds/)
   assert.match(check({ shippedBuilds: ['../app'] }, {}).unknown, /names no shipped builds/)
-  assert.match(check({ shippedBuilds: ['app', 'content'] }, (lockfile) => ({ app: { lockfile, packages: [] } })).unknown, /the content build/)
-  assert.match(check({ shippedBuilds: ['app'] }, { app: { lockfile: 'a'.repeat(64), packages: [] } }).unknown, /different package-lock\.json/)
+  assert.match(check({ shippedBuilds: ['app', 'content'] }, (inputs) => ({ app: { inputs, packages: [] } })).unknown, /the content build/)
   assert.match(check({ shippedBuilds: ['app'] }, { app: '{' }).unknown, /the app build/)
-  assert.match(check({ shippedBuilds: ['app'] }, (lockfile) => ({ app: { lockfile, packages: [1] } })).unknown, /malformed/)
+  assert.match(check({ shippedBuilds: ['app'] }, (inputs) => ({ app: { inputs, packages: [1] } })).unknown, /malformed/)
+})
+
+test('a record of a build fails when its list of build inputs is missing, malformed or stale', (t) => {
+  const made = []
+  t.after(() => made.forEach((directory) => rmSync(directory, { recursive: true, force: true })))
+  const check = (records, change) => {
+    const project = projectWith({ shippedBuilds: ['app'] }, records)
+    made.push(project.directory)
+    change?.(project.directory)
+    return bundledPackages(project.directory)
+  }
+  const record = (inputs) => ({ app: { inputs, packages: [] } })
+  assert.ok(check(record).packages instanceof Set)
+  const unlisted = [
+    ['the old lockfile hash alone', () => ({ app: { lockfile: 'a'.repeat(64), packages: [] } })],
+    ['no inputs', () => record([])],
+    ['inputs that are not a list', () => record('package-lock.json')],
+    ['no lockfile', (inputs) => record(inputs.filter((input) => input.path !== 'package-lock.json'))],
+    ['no package manifest', (inputs) => record(inputs.filter((input) => input.path !== 'package.json'))],
+    ['a short digest', (inputs) => record(inputs.map((input) => ({ ...input, sha256: input.sha256.slice(1) })))],
+    ['an upper case digest', (inputs) => record(inputs.map((input) => ({ ...input, sha256: input.sha256.toUpperCase() })))],
+    ['a path outside the project', (inputs) => record([...inputs, { path: '../elsewhere.ts', sha256: 'a'.repeat(64) }])],
+    ['an absolute path', (inputs) => record([...inputs, { path: '/etc/hostname', sha256: 'a'.repeat(64) }])],
+    ['a backslash path', (inputs) => record([...inputs, { path: 'src\\main.ts', sha256: 'a'.repeat(64) }])],
+    ['an empty segment', (inputs) => record([...inputs, { path: 'src//main.ts', sha256: 'a'.repeat(64) }])],
+  ]
+  for (const [label, records] of unlisted) {
+    assert.match(check(records).unknown ?? '', /does not list the files it was built from/, label)
+  }
+  assert.match(check(record, (directory) => writeFileSync(path.join(directory, 'src', 'main.ts'), 'import "example-glob"\n')).unknown, /before src\/main\.ts changed/)
+  assert.match(check(record, (directory) => writeFileSync(path.join(directory, 'package-lock.json'), '{}')).unknown, /before package-lock\.json changed/)
+  assert.match(check(record, (directory) => rmSync(path.join(directory, 'src', 'main.ts'))).unknown, /before src\/main\.ts changed/)
+})
+
+test('resource exhaustion with confidentiality or integrity impact, or without a readable vector, still fails', () => {
+  const cases = {
+    'high confidentiality and integrity': { score: 9.1, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N' },
+    'low integrity': { score: 8.2, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:H' },
+    'low confidentiality': { score: 8.2, vectorString: 'CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:H' },
+    'no vector': { score: 0, vectorString: null },
+    'unparseable vector': { score: 7.5, vectorString: 'AV:N/AC:L/C:N/I:N/A:H' },
+    'unknown version': { score: 7.5, vectorString: 'CVSS:2.0/AV:N/AC:L/C:N/I:N/A:H' },
+    'repeated metric': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/C:N/I:N/I:H/A:H' },
+    'missing integrity metric': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/A:H' },
+    'subsequent system integrity': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:H/SA:N' },
+    'vulnerable system confidentiality': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:H/SC:N/SI:N/SA:N' },
+    'modified integrity': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/MI:H' },
+    'modified confidentiality': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/MC:L' },
+    'modified subsequent integrity': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N/MSI:S' },
+    'modified vulnerable confidentiality': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N/MVC:H' },
+    'only the impact metrics': { score: 7.5, vectorString: 'CVSS:3.1/C:N/I:N/A:H' },
+    'missing attack vector': { score: 7.5, vectorString: 'CVSS:3.1/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' },
+    'missing subsequent integrity': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SA:N' },
+    'undefined attack vector value': { score: 7.5, vectorString: 'CVSS:3.1/AV:Z/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' },
+    'undefined integrity value': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:X/A:H' },
+    'unknown metric': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/ZZ:N' },
+    'a version 4 metric in a version 3 vector': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/VC:N' },
+    'no cvss field': undefined,
+  }
+  for (const [label, cvss] of Object.entries(cases)) {
+    const { buildOnly, remaining } = applyBuildToolRule([globFinding({ cvss })], devLockfile, bundled())
+    assert.equal(buildOnly.length, 0, label)
+    assert.equal(remaining.length, 1, label)
+  }
+  const passing = [
+    'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H',
+    'CVSS:3.0/AV:L/AC:H/PR:L/UI:R/S:C/C:N/I:N/A:L',
+    'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/E:P/RL:O/RC:C/MC:N/MI:X/MA:H',
+    'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N',
+    'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:L/E:P/MVC:N/MVI:X/MSC:N/MSI:N/MSA:S',
+  ]
+  for (const vectorString of passing) {
+    assert.equal(applyBuildToolRule([globFinding({ cvss: { score: 7.5, vectorString } })], devLockfile, bundled()).buildOnly.length, 1, vectorString)
+  }
+})
+
+test('one report entry without an availability only vector keeps the advisory failing', () => {
+  const report = {
+    auditReportVersion: 2,
+    vulnerabilities: {
+      'example-glob': { name: 'example-glob', nodes: ['node_modules/example-glob'], via: [globAdvisory()] },
+      'example-bundler': { name: 'example-bundler', via: [globAdvisory({ cvss: { score: 9.1, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:H' } })] },
+    },
+  }
+  const [finding] = npmFindings(report)
+  assert.equal(finding.cvss.length, 2)
+  assert.equal(applyBuildToolRule([finding], devLockfile, bundled()).remaining.length, 1)
+  const missing = npmFindings({ ...report, vulnerabilities: { ...report.vulnerabilities, 'example-bundler': { name: 'example-bundler', via: [globAdvisory({ cvss: undefined })] } } })[0]
+  assert.equal(applyBuildToolRule([missing], devLockfile, bundled()).remaining.length, 1)
+})
+
+test('an aliased development package that a build bundles under its installed name still fails', () => {
+  const aliased = { packages: { '': { name: 'example-project' }, 'node_modules/glob-alias': { name: 'example-glob', version: '4.0.0', dev: true } } }
+  const finding = { ...globFinding(), nodes: [] }
+  assert.equal(shippedState(finding, aliased, bundled('node_modules/svelte')).state, 'never')
+  for (const entry of ['node_modules/glob-alias', 'glob-alias', '../node_modules/glob-alias']) {
+    assert.equal(shippedState(finding, aliased, bundled(entry)).state, 'shipped', entry)
+    assert.equal(applyBuildToolRule([finding], aliased, bundled(entry)).remaining.length, 1, entry)
+  }
 })
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -260,7 +363,7 @@ test('every shipped build recorder in the repository is the same file', () => {
 })
 
 test('the shipped build recorder names the installed package of every bundled module', async () => {
-  const { installPathOf } = await import(recorderCopies[0])
+  const { installPathOf } = await import(pathToFileURL(recorderCopies[0]).href)
   const project = path.resolve(path.dirname(recorderCopies[0]), '..')
   const at = (...parts) => path.join(project, ...parts)
   assert.equal(installPathOf(at('node_modules', 'svelte', 'src', 'index-client.js')), 'node_modules/svelte')
@@ -272,4 +375,56 @@ test('the shipped build recorder names the installed package of every bundled mo
   assert.equal(installPathOf('\0commonjsHelpers.js'), null)
   assert.equal(installPathOf(at('src', 'main.ts')), null)
   assert.match(installPathOf(path.join(path.dirname(project), 'node_modules', 'outside', 'index.js')), /node_modules\/outside$/)
+})
+
+test('the shipped build recorder lists and hashes every project file the build read', async (t) => {
+  const { buildInputs } = await import(pathToFileURL(recorderCopies[0]).href)
+  const directory = mkdtempSync(path.join(tmpdir(), 'shipped-inputs-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const at = (...parts) => path.join(directory, ...parts)
+  mkdirSync(at('src'))
+  mkdirSync(at('node_modules', 'svelte'), { recursive: true })
+  for (const file of ['package.json', 'package-lock.json', 'vite.config.ts', 'src/main.ts', 'src/App.svelte', 'node_modules/svelte/index.js']) {
+    writeFileSync(at(...file.split('/')), `contents of ${file}\n`)
+  }
+  const ids = [at('src', 'main.ts'), `${at('src', 'App.svelte')}?svelte&type=style&lang.css`, at('node_modules', 'svelte', 'index.js'), '\0vite/preload-helper.js', at('src', 'missing.ts')]
+  const inputs = buildInputs(ids, directory, directory, [at('vite.config.ts')])
+  assert.deepEqual(inputs.map((input) => input.path), ['package-lock.json', 'package.json', 'src/App.svelte', 'src/main.ts', 'vite.config.ts'])
+  for (const input of inputs) assert.equal(input.sha256, createHash('sha256').update(readFileSync(at(...input.path.split('/')))).digest('hex'))
+})
+
+test('the shipped build recorder fails a build whose input changed after Vite loaded it', async (t) => {
+  const { shippedPackages, changedInput } = await import(pathToFileURL(recorderCopies[0]).href)
+  const project = path.resolve(path.dirname(recorderCopies[0]), '..')
+  const build = `recorder-test-${process.pid}`
+  const source = path.join(project, `recorder-test-${process.pid}.ts`)
+  const record = path.join(project, 'node_modules', '.cache', 'shipped-packages', `${build}.json`)
+  t.after(() => {
+    rmSync(source, { force: true })
+    rmSync(record, { force: true })
+  })
+  assert.equal(changedInput([{ path: 'a.ts', sha256: 'b'.repeat(64) }], new Map([['a.ts', 'b'.repeat(64)]])), undefined)
+  assert.equal(changedInput([{ path: 'a.ts', sha256: 'b'.repeat(64) }], new Map()), undefined)
+  assert.equal(changedInput([{ path: 'a.ts', sha256: 'b'.repeat(64) }], new Map([['a.ts', 'c'.repeat(64)]])).path, 'a.ts')
+
+  const run = (change) => {
+    writeFileSync(source, 'export const greeting = "hello"\n')
+    const plugin = shippedPackages(build)
+    assert.equal(plugin.enforce, 'pre')
+    plugin.configResolved({ root: project, configFile: path.join(project, 'svelte.config.js'), configFileDependencies: [recorderCopies[0]] })
+    plugin.buildStart()
+    assert.equal(plugin.load(source), null)
+    change?.()
+    const context = { getModuleIds: () => [source][Symbol.iterator](), error: (message) => { throw new Error(message) } }
+    plugin.generateBundle.call(context, {}, {})
+    return JSON.parse(readFileSync(record, 'utf8'))
+  }
+  const written = run()
+  const paths = written.inputs.map((input) => input.path)
+  for (const file of [path.basename(source), 'svelte.config.js', path.relative(project, recorderCopies[0]).split(path.sep).join('/'), 'package-lock.json']) {
+    assert.ok(paths.includes(file), `the record does not list ${file}`)
+  }
+  rmSync(record)
+  assert.throws(() => run(() => writeFileSync(source, 'import "example-glob"\n')), /changed while the recorder-test-\d+ build was running/)
+  assert.equal(existsSync(record), false)
 })
