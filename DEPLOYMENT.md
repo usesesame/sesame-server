@@ -143,12 +143,19 @@ These settings are optional or have a default:
 - The production file sets `SESAME_SESSION_SECURE` and
   `SESAME_ADMIN_SESSION_SECURE` to `true`, and no variable turns them off.
   `deploy/compose/compose.yaml` reads both from `deploy/compose/.env`.
+- `SESAME_MINIMUM_DESKTOP_VERSION` is the oldest desktop allowed to link and
+  use Sync, and `SESAME_LATEST_DESKTOP_VERSION` is the newest one released.
+  The signed capability document carries both, and a desktop older than the
+  minimum refuses to sync. Empty means `0.1.0`, the newest defaults to the
+  minimum, and the API refuses to start on a value that is not a release
+  version such as `0.6.0` or on a newest version below the minimum. When a
+  desktop release raises its Sync minimum, set the same minimum here on the
+  day the release is published.
 - The production file does not pass `SESAME_SESSION_DOMAIN`,
-  `SESAME_ADMIN_SESSION_DOMAIN`, `SESAME_CAPABILITY_KEY_ID`,
-  `SESAME_MINIMUM_DESKTOP_VERSION`, or `SESAME_LATEST_DESKTOP_VERSION`. The
-  API therefore uses host-only cookies, the key id `capability-v1`, and
-  desktop version `0.1.0` for both bounds. Add a variable to the `api`
-  service in `compose.prod.yaml` if you need another value.
+  `SESAME_ADMIN_SESSION_DOMAIN`, or `SESAME_CAPABILITY_KEY_ID`. The API
+  therefore uses host-only cookies and the key id `capability-v1`. Add a
+  variable to the `api` service in `compose.prod.yaml` if you need another
+  value.
 
 Set `SESAME_BACKUP_AGE_RECIPIENTS` to one or more age public recipients,
 separated by commas. Generate the identity with `age-keygen` on a device that

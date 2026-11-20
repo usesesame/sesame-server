@@ -30,6 +30,7 @@ import (
 	"usesesame.app/backend/internal/buildinfo"
 	"usesesame.app/backend/internal/httpapi"
 	"usesesame.app/backend/internal/notifications"
+	"usesesame.app/backend/internal/releases"
 	"usesesame.app/backend/internal/syncsvc"
 	"usesesame.app/backend/internal/syncsvc/pgstore"
 )
@@ -123,6 +124,11 @@ func main() {
 		slog.Error("Sesame API configuration is invalid", "error", "SESAME_ADMIN_IP_PEPPER is required because identity rate-limit keys are peppered with it")
 		os.Exit(1)
 	}
+	minimumDesktopVersion, latestDesktopVersion, versionErr := desktopVersionBounds(os.Getenv("SESAME_MINIMUM_DESKTOP_VERSION"), os.Getenv("SESAME_LATEST_DESKTOP_VERSION"))
+	if versionErr != nil {
+		slog.Error("Sesame API configuration is invalid", "error", versionErr)
+		os.Exit(1)
+	}
 	if adminKeyValue != "" {
 		var originErr error
 		adminOrigin, originErr = configuredOrigin("SESAME_ADMIN_ORIGIN")
@@ -205,8 +211,8 @@ func main() {
 		ChromeExtensionID:         strings.TrimSpace(os.Getenv("SESAME_CHROME_EXTENSION_ID")),
 		CapabilitySigningKey:      capabilityKey,
 		CapabilityKeyID:           env("SESAME_CAPABILITY_KEY_ID", "capability-v1"),
-		MinimumDesktopVersion:     env("SESAME_MINIMUM_DESKTOP_VERSION", "0.1.0"),
-		LatestDesktopVersion:      env("SESAME_LATEST_DESKTOP_VERSION", "0.1.0"),
+		MinimumDesktopVersion:     minimumDesktopVersion,
+		LatestDesktopVersion:      latestDesktopVersion,
 		CapabilityTTL:             5 * time.Minute,
 		ReleaseCandidatePublicKey: releaseCandidateKey,
 		ReleaseCandidateKeyID:     strings.TrimSpace(os.Getenv("SESAME_RELEASE_CANDIDATE_KEY_ID")),
@@ -603,6 +609,27 @@ func envBool(name string, fallback bool) bool {
 		return fallback
 	}
 	return value == "1" || value == "true" || value == "TRUE"
+}
+
+func desktopVersionBounds(minimum, latest string) (string, string, error) {
+	if minimum == "" {
+		minimum = "0.1.0"
+	}
+	if latest == "" {
+		latest = minimum
+	}
+	parsedMinimum, err := releases.ParseVersion(minimum)
+	if err != nil || len(parsedMinimum.Prerelease) > 0 {
+		return "", "", fmt.Errorf("SESAME_MINIMUM_DESKTOP_VERSION %q must be a release version such as 0.6.0", minimum)
+	}
+	parsedLatest, err := releases.ParseVersion(latest)
+	if err != nil || len(parsedLatest.Prerelease) > 0 {
+		return "", "", fmt.Errorf("SESAME_LATEST_DESKTOP_VERSION %q must be a release version such as 0.6.0", latest)
+	}
+	if parsedLatest.Compare(parsedMinimum) < 0 {
+		return "", "", fmt.Errorf("SESAME_LATEST_DESKTOP_VERSION %s is older than SESAME_MINIMUM_DESKTOP_VERSION %s", latest, minimum)
+	}
+	return minimum, latest, nil
 }
 
 func env(name, fallback string) string {
