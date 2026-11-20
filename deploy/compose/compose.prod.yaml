@@ -57,6 +57,8 @@ services:
       # Must be the account portal's registrable domain, or passkeys fail.
       SESAME_RP_ID: ${SESAME_RP_ID:?}
       SESAME_RP_NAME: ${SESAME_RP_NAME:-Sesame}
+      SESAME_MINIMUM_DESKTOP_VERSION: ${SESAME_MINIMUM_DESKTOP_VERSION:-}
+      SESAME_LATEST_DESKTOP_VERSION: ${SESAME_LATEST_DESKTOP_VERSION:-}
       # Optional so the stack can boot before a mail provider exists. With these
       # empty the API runs and reports emailDeliveryAvailable false, which means
       # no verification, recovery, or email-change mail. STARTTLS is mandatory

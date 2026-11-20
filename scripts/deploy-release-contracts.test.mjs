@@ -1228,6 +1228,15 @@ test('production and the candidate check take the deployment profile from the en
   assert.match(example, /^SESAME_DEPLOYMENT_PROFILE=operator$/m, 'the production env example must default to operator')
 })
 
+test('production and the candidate check take the desktop version bounds from the env file', () => {
+  for (const file of ['compose.prod.yaml', 'compose.candidate-check.yaml']) {
+    const compose = stackFile('deploy', 'compose', file)
+    for (const name of ['SESAME_MINIMUM_DESKTOP_VERSION', 'SESAME_LATEST_DESKTOP_VERSION']) {
+      assert.ok(compose.includes(`${name}: \${${name}:-}`), `${file} must pass ${name} from the env file`)
+    }
+  }
+})
+
 test('the development stack reads its cookie flags from the env file and production keeps them on', () => {
   const development = stackFile('deploy', 'compose', 'compose.yaml')
   assert.ok(development.includes('SESAME_SESSION_SECURE: ${SESAME_SESSION_SECURE:-false}'))

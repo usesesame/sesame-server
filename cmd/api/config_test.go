@@ -173,3 +173,35 @@ func TestOperatorMessagesNameOnlyCommandsThatExist(t *testing.T) {
 		t.Errorf("cmd/adminctl must exist for the warning to be true: %v", err)
 	}
 }
+
+func TestDesktopVersionBounds(t *testing.T) {
+	accepted := []struct{ minimum, latest, wantMinimum, wantLatest string }{
+		{"", "", "0.1.0", "0.1.0"},
+		{"0.6.0", "", "0.6.0", "0.6.0"},
+		{"0.6.0", "0.6.1", "0.6.0", "0.6.1"},
+		{"", "0.6.0", "0.1.0", "0.6.0"},
+		{"0.10.0", "0.10.0", "0.10.0", "0.10.0"},
+	}
+	for _, item := range accepted {
+		minimum, latest, err := desktopVersionBounds(item.minimum, item.latest)
+		if err != nil || minimum != item.wantMinimum || latest != item.wantLatest {
+			t.Errorf("desktopVersionBounds(%q, %q) = %q, %q, %v; want %q, %q", item.minimum, item.latest, minimum, latest, err, item.wantMinimum, item.wantLatest)
+		}
+	}
+	refused := []struct{ minimum, latest string }{
+		{"0.6", ""},
+		{"v0.6.0", ""},
+		{" 0.6.0", ""},
+		{"0.6.0-beta.1", ""},
+		{"06.0.0", ""},
+		{"0.6.0", "latest"},
+		{"0.6.0", "0.5.3"},
+		{"0.10.0", "0.9.0"},
+		{"", "0.0.9"},
+	}
+	for _, item := range refused {
+		if minimum, latest, err := desktopVersionBounds(item.minimum, item.latest); err == nil {
+			t.Errorf("desktopVersionBounds(%q, %q) = %q, %q; want a refusal", item.minimum, item.latest, minimum, latest)
+		}
+	}
+}
