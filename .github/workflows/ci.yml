@@ -35,6 +35,8 @@ jobs:
       SESAME_TEST_DATABASE_URL: postgres://sesame:sesame-test-only@127.0.0.1:5432/sesame_test?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -50,6 +52,10 @@ jobs:
       - run: npm run test:fuzz
 
       - run: npm run test:race
+
+      - run: npm run hosted:smoke
+
+      - run: npm run hosted:upgrade
 
       - run: npm run vuln:check
 
