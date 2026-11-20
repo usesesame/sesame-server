@@ -84,6 +84,7 @@ export const npmFindings = (report) => {
         title: source.title ?? '',
         url: source.url ?? '',
         cwe: Array.isArray(source.cwe) ? [...source.cwe] : [],
+        cvss: [...new Set([...(findings.get(key)?.cvss ?? []), ...(typeof source.cvss?.vectorString === 'string' ? [source.cvss.vectorString] : [null])])],
         nodes: [...new Set([...(findings.get(key)?.nodes ?? []), ...nodes])],
       })
     }
@@ -91,8 +92,28 @@ export const npmFindings = (report) => {
   return [...findings.values()]
 }
 
+const cvssVector = /^CVSS:(3\.[01]|4\.0)((?:\/[A-Za-z]+:[A-Za-z])+)$/
+const confidentialityAndIntegrity = { 3: ['C', 'I'], 4: ['VC', 'VI', 'SC', 'SI'] }
+
+export const availabilityOnlyVector = (vector) => {
+  const match = typeof vector === 'string' ? vector.match(cvssVector) : null
+  if (!match) return false
+  const metrics = new Map()
+  for (const metric of match[2].slice(1).split('/')) {
+    const [key, value] = metric.split(':')
+    if (metrics.has(key)) return false
+    metrics.set(key, value)
+  }
+  return confidentialityAndIntegrity[match[1][0]].every((key) => metrics.get(key) === 'N')
+}
+
 export const onlyResourceExhaustion = (finding) =>
-  Array.isArray(finding.cwe) && finding.cwe.length > 0 && finding.cwe.every((weakness) => RESOURCE_EXHAUSTION_WEAKNESSES.has(weakness))
+  Array.isArray(finding.cwe) &&
+  finding.cwe.length > 0 &&
+  finding.cwe.every((weakness) => RESOURCE_EXHAUSTION_WEAKNESSES.has(weakness)) &&
+  Array.isArray(finding.cvss) &&
+  finding.cvss.length > 0 &&
+  finding.cvss.every(availabilityOnlyVector)
 
 const packageNameAt = (installPath) => {
   const segments = String(installPath).split('node_modules/').at(-1).split('/')
@@ -109,7 +130,22 @@ export const installedCopies = (lockfile, finding) => {
   return [...paths].map((installPath) => ({ path: installPath, entry: Object.hasOwn(packages, installPath) ? packages[installPath] : undefined }))
 }
 
-export const bundledPackages = (projectDirectory, lockfileBytes) => {
+const insideProject = (file) =>
+  typeof file === 'string' &&
+  file.length > 0 &&
+  !path.isAbsolute(file) &&
+  !file.includes('\\') &&
+  file.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+
+const currentDigest = (projectDirectory, file) => {
+  try {
+    return createHash('sha256').update(readFileSync(path.join(projectDirectory, file))).digest('hex')
+  } catch {
+    return null
+  }
+}
+
+export const bundledPackages = (projectDirectory) => {
   let manifest
   try {
     manifest = JSON.parse(readFileSync(path.join(projectDirectory, 'package.json'), 'utf8'))
@@ -120,7 +156,6 @@ export const bundledPackages = (projectDirectory, lockfileBytes) => {
   if (!Array.isArray(builds) || builds.length === 0 || !builds.every((build) => typeof build === 'string' && buildName.test(build))) {
     return { unknown: 'package.json names no shipped builds' }
   }
-  const lockfileHash = createHash('sha256').update(lockfileBytes).digest('hex')
   const packages = new Set()
   for (const build of builds) {
     let record
@@ -129,11 +164,20 @@ export const bundledPackages = (projectDirectory, lockfileBytes) => {
     } catch {
       return { unknown: `no build has recorded what the ${build} build bundles` }
     }
-    if (!record || typeof record.lockfile !== 'string' || !sha256.test(record.lockfile) || !Array.isArray(record.packages) || !record.packages.every((entry) => typeof entry === 'string')) {
+    if (!record || !Array.isArray(record.packages) || !record.packages.every((entry) => typeof entry === 'string')) {
       return { unknown: `the record of the ${build} build is malformed` }
     }
-    if (record.lockfile !== lockfileHash) {
-      return { unknown: `the record of the ${build} build was made from a different package-lock.json` }
+    const inputs = record.inputs
+    if (
+      !Array.isArray(inputs) ||
+      !inputs.every((input) => insideProject(input?.path) && typeof input.sha256 === 'string' && sha256.test(input.sha256)) ||
+      !['package.json', 'package-lock.json'].every((file) => inputs.some((input) => input.path === file))
+    ) {
+      return { unknown: `the record of the ${build} build does not list the files it was built from` }
+    }
+    const changed = inputs.find((input) => currentDigest(projectDirectory, input.path) !== input.sha256)
+    if (changed) {
+      return { unknown: `the record of the ${build} build was made before ${changed.path} changed` }
     }
     for (const entry of record.packages) packages.add(entry)
   }
@@ -155,8 +199,10 @@ export const shippedState = (finding, lockfile, bundled) => {
   }
   const inBuild = copies.find(({ path: installPath }) => bundled.packages.has(installPath))
   if (inBuild) return { state: 'shipped', reason: `a shipped build bundles ${inBuild.path}` }
-  if ([...bundled.packages].some((entry) => packageNameAt(entry) === finding.package)) {
-    return { state: 'shipped', reason: `a shipped build bundles a package named ${finding.package}` }
+  const installedNames = new Set([finding.package, ...copies.map(({ path: installPath }) => packageNameAt(installPath))])
+  const byName = [...bundled.packages].find((entry) => installedNames.has(packageNameAt(entry)))
+  if (byName) {
+    return { state: 'shipped', reason: `a shipped build bundles a package named ${packageNameAt(byName)}` }
   }
   return { state: 'never', reason: `every copy of ${finding.package} is a development dependency and no shipped build bundles it` }
 }
@@ -203,10 +249,9 @@ const reportFrom = async (command, args, cwd) => {
 
 const readLockfile = (projectDirectory) => {
   try {
-    const bytes = readFileSync(path.join(projectDirectory, 'package-lock.json'))
-    return { bytes, lockfile: JSON.parse(bytes.toString('utf8')) }
+    return JSON.parse(readFileSync(path.join(projectDirectory, 'package-lock.json'), 'utf8'))
   } catch {
-    return { bytes: Buffer.alloc(0), lockfile: null }
+    return null
   }
 }
 
@@ -215,11 +260,10 @@ const main = async () => {
   const exceptions = loadExceptions(today)
   const projectDirectory = process.cwd()
   const findings = npmFindings(await reportFrom('npm', ['audit', '--json'], projectDirectory))
-  const { bytes, lockfile } = readLockfile(projectDirectory)
-  const { buildOnly, remaining } = applyBuildToolRule(findings, lockfile, bundledPackages(projectDirectory, bytes))
+  const { buildOnly, remaining } = applyBuildToolRule(findings, readLockfile(projectDirectory), bundledPackages(projectDirectory))
   const { accepted, blocking, unused } = evaluateFindings(remaining, exceptions)
   for (const finding of buildOnly) {
-    console.log(`Not failing on ${finding.id} in ${finding.package}: it only describes resource exhaustion (${finding.cwe.join(', ')}), and ${finding.reason}.`)
+    console.log(`Not failing on ${finding.id} in ${finding.package}: it only describes resource exhaustion (${finding.cwe.join(', ')}) with no confidentiality or integrity impact, and ${finding.reason}.`)
   }
   for (const finding of accepted) {
     console.log(`Accepted until ${finding.expires}: ${finding.id} in ${finding.package}.`)

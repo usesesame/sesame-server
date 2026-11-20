@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 const project = path.resolve(import.meta.dirname, '..')
 const recordDirectory = path.join(project, 'node_modules', '.cache', 'shipped-packages')
 const nodeModules = '/node_modules/'
+
+export const buildConfigFiles = ['package.json', 'package-lock.json', 'svelte.config.js', 'tsconfig.json']
 
 export const installPathOf = (id, root = project) => {
   const file = String(id).split('?')[0].split('\\').join('/')
@@ -17,14 +19,35 @@ export const installPathOf = (id, root = project) => {
   return path.relative(project, absolute.slice(0, marker + nodeModules.length) + name).split(path.sep).join('/')
 }
 
+export const inputPathOf = (id, root = project, base = project) => {
+  const file = String(id).split('?')[0]
+  if (file.startsWith('\0') || installPathOf(file, root)) return null
+  const absolute = path.resolve(root, file)
+  if (!existsSync(absolute) || !statSync(absolute).isFile()) return null
+  return path.relative(base, absolute).split(path.sep).join('/')
+}
+
+const digest = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
+
+export const buildInputs = (ids, root = project, base = project, configFile = null) => {
+  const inputs = new Set(buildConfigFiles.filter((file) => existsSync(path.join(base, file))))
+  for (const id of configFile ? [configFile, ...ids] : ids) {
+    const input = inputPathOf(id, root, base)
+    if (input) inputs.add(input)
+  }
+  return [...inputs].sort().map((file) => ({ path: file, sha256: digest(path.join(base, file)) }))
+}
+
 export const shippedPackages = (build) => {
   const record = path.join(recordDirectory, `${build}.json`)
   let root = project
+  let configFile = null
   return {
     name: 'shipped-packages',
     apply: 'build',
     configResolved(config) {
       root = config.root
+      configFile = config.configFile ?? null
     },
     buildStart() {
       rmSync(record, { force: true })
@@ -36,9 +59,9 @@ export const shippedPackages = (build) => {
         else ids.push(...(item.originalFileNames ?? []))
       }
       const packages = [...new Set(ids.map((id) => installPathOf(id, root)).filter(Boolean))].sort()
-      const lockfile = createHash('sha256').update(readFileSync(path.join(project, 'package-lock.json'))).digest('hex')
+      const inputs = buildInputs(ids, root, project, configFile)
       mkdirSync(recordDirectory, { recursive: true })
-      writeFileSync(record, `${JSON.stringify({ lockfile, packages }, null, 2)}\n`)
+      writeFileSync(record, `${JSON.stringify({ inputs, packages }, null, 2)}\n`)
     },
   }
 }
