@@ -266,8 +266,9 @@ export async function startStack({ label }) {
     async close() {
       for (const server of servers) await server.stop().catch(() => {})
       await mailbox.close().catch(() => {})
-      if (databaseCreated) run(helper, ['drop', databaseName], { env: { ...process.env, SESAME_TEST_DATABASE_URL: databaseUrl } })
+      const dropped = databaseCreated ? run(helper, ['drop', databaseName], { env: { ...process.env, SESAME_TEST_DATABASE_URL: databaseUrl } }) : null
       rmSync(root, { recursive: true, force: true })
+      if (dropped && dropped.status !== 0) throw new Error(`dropping ${databaseName} exited ${dropped.status}\n${redact(dropped.stderr ?? '')}`)
     },
     servers,
   }
