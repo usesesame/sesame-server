@@ -8,18 +8,8 @@ import net from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  deviceListDigest,
-  deviceListSigningPayload,
-  digestOf,
-  headerDigest,
-  headerSigningPayload,
-  keyPackageDigest,
-  keyPackageSigningPayload,
-  publicKeyFromSeed,
-  requestSigningPayload,
-  signEd25519,
-} from './sync-wire.mjs'
+import { deviceListDigest, headerDigest, keyPackageDigest } from './sync-wire.mjs'
+import { headerFor, randomBase64url, signDeviceListEntry, signHeader, signKeyPackage, signedCall, syncDevice, tokenHeaders } from './sync-client.mjs'
 import { approvalArguments, assertApprovalResult, assertRecoveryStatus, parseRecoveryJson, redactSensitiveLog } from './selfhost-recovery.mjs'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -329,46 +319,6 @@ async function freshTotp(secret) {
     const current = Math.floor(Date.now() / 30_000)
     if (issuedCounters.every((counter) => counter < current)) return totp(secret)
     await sleep((current + 1) * 30_000 - Date.now() + 50)
-  }
-}
-
-function syncDevice(id, token) {
-  const seed = randomBytes(32)
-  return { id, token, seed, signingKey: publicKeyFromSeed(seed) }
-}
-
-function randomBase64url(length) {
-  return randomBytes(length).toString('base64url')
-}
-
-function tokenHeaders(device) {
-  return { headers: { authorization: `Sesame ${device.token}` } }
-}
-
-function signedCall(device, method, path, json) {
-  const body = Buffer.from(JSON.stringify(json), 'utf8')
-  const timestamp = Math.floor(Date.now() / 1000)
-  const nonce = randomBase64url(16)
-  const signature = signEd25519(device.seed, requestSigningPayload({ method, target: path, body, token: device.token, timestamp, nonce }))
-  return { headers: { authorization: `Sesame ${device.token}`, 'sesame-request-signature': `${timestamp}.${nonce}.${signature}` }, json }
-}
-
-function signDeviceListEntry(signer, entry) {
-  return { ...entry, signature: signEd25519(signer.seed, deviceListSigningPayload(entry)) }
-}
-
-function signHeader(signer, header) {
-  return { ...header, signature: signEd25519(signer.seed, headerSigningPayload(header)) }
-}
-
-function signKeyPackage(signer, pkg) {
-  return { ...pkg, signature: signEd25519(signer.seed, keyPackageSigningPayload(pkg)) }
-}
-
-function headerFor({ vaultId, signer, revision, previousDigest, deviceListIndex, deviceListDigest, ciphertext }) {
-  return {
-    version: 3, vaultId, deviceId: signer.id, revision, vaultEpoch: 1, deviceListIndex, deviceListDigest, previousDigest,
-    ciphertextDigest: digestOf(ciphertext), ciphertextLength: ciphertext.length, nonce: randomBase64url(24),
   }
 }
 

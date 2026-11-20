@@ -18,6 +18,8 @@ export const steps = [
   { job: 'server', directory: '.', command: ['npm', 'run', 'ci:checks'] },
   { job: 'server', directory: '.', command: ['npm', 'run', 'test:fuzz'] },
   { job: 'server', directory: '.', command: ['npm', 'run', 'test:race'] },
+  { job: 'server', directory: '.', command: ['npm', 'run', 'hosted:smoke'] },
+  { job: 'server', directory: '.', command: ['npm', 'run', 'hosted:upgrade'] },
   { job: 'server', directory: '.', command: ['npm', 'run', 'vuln:check'] },
   { job: 'account', directory: 'web/account', command: ['npm', 'ci'] },
   { job: 'account', directory: 'web/account', command: ['npm', 'run', 'ci'] },

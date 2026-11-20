@@ -252,8 +252,30 @@ test('the server job leaves the plain Go test run to the race run', () => {
   assert.equal(scripts.test, 'node ./scripts/run-go.mjs test ./...')
   assert.equal(scripts.ci, 'npm run ci:checks && npm run test && npm run test:fuzz', 'the local command keeps the plain run')
   const commands = workflowRunSteps('server').map((step) => step.command)
-  assert.deepEqual(commands, ['npm run ci:checks', 'npm run test:fuzz', 'npm run test:race', 'npm run vuln:check'])
+  assert.deepEqual(commands, ['npm run ci:checks', 'npm run test:fuzz', 'npm run test:race', 'npm run hosted:smoke', 'npm run hosted:upgrade', 'npm run vuln:check'])
   assert.doesNotMatch(scripts['ci:checks'], /npm run test(?![:\w])/, 'ci:checks must not run the plain Go tests')
+})
+
+test('the hosted checks run after the Go tests, fetch the tags they need and cannot skip', () => {
+  const scripts = JSON.parse(read('package.json')).scripts
+  assert.equal(scripts['hosted:smoke'], 'node ./scripts/hosted-smoke.mjs')
+  assert.equal(scripts['hosted:upgrade'], 'node ./scripts/hosted-upgrade-check.mjs')
+  assert.equal(scripts['hosted:contract'], 'node --test scripts/hosted-stack.test.mjs')
+  assert.ok(scripts['ci:checks'].includes('npm run hosted:contract'), 'ci:checks must run the hosted helper tests')
+  assert.doesNotMatch(scripts['ci:checks'], /hosted:(smoke|upgrade)/, 'the hosted journeys need the database, so they run after the Go tests')
+  const server = jobBlock(read('.github', 'workflows', 'ci.yml'), 'server')
+  assert.match(server, /actions\/checkout@[0-9a-f]{40} # v[0-9.]+\n {8}with:\n {10}fetch-depth: 0\n/, 'the upgrade check needs every release tag in the checkout')
+  const commands = workflowRunSteps('server').map((step) => step.command)
+  assert.ok(commands.indexOf('npm run test:race') < commands.indexOf('npm run hosted:smoke'), 'the hosted journey must run after the Go tests')
+  assert.equal(commands.indexOf('npm run hosted:smoke') + 1, commands.indexOf('npm run hosted:upgrade'))
+  const environment = { ...process.env }
+  delete environment.SESAME_TEST_DATABASE_URL
+  for (const script of ['hosted-smoke.mjs', 'hosted-upgrade-check.mjs']) {
+    const result = spawnSync(process.execPath, [join(root, 'scripts', script)], { env: environment, encoding: 'utf8' })
+    assert.equal(result.status, 1, `${script} must fail without a database, not skip`)
+    assert.match(result.stderr, /SESAME_TEST_DATABASE_URL/)
+    assert.doesNotMatch(read('scripts', script), /skip/i, `${script} must not hold a skip path`)
+  }
 })
 
 test('every dependency update entry groups minor and patch updates and leaves major updates alone', () => {
