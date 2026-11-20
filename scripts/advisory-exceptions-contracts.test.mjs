@@ -295,6 +295,17 @@ test('resource exhaustion with confidentiality or integrity impact, or without a
     'missing integrity metric': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/A:H' },
     'subsequent system integrity': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:H/SA:N' },
     'vulnerable system confidentiality': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:L/VI:N/VA:H/SC:N/SI:N/SA:N' },
+    'modified integrity': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/MI:H' },
+    'modified confidentiality': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/MC:L' },
+    'modified subsequent integrity': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N/MSI:S' },
+    'modified vulnerable confidentiality': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N/MVC:H' },
+    'only the impact metrics': { score: 7.5, vectorString: 'CVSS:3.1/C:N/I:N/A:H' },
+    'missing attack vector': { score: 7.5, vectorString: 'CVSS:3.1/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' },
+    'missing subsequent integrity': { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SA:N' },
+    'undefined attack vector value': { score: 7.5, vectorString: 'CVSS:3.1/AV:Z/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' },
+    'undefined integrity value': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:X/A:H' },
+    'unknown metric': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/ZZ:N' },
+    'a version 4 metric in a version 3 vector': { score: 7.5, vectorString: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/VC:N' },
     'no cvss field': undefined,
   }
   for (const [label, cvss] of Object.entries(cases)) {
@@ -302,8 +313,16 @@ test('resource exhaustion with confidentiality or integrity impact, or without a
     assert.equal(buildOnly.length, 0, label)
     assert.equal(remaining.length, 1, label)
   }
-  const v4 = { score: 8.7, vectorString: 'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N' }
-  assert.equal(applyBuildToolRule([globFinding({ cvss: v4 })], devLockfile, bundled()).buildOnly.length, 1)
+  const passing = [
+    'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H',
+    'CVSS:3.0/AV:L/AC:H/PR:L/UI:R/S:C/C:N/I:N/A:L',
+    'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H/E:P/RL:O/RC:C/MC:N/MI:X/MA:H',
+    'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N',
+    'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:L/E:P/MVC:N/MVI:X/MSC:N/MSI:N/MSA:S',
+  ]
+  for (const vectorString of passing) {
+    assert.equal(applyBuildToolRule([globFinding({ cvss: { score: 7.5, vectorString } })], devLockfile, bundled()).buildOnly.length, 1, vectorString)
+  }
 })
 
 test('one report entry without an availability only vector keeps the advisory failing', () => {
@@ -369,7 +388,43 @@ test('the shipped build recorder lists and hashes every project file the build r
     writeFileSync(at(...file.split('/')), `contents of ${file}\n`)
   }
   const ids = [at('src', 'main.ts'), `${at('src', 'App.svelte')}?svelte&type=style&lang.css`, at('node_modules', 'svelte', 'index.js'), '\0vite/preload-helper.js', at('src', 'missing.ts')]
-  const inputs = buildInputs(ids, directory, directory, at('vite.config.ts'))
+  const inputs = buildInputs(ids, directory, directory, [at('vite.config.ts')])
   assert.deepEqual(inputs.map((input) => input.path), ['package-lock.json', 'package.json', 'src/App.svelte', 'src/main.ts', 'vite.config.ts'])
   for (const input of inputs) assert.equal(input.sha256, createHash('sha256').update(readFileSync(at(...input.path.split('/')))).digest('hex'))
+})
+
+test('the shipped build recorder fails a build whose input changed after Vite loaded it', async (t) => {
+  const { shippedPackages, changedInput } = await import(pathToFileURL(recorderCopies[0]).href)
+  const project = path.resolve(path.dirname(recorderCopies[0]), '..')
+  const build = `recorder-test-${process.pid}`
+  const source = path.join(project, `recorder-test-${process.pid}.ts`)
+  const record = path.join(project, 'node_modules', '.cache', 'shipped-packages', `${build}.json`)
+  t.after(() => {
+    rmSync(source, { force: true })
+    rmSync(record, { force: true })
+  })
+  assert.equal(changedInput([{ path: 'a.ts', sha256: 'b'.repeat(64) }], new Map([['a.ts', 'b'.repeat(64)]])), undefined)
+  assert.equal(changedInput([{ path: 'a.ts', sha256: 'b'.repeat(64) }], new Map()), undefined)
+  assert.equal(changedInput([{ path: 'a.ts', sha256: 'b'.repeat(64) }], new Map([['a.ts', 'c'.repeat(64)]])).path, 'a.ts')
+
+  const run = (change) => {
+    writeFileSync(source, 'export const greeting = "hello"\n')
+    const plugin = shippedPackages(build)
+    assert.equal(plugin.enforce, 'pre')
+    plugin.configResolved({ root: project, configFile: path.join(project, 'svelte.config.js'), configFileDependencies: [recorderCopies[0]] })
+    plugin.buildStart()
+    assert.equal(plugin.load(source), null)
+    change?.()
+    const context = { getModuleIds: () => [source][Symbol.iterator](), error: (message) => { throw new Error(message) } }
+    plugin.generateBundle.call(context, {}, {})
+    return JSON.parse(readFileSync(record, 'utf8'))
+  }
+  const written = run()
+  const paths = written.inputs.map((input) => input.path)
+  for (const file of [path.basename(source), 'svelte.config.js', path.relative(project, recorderCopies[0]).split(path.sep).join('/'), 'package-lock.json']) {
+    assert.ok(paths.includes(file), `the record does not list ${file}`)
+  }
+  rmSync(record)
+  assert.throws(() => run(() => writeFileSync(source, 'import "example-glob"\n')), /changed while the recorder-test-\d+ build was running/)
+  assert.equal(existsSync(record), false)
 })

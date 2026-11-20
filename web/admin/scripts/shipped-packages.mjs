@@ -29,28 +29,38 @@ export const inputPathOf = (id, root = project, base = project) => {
 
 const digest = (file) => createHash('sha256').update(readFileSync(file)).digest('hex')
 
-export const buildInputs = (ids, root = project, base = project, configFile = null) => {
+export const buildInputs = (ids, root = project, base = project, configFiles = []) => {
   const inputs = new Set(buildConfigFiles.filter((file) => existsSync(path.join(base, file))))
-  for (const id of configFile ? [configFile, ...ids] : ids) {
+  for (const id of [...configFiles, ...ids]) {
     const input = inputPathOf(id, root, base)
     if (input) inputs.add(input)
   }
   return [...inputs].sort().map((file) => ({ path: file, sha256: digest(path.join(base, file)) }))
 }
 
+export const changedInput = (inputs, loaded) => inputs.find((input) => loaded.has(input.path) && loaded.get(input.path) !== input.sha256)
+
 export const shippedPackages = (build) => {
   const record = path.join(recordDirectory, `${build}.json`)
+  const loaded = new Map()
   let root = project
-  let configFile = null
+  let configFiles = []
   return {
     name: 'shipped-packages',
     apply: 'build',
+    enforce: 'pre',
     configResolved(config) {
       root = config.root
-      configFile = config.configFile ?? null
+      configFiles = [config.configFile, ...(config.configFileDependencies ?? [])].filter(Boolean)
     },
     buildStart() {
       rmSync(record, { force: true })
+      loaded.clear()
+    },
+    load(id) {
+      const input = inputPathOf(id, root, project)
+      if (input && !loaded.has(input)) loaded.set(input, digest(path.join(project, input)))
+      return null
     },
     generateBundle(_options, bundle) {
       const ids = [...this.getModuleIds()]
@@ -59,7 +69,9 @@ export const shippedPackages = (build) => {
         else ids.push(...(item.originalFileNames ?? []))
       }
       const packages = [...new Set(ids.map((id) => installPathOf(id, root)).filter(Boolean))].sort()
-      const inputs = buildInputs(ids, root, project, configFile)
+      const inputs = buildInputs(ids, root, project, configFiles)
+      const changed = changedInput(inputs, loaded)
+      if (changed) this.error(`${changed.path} changed while the ${build} build was running, so its record of bundled packages would not match the files. Run the build again.`)
       mkdirSync(recordDirectory, { recursive: true })
       writeFileSync(record, `${JSON.stringify({ inputs, packages }, null, 2)}\n`)
     },

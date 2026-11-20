@@ -93,18 +93,45 @@ export const npmFindings = (report) => {
 }
 
 const cvssVector = /^CVSS:(3\.[01]|4\.0)((?:\/[A-Za-z]+:[A-Za-z])+)$/
-const confidentialityAndIntegrity = { 3: ['C', 'I'], 4: ['VC', 'VI', 'SC', 'SI'] }
+const cvssMetrics = {
+  3: {
+    required: { AV: 'NALP', AC: 'LH', PR: 'NLH', UI: 'NR', S: 'UC', C: 'NLH', I: 'NLH', A: 'NLH' },
+    optional: {
+      E: 'XUPFH', RL: 'XOTWU', RC: 'XURC', CR: 'XLMH', IR: 'XLMH', AR: 'XLMH',
+      MAV: 'XNALP', MAC: 'XLH', MPR: 'XNLH', MUI: 'XNR', MS: 'XUC', MC: 'XNLH', MI: 'XNLH', MA: 'XNLH',
+    },
+    noImpact: ['C', 'I'],
+    noModifiedImpact: ['MC', 'MI'],
+  },
+  4: {
+    required: { AV: 'NALP', AC: 'LH', AT: 'NP', PR: 'NLH', UI: 'NPA', VC: 'HLN', VI: 'HLN', VA: 'HLN', SC: 'HLN', SI: 'HLN', SA: 'HLN' },
+    optional: {
+      E: 'XAPU', CR: 'XHML', IR: 'XHML', AR: 'XHML',
+      MAV: 'XNALP', MAC: 'XLH', MAT: 'XNP', MPR: 'XNLH', MUI: 'XNPA',
+      MVC: 'XHLN', MVI: 'XHLN', MVA: 'XHLN', MSC: 'XHLN', MSI: 'XSHLN', MSA: 'XSHLN',
+      S: 'XNP', AU: 'XNY', R: 'XAUI', V: 'XDC', RE: 'XLMH', U: 'X',
+    },
+    noImpact: ['VC', 'VI', 'SC', 'SI'],
+    noModifiedImpact: ['MVC', 'MVI', 'MSC', 'MSI'],
+  },
+}
 
 export const availabilityOnlyVector = (vector) => {
   const match = typeof vector === 'string' ? vector.match(cvssVector) : null
   if (!match) return false
+  const rules = cvssMetrics[match[1][0]]
   const metrics = new Map()
   for (const metric of match[2].slice(1).split('/')) {
     const [key, value] = metric.split(':')
-    if (metrics.has(key)) return false
+    const allowed = rules.required[key] ?? rules.optional[key]
+    if (metrics.has(key) || !allowed || !allowed.includes(value)) return false
     metrics.set(key, value)
   }
-  return confidentialityAndIntegrity[match[1][0]].every((key) => metrics.get(key) === 'N')
+  return (
+    Object.keys(rules.required).every((key) => metrics.has(key)) &&
+    rules.noImpact.every((key) => metrics.get(key) === 'N') &&
+    rules.noModifiedImpact.every((key) => ['X', 'N', undefined].includes(metrics.get(key)))
+  )
 }
 
 export const onlyResourceExhaustion = (finding) =>
