@@ -5,7 +5,8 @@ body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); co
 button, input, select, textarea { font: inherit; }
 :focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-offset); }
 input:hover:not(:focus), textarea:hover:not(:focus), select:hover:not(:focus) { background-color: var(--field-bg-hover); }
-input:focus, input:focus-visible, textarea:focus, select:focus { box-shadow: var(--field-ring); }
+input:not([type="checkbox"]):focus, input:not([type="checkbox"]):focus-visible, textarea:focus, select:focus { background-color: var(--field-bg-focus); box-shadow: var(--field-ring); }
+input[type="checkbox"]:focus-visible { box-shadow: var(--field-ring); }
 button:disabled { cursor: not-allowed; opacity: var(--control-disabled); }
 
 h1, h2, h3 { font-family: var(--font-display); font-variation-settings: var(--font-display-settings); color: var(--text-heading); font-weight: var(--weight-regular); letter-spacing: -.005em; overflow-wrap: break-word; }
@@ -56,7 +57,6 @@ button:active:not(:disabled) { transform: var(--control-press); background: var(
 .auth-panel > p { color: var(--text-muted); font-size: var(--type-3); line-height: 1.6; }
 label { display: grid; gap: 8px; margin: 18px 0 0; color: var(--text-heading); font-size: var(--type-2); font-weight: var(--weight-bold); }
 input, select, textarea { width: 100%; min-height: var(--control-h-md); border: 1px solid var(--field-border); border-radius: var(--control-radius); padding: 9px 12px; background: var(--field-bg); color: var(--text); font-size: var(--type-3); font-weight: var(--weight-regular); }
-input:focus, select:focus, textarea:focus { box-shadow: var(--field-ring); }
 textarea { min-height: 84px; resize: vertical; }
 input:disabled, textarea:disabled, select:disabled { background: var(--surface-inset); color: var(--text-muted); }
 .auth-panel .primary { width: 100%; margin-top: 24px; }
@@ -70,7 +70,7 @@ details summary { cursor: pointer; }
 .message.success { border-color: var(--accent-link); color: var(--accent-link); }
 
 .stepup-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: var(--backdrop); }
-.stepup-panel { width: min(440px, 100%); padding: 28px; border-radius: var(--radius-lg); background: var(--surface); box-shadow: var(--shadow-modal); }
+.stepup-panel { width: min(440px, 100%); padding: 28px; border-radius: var(--radius-xl); background: var(--surface); box-shadow: var(--shadow-modal); }
 .stepup-panel h2 { margin-bottom: 8px; font-size: var(--type-5); }
 .stepup-panel p:not(.message) { color: var(--text-muted); font-size: var(--type-3); line-height: 1.6; }
 .stepup-panel .message { margin: 16px 0 0; }
@@ -79,7 +79,7 @@ details summary { cursor: pointer; }
 .link-button:hover:not(:disabled) { text-decoration: underline; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 235px minmax(0, 1fr); }
-.sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 24px 17px; border-right: 1px solid var(--border); background: var(--surface-inset); color: var(--text); }
+.sidebar { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; padding: 24px 17px; background: var(--surface-inset); color: var(--text); }
 .sidebar .brand { padding: 0 8px 26px; }
 .sidebar .brand { flex-wrap: wrap; row-gap: 2px; }
 .sidebar .brand small { flex-basis: 100%; padding: 0 0 0 43px; border-left: 0; }
@@ -301,8 +301,3 @@ code, dd, td small { overflow-wrap: anywhere; }
 .toolbar > span { white-space: nowrap; }
 .reply-actions button { white-space: nowrap; }
 .setting-row select { width: 11rem; min-width: 0; }
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) :is(.panel, .table-panel, .detail, .auth-panel) { border: 1px solid var(--border); }
-}
-:root[data-theme="dark"] :is(.panel, .table-panel, .detail, .auth-panel) { border: 1px solid var(--border); }

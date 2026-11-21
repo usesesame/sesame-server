@@ -2,10 +2,12 @@ package accounts
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"usesesame.app/backend/internal/product"
 	"usesesame.app/backend/internal/testdb"
 )
 
@@ -464,5 +467,43 @@ func TestConcurrentIndexMigrationRefusesASchemaQualifiedTable(t *testing.T) {
 	plain := concurrentIndexDirective + "\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fixture_items_label ON fixture_items(label);\n"
 	if _, err := parseMigration("0002_fixture", plain); err != nil {
 		t.Fatalf("a plain table name = %v", err)
+	}
+}
+
+func TestMigratedPlanRowsMatchTheCatalog(t *testing.T) {
+	store := freshMigrationStore(t)
+	ctx := context.Background()
+	if err := store.Migrate(ctx); err != nil {
+		t.Fatalf("migrate a fresh database: %v", err)
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT id, name, price, COALESCE(annual_price, ''), billing, description, available, includes FROM sesame_product_plans ORDER BY CASE id WHEN 'free' THEN 1 WHEN 'sync' THEN 2 ELSE 3 END, id`)
+	if err != nil {
+		t.Fatalf("read plan rows: %v", err)
+	}
+	defer rows.Close()
+	var migrated []product.Plan
+	for rows.Next() {
+		var plan product.Plan
+		var includes []byte
+		if err := rows.Scan(&plan.ID, &plan.Name, &plan.Price, &plan.AnnualPrice, &plan.Billing, &plan.Description, &plan.Available, &includes); err != nil {
+			t.Fatalf("scan plan row: %v", err)
+		}
+		if err := json.Unmarshal(includes, &plan.Includes); err != nil {
+			t.Fatalf("decode includes of plan %q: %v", plan.ID, err)
+		}
+		migrated = append(migrated, plan)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read plan rows: %v", err)
+	}
+	catalog := product.Plans()
+	if len(migrated) != len(catalog) {
+		t.Fatalf("migrations leave %d plans, catalog has %d", len(migrated), len(catalog))
+	}
+	for index, want := range catalog {
+		got := migrated[index]
+		if got.ID != want.ID || got.Name != want.Name || got.Price != want.Price || got.AnnualPrice != want.AnnualPrice || got.Billing != want.Billing || got.Available != want.Available || got.Description != want.Description || !slices.Equal(got.Includes, want.Includes) {
+			t.Fatalf("migrated plan %d = %+v, want %+v", index, got, want)
+		}
 	}
 }

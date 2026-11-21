@@ -5,8 +5,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
-const DESKTOP_COMMIT = '25b7b4b5b3c7f6cf49265e286c4747c6bd107fb9'
-const TOKENS_SHA256 = '5161158bc1b6fd8e9b7b3d864a319c9426ef36dd95f894b8e3d497dda177c754'
+const DESKTOP_COMMIT = 'e8309076790ad6b7bd54a6699faa5401ee840adf'
+const TOKENS_SHA256 = 'f9f0937aa9dd860e02ed94e97ebee37e9928563e35e9925318f93a4101e78a3d'
 const tokensBytes = readFileSync(join(root, 'design', 'tokens.css'))
 const tokensDigest = createHash('sha256').update(tokensBytes).digest('hex')
 assert.equal(

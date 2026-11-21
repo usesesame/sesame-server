@@ -73,8 +73,8 @@ export const HELP_ENTRIES: HelpEntry[] = [
     id: 'sync-availability',
     categories: ['sync', 'general'],
     keywords: ['sync not working', 'sync does not work', 'sync available', 'when is sync', 'sync not available', 'turn on sync', 'enable sync'],
-    title: 'Sync is not on the hosted service yet',
-    answer: 'The hosted Sesame service does not offer Sync yet. The roadmap lists what has to pass first.',
+    title: 'Sesame Sync is not open yet',
+    answer: 'Sesame Sync, which is Sync on our servers, is not open yet. Sync itself is in the latest desktop release, and you can run the Sync server yourself for free.',
     link: { label: 'Read the roadmap', path: '/roadmap#sync', site: true },
   },
   {
