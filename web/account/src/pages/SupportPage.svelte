@@ -109,8 +109,8 @@
     if (SUPPORT_CATEGORIES.some((option) => option.value === prefilledCategory)) category = prefilledCategory as SupportCategory
     if (prefill('intent') === 'sync') {
       category = 'billing'
-      subject = 'Sesame Sync interest'
-      message = 'Please tell me when Sesame Sync is available.'
+      subject = 'I want Sesame Sync'
+      message = 'I would like to use Sesame Sync when it opens. Please tell me when I can pay for it.'
     }
     appVersion = prefill('appVersion').slice(0, 40)
     diagnosticCode = prefill('diagnosticCode').slice(0, 64)
@@ -398,8 +398,8 @@
       <details><summary>Can I download Sesame now?</summary><p>Yes. Sesame is a free download for Windows and Linux.</p></details>
       <details><summary>Can support unlock my vault?</summary><p>No. Use your recovery kit, PIN, or Windows Hello. Without an unlock method, the vault cannot be recovered.</p></details>
       <details><summary>What can I import?</summary><p>Bitwarden, 1Password, major browsers, other password managers and authenticator apps. The import screen lists every format.</p></details>
-      <details><summary>Does Sync work yet?</summary><p>No. The <a href={`${siteOrigin}/roadmap#sync`}>roadmap</a> lists what has to pass first.</p></details>
-      <details><summary>Is there a mobile app or browser extension?</summary><p>No mobile app yet. The browser helper is not in stores.</p></details>
+      <details><summary>Does Sync work yet?</summary><p>Yes, on a server you run. Sync is in the latest desktop release and is off until you turn it on. Sesame Sync, which is Sync on our servers, is not open yet, and the <a href={`${siteOrigin}/roadmap#sync`}>roadmap</a> has the details.</p></details>
+      <details><summary>Is there a mobile app or browser extension?</summary><p>There is no mobile app yet. The Chrome extension is in the Chrome Web Store and needs Sesame 0.4.1 or newer.</p></details>
       <details><summary>Where is my vault stored?</summary><p>On your computer.</p></details>
       <details><summary>Has Sesame been independently reviewed?</summary><p>Not yet. The <a href={`${siteOrigin}/security`}>security page</a> shows what that means for the current release.</p></details>
     </div>

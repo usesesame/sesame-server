@@ -18,7 +18,7 @@ test('the six button kinds each have a rest, hover and pressed rule, and disable
     rule(`${kind}:hover:not(:disabled)`)
     rule(`${kind}:active:not(:disabled)`)
   }
-  expect(rule('.button-secondary')).toMatch(/border-color:\s*var\(--border-input\)/)
+  expect(rule('.button-secondary')).toMatch(/background:\s*var\(--button-secondary-bg\)/)
   expect(rule(':focus-visible')).toMatch(/outline:\s*var\(--focus-outline\)/)
 })
 
@@ -28,15 +28,34 @@ test('text buttons have their own padding so hover, press and the focus ring sha
   expect(rule('.button-text:hover:not(:disabled)')).toMatch(/background:/)
 })
 
-test('fields sit on the surface with a visible edge, and show hover, focus, error and disabled states', () => {
+test('fields are filled shapes with no visible edge, and show hover, focus, error and disabled states', () => {
   const field = rule('input:not([type="checkbox"]):not([type="radio"]),\nselect,\ntextarea')
-  expect(field).toMatch(/border:\s*1px solid var\(--border-input\)/)
-  expect(field).toMatch(/background:\s*var\(--surface\)/)
+  expect(field).toMatch(/border:\s*1px solid var\(--field-border\)/)
+  expect(field).toMatch(/background:\s*var\(--field-bg\)/)
   expect(field).toMatch(/font-weight:\s*var\(--weight-regular\)/)
-  expect(css).toMatch(/:hover:not\(:focus\):not\(:disabled\):not\(\[readonly\]\)\s*\{\s*border-color:\s*var\(--text-faint\)/)
+  expect(css).toMatch(/:hover:not\(:focus\):not\(:disabled\):not\(\[readonly\]\)\s*\{\s*background-color:\s*var\(--field-bg-hover\)/)
+  expect(css).toMatch(/\):focus\s*\{[^}]*background-color:\s*var\(--field-bg-focus\)[^}]*box-shadow:\s*var\(--field-ring\)/)
   expect(css).toMatch(/\):focus\s*\{[^}]*border-color:\s*var\(--focus-ring\)/)
   expect(css).toMatch(/\[aria-invalid="true"\]\s*\{\s*border-color:\s*var\(--danger\)/)
-  expect(css).toMatch(/:is\(:disabled, \[readonly\]\)\s*\{[^}]*background:\s*var\(--bg-workspace\)/)
+  expect(css).toMatch(/\[aria-invalid="true"\]:focus\s*\{[^}]*box-shadow:\s*var\(--field-ring-danger\)/)
+  expect(css).toMatch(/:is\(:disabled, \[readonly\]\)\s*\{[^}]*background:\s*var\(--field-bg\)/)
+})
+
+test('cards, notices, tags, code cells and the question toggle are filled shapes without an outline', () => {
+  for (const selector of ['.card', '.notice', '.tag', '.code-card', '.code-group', '.empty-state', '.skip-link']) {
+    expect(rule(selector), selector).toMatch(/border:\s*0;/)
+  }
+  expect(rule('.card')).toMatch(/box-shadow:\s*var\(--shadow-raised\)/)
+  expect(rule('.code-card')).toMatch(/box-shadow:\s*var\(--shadow-raise\)/)
+  expect(css).toMatch(/\.faq-block summary::after\s*\{[^}]*border:\s*0;[^}]*background:\s*var\(--field-bg\)/)
+  expect(css).toMatch(/\.faq-block details\[open\] summary::after\s*\{[^}]*background:\s*var\(--tint\)/)
+  expect(css).not.toMatch(/border:\s*1px dashed/)
+})
+
+test('corner radii come from the design tokens', () => {
+  expect(css).not.toMatch(/--portal-radius-/)
+  const radii = [...css.matchAll(/border-radius:\s*([^;}]+)[;}]/g)].map((match) => match[1].trim())
+  for (const radius of radii) expect(radius, radius).toMatch(/^(?:var\(--[a-z0-9-]+\)(?: var\(--[a-z0-9-]+\))*|50%|0 var\(--control-radius\) var\(--control-radius\) 0)$/)
 })
 
 test('errors use the danger colour, codes the code font, and the password toggle the page font', () => {

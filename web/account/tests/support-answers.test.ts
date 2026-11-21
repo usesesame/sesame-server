@@ -63,3 +63,11 @@ test('text that is just a complaint about something else finds nothing', () => {
   expect(matchHelp(HELP_ENTRIES, 'bug', 'The window flickers when I resize it on my monitor')).toEqual([])
   expect(matchHelp(HELP_ENTRIES, 'general', 'Please add a dark theme for the lock screen')).toEqual([])
 })
+
+test('the Sync answer separates Sync you run yourself from Sesame Sync, which is not open yet, and never waits on a review', () => {
+  const entry = HELP_ENTRIES.find((item) => item.id === 'sync-availability')
+  expect(entry?.title).toBe('Sesame Sync is not open yet')
+  expect(entry?.answer).toBe('Sesame Sync, which is Sync on our servers, is not open yet. Sync itself is in the latest desktop release, and you can run the Sync server yourself for free.')
+  expect(entry?.link).toEqual({ label: 'Read the roadmap', path: '/roadmap#sync', site: true })
+  expect(entry?.answer).not.toMatch(/review|has to pass/i)
+})

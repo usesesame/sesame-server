@@ -15,13 +15,13 @@ func Plans() []Plan {
 	return []Plan{
 		{
 			ID: "free", Name: "Sesame", Price: "0", Billing: "none", Available: true,
-			Description: "The whole app, free and open source under the AGPL.",
-			Includes:    []string{"Encrypted vault", "15 import formats", "Nine record types", "2FA and recovery details", "Windows Hello and PIN unlock", "Backup, restore, and export"},
+			Description: "The whole app, open source under the AGPL. There is no paid version.",
+			Includes:    []string{"Encrypted local vault", "Import from 15 formats", "Nine item types", "2FA codes and recovery details", "Windows Hello and PIN unlock", "Backup, restore, and export", "Sync with your own server"},
 		},
 		{
 			ID: "sync", Name: "Sesame Sync", Price: "1.00", AnnualPrice: "10.00", Billing: "monthly", Available: false,
-			Description: "Optional hosted sync between your own approved devices. Not available until its security review passes.",
-			Includes:    []string{"Approved devices", "End-to-end encryption", "Conflict review", "Local access if Sync ends", "Self-host it instead if you prefer"},
+			Description: "Keeps your vault the same on every device you approve. We run the server, so you do not have to.",
+			Includes:    []string{"Sync server run by us", "End-to-end encryption", "Device approval", "Conflict review", "Local access if you cancel"},
 		},
 	}
 }

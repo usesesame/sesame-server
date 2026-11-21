@@ -127,7 +127,7 @@ test('a link in the address does not get overwritten by an old draft', async () 
   sessionStorage.setItem('sesame-support-draft-v1', JSON.stringify({ category: 'bug', subject: 'Old draft', message: 'Old text' }))
   window.history.replaceState({}, '', '/support?intent=sync')
   render(SupportPage, { account: null })
-  expect((screen.getByLabelText('Short title') as HTMLInputElement).value).toBe('Sesame Sync interest')
+  expect((screen.getByLabelText('Short title') as HTMLInputElement).value).toBe('I want Sesame Sync')
 })
 
 test('a Sesame recovery kit typed into the message is refused on the spot and never saved', async () => {

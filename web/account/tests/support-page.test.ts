@@ -197,9 +197,32 @@ test('blocks secret-shaped replies and sends a clean follow-up', async () => {
 test('prefills the Sync interest request from the query string', async () => {
   window.history.replaceState({}, '', '/support?intent=sync')
   render(SupportPage, { account: null })
-  expect((screen.getByLabelText('Short title') as HTMLInputElement).value).toBe('Sesame Sync interest')
-  expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('Please tell me when Sesame Sync is available.')
+  expect((screen.getByLabelText('Short title') as HTMLInputElement).value).toBe('I want Sesame Sync')
+  expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('I would like to use Sesame Sync when it opens. Please tell me when I can pay for it.')
   expect((screen.getByLabelText('Topic') as HTMLSelectElement).value).toBe('billing')
+})
+
+test('the Sync prefill fits the form length limits', async () => {
+  window.history.replaceState({}, '', '/support?intent=sync')
+  render(SupportPage, { account: null })
+  const title = screen.getByLabelText('Short title') as HTMLInputElement
+  const message = screen.getByLabelText('Message') as HTMLTextAreaElement
+  expect(title.value.length).toBeGreaterThanOrEqual(Number(title.minLength))
+  expect(title.value.length).toBeLessThanOrEqual(Number(title.maxLength))
+  expect(message.value.length).toBeGreaterThanOrEqual(Number(message.minLength))
+  expect(message.value.length).toBeLessThanOrEqual(Number(message.maxLength))
+  expect(title.validity.valid).toBe(true)
+  expect(message.validity.valid).toBe(true)
+})
+
+test('the common questions say Sync works on a server you run and that Sesame Sync is not open yet', async () => {
+  render(SupportPage, { account: null })
+  const question = screen.getByText('Does Sync work yet?')
+  const answer = question.closest('details')?.querySelector('p')
+  expect(answer?.textContent).toBe('Yes, on a server you run. Sync is in the latest desktop release and is off until you turn it on. Sesame Sync, which is Sync on our servers, is not open yet, and the roadmap has the details.')
+  expect(answer?.querySelector('a')?.getAttribute('href')).toBe('https://website.test.invalid/roadmap#sync')
+  const extension = screen.getByText('Is there a mobile app or browser extension?').closest('details')?.querySelector('p')
+  expect(extension?.textContent).toBe('There is no mobile app yet. The Chrome extension is in the Chrome Web Store and needs Sesame 0.4.1 or newer.')
 })
 
 test('prefills category and technical details from the query string', async () => {

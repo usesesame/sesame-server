@@ -103,7 +103,7 @@ the website clear only the stale signed-in state.
 These endpoints are read-only. They reject mutation methods and parse no request
 body.
 
-- `GET /v1/plans` returns the free app and the planned Sesame Sync subscription,
+- `GET /v1/plans` returns the free app and Sesame Sync, which is not open yet,
   including its optional `annualPrice`.
 - `GET /v1/product/status` returns current phase, platform, account, sign-in, sync,
   and download availability.

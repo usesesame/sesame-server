@@ -2,8 +2,37 @@ package product
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 )
+
+func TestPlanTextMatchesTheWebsite(t *testing.T) {
+	want := map[string]struct {
+		description string
+		includes    []string
+	}{
+		"free": {
+			description: "The whole app, open source under the AGPL. There is no paid version.",
+			includes:    []string{"Encrypted local vault", "Import from 15 formats", "Nine item types", "2FA codes and recovery details", "Windows Hello and PIN unlock", "Backup, restore, and export", "Sync with your own server"},
+		},
+		"sync": {
+			description: "Keeps your vault the same on every device you approve. We run the server, so you do not have to.",
+			includes:    []string{"Sync server run by us", "End-to-end encryption", "Device approval", "Conflict review", "Local access if you cancel"},
+		},
+	}
+	for _, plan := range Plans() {
+		expected, ok := want[plan.ID]
+		if !ok {
+			t.Fatalf("unexpected plan %q", plan.ID)
+		}
+		if plan.Description != expected.description {
+			t.Fatalf("plan %q description = %q, want %q", plan.ID, plan.Description, expected.description)
+		}
+		if !slices.Equal(plan.Includes, expected.includes) {
+			t.Fatalf("plan %q includes = %q, want %q", plan.ID, plan.Includes, expected.includes)
+		}
+	}
+}
 
 func TestPlansMatchThePublishedCatalog(t *testing.T) {
 	type expectedPlan struct {
